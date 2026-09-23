@@ -1,0 +1,26 @@
+# Пороги очистки. Обоснование каждого значения — в reports/stage1_report.md.
+
+signal:
+  explicit_min: 1          # оценки 1..5 — явный сигнал; 0 = «без оценки» (уходит в shelf_events)
+  explicit_max: 5
+
+users:
+  # Почти нулевой разброс оценок: пользователь ставит всем книгам одно и то же — предпочтений не видно.
+  low_variance_max_sd: 0.2
+  low_variance_min_ratings: 10
+  # Сверхактивные аккаунты: каталогизация/импорт, а не личное чтение; перекашивают item-item статистику.
+  max_ratings: 3000
+
+collections:
+  # Сборники/box sets дублируют входящие в них произведения. Помечаем флагом is_collection.
+  title_patterns:
+    - '#\s*\d+(\.\d+)?\s*(-|–|—)\s*#?\s*\d+'
+    - 'box(ed)?[ -]?set|boxset|omnibus|\bbundle\b|\d+[ -]book (set|collection)'
+    - '\b(\d|two|three|four|five|six|seven) (books|novels) in one|\d-in-1|\d in 1\b'
+  drop_from_ratings: false
+
+kcore:
+  min_user_ratings: 10
+  min_work_ratings: 20
+  # Варианты, которые считаются для отчёта (компромисс «сохранено оценок / плотность»)
+  report_options: [[5, 5], [5, 10], [10, 10], [10, 20], [20, 20], [20, 50]]
