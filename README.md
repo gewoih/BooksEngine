@@ -4,14 +4,14 @@
 [UCSD Goodreads Book Graph](https://mengtingwan.github.io/data/goodreads.html)
 (228M взаимодействий, 876K пользователей, 2.36M изданий).
 
-Сейчас готова офлайн-часть этапа 1: изучение и очистка датасета. Дальше — каталог в
-PostgreSQL + pgvector и базовая модель рекомендаций (см. `TODO.md`).
+Готово: изучение и очистка датасета (этап 1), каталог книг в PostgreSQL + pgvector (этап 2).
+Дальше — базовая модель рекомендаций (см. `TODO.md`).
 
 ## Требования
 
 - [uv](https://docs.astral.sh/uv/) (Python 3.12 ставится автоматически)
 - ~8 ГБ свободного места под `data/` (staging + очищенные данные) и 16 ГБ RAM
-- позже: Docker (PostgreSQL + pgvector), .NET SDK 10
+- Docker (PostgreSQL + pgvector), .NET SDK 10 и `dotnet-ef` (`dotnet tool install -g dotnet-ef`)
 
 ## Датасет
 
@@ -48,6 +48,19 @@ uv run pytest
 
 Пороги очистки — в `config/cleaning.yaml`.
 
+### Каталог в PostgreSQL
+
+```bash
+docker compose up -d                                        # параметры — POSTGRES_* в .env
+(cd dotnet/BooksEngine.Db && dotnet ef database update)     # схема: EF Core-миграции
+uv run booksengine load-db                                  # каталог из data/clean → БД
+```
+
+В БД попадает каталог: произведения, издания, авторы, жанры (с поиском по названию и автору,
+`pg_trgm`). Оценки датасета остаются в Parquet — на них учится модель. Повторная загрузка
+того же `manifest.json` пропускается; изменённый каталог обновляется на месте, внутренние id
+произведений сохраняются.
+
 ## Команды
 
 | команда | что делает |
@@ -55,3 +68,4 @@ uv run pytest
 | `booksengine prepare [--force]` | staging → профиль → очистка → валидация → отчёт |
 | `booksengine validate` | проверить инварианты готовых данных |
 | `booksengine report` | пересобрать отчёт без пересчёта |
+| `booksengine load-db [--force]` | загрузить каталог в PostgreSQL, сверить с `manifest.json` |

@@ -19,15 +19,16 @@
 ## Этапы
 
 1. **Изучение и очистка датасета** — сделано 2026-09-23 (`booksengine prepare`).
-2. **Каталог в PostgreSQL** — схема с расчётом на новые источники и своих пользователей.
+2. **Каталог в PostgreSQL** — сделано 2026-09-23 (`booksengine load-db`): каталог с поиском,
+   таблицы пользователей приложения и векторов модели.
 3. **Базовая модель CF** — сравнение подходов на отложенной выборке, fold-in нового
    пользователя, демо «мои оценки в CSV → рекомендации с объяснением».
 
 После каждого этапа — стоп, показ результата, ждём подтверждения.
 
-**Текущий статус (2026-09-23):** этап 1 закрыт, вопросы отчёта решены (`docs/resheniya.md`).
-Этап 2 **не начат** — пользователь ещё не дал «поехали». Начинать с `TODO.md` пп. 1–3; перед
-этим нужен запущенный Docker Desktop.
+**Текущий статус (2026-09-23):** этапы 1 и 2 закрыты и подтверждены пользователем.
+В БД — только каталог (решения — `docs/resheniya.md`, «этап 2»). Следующий —
+этап 3, `TODO.md` пп. 4–11.
 
 ## Стек и структура
 
@@ -35,7 +36,8 @@
   векторов в БД. DuckDB + Parquet (zstd): 228M строк обрабатываются вне памяти.
 - **C# / .NET** — онлайн: владелец схемы БД (EF Core-миграции), позже ASP.NET API с выдачей
   рекомендаций (fold-in по готовым векторам/похожестям из БД).
-- **PostgreSQL + pgvector** — основная БД (с этапа 2).
+- **PostgreSQL + pgvector** — основная БД: каталог, пользователи приложения, векторы модели.
+  Оценки датасета в БД **не грузятся** — обучение читает Parquet (решение пользователя).
 - Подход — только коллаборативная фильтрация. Текстовые эмбеддинги отложены до появления
   новых источников данных (решение пользователя).
 
@@ -47,6 +49,9 @@
 | `src/booksengine/data/pipeline.py` | оркестрация `prepare`, экспорт, кэш по отпечаткам, `manifest.json` |
 | `src/booksengine/data/validate.py` | инварианты очищенных данных (нарушение — исключение) |
 | `src/booksengine/report.py` | генерация `reports/stage1_report.md` из profile + manifest |
+| `src/booksengine/db_load.py` | `load-db`: parquet каталога → PostgreSQL (COPY, external_ids, upsert, сверка с manifest) |
+| `dotnet/BooksEngine.Db/` | EF Core-модель и миграции — владелец схемы БД |
+| `docker-compose.yml` | PostgreSQL 17 + pgvector |
 | `tests/` | pytest на синтетических мини-фикстурах, по тесту на правило |
 | `data/` | gitignored: `staging/`, `clean/`, `profile.json` |
 
@@ -57,7 +62,11 @@ uv run booksengine prepare          # staging → профиль → очист�
 uv run booksengine prepare --force  # пересобрать с нуля (~4 мин)
 uv run booksengine validate         # инварианты по готовым data/clean/*.parquet
 uv run booksengine report           # пересобрать отчёт без пересчёта
-uv run pytest
+uv run pytest                       # test_db_load — против запущенного Postgres, иначе skip
+
+docker compose up -d                                        # PostgreSQL + pgvector
+(cd dotnet/BooksEngine.Db && dotnet ef database update)     # применить миграции
+uv run booksengine load-db [--force]                        # каталог → БД; тот же manifest повторно не грузится
 ```
 
 Пути к датасету — `RAW_DIR` / `DATA_DIR` в `.env` (шаблон — `.env.example`).
@@ -68,7 +77,7 @@ uv run pytest
 - Сырые файлы датасета — `~/Downloads` (список — `README.md`); `goodreads_books.json` распакован (9.2 ГБ).
   `data/` (staging + clean + profile.json, ~3 ГБ) уже собран — `prepare` отработает из кэша.
 - Системный Python 3.14 не подходит (нет колёс `implicit` и др.) — проект на 3.12 через uv.
-- Docker установлен, демон **не запущен**; `psql` нет. .NET SDK 8, 9, 10 — для этапа 2 берём 10.
+- Docker; `psql` локально нет — `docker compose exec db psql -U booksengine`. .NET SDK 10.
 - `reports/stage1_report.md` в git не входит; пересобрать: `uv run booksengine report`.
 
 ## Предметная область
