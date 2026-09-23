@@ -1,0 +1,89 @@
+"""EASE^R (TODO п. 7): B = I − P·diag(1/diag P), P = (XᵀX + λI)⁻¹, diag B = 0.
+
+Только top-N самых оценённых произведений (матрица N×N в памяти); остальные получают −∞.
+Для C# веса урезаются до top-k на столбец — на диск пишется только урезанная версия.
+"""
+from pathlib import Path
+
+import numpy as np
+import scipy.linalg
+import scipy.sparse as sp
+
+from booksengine.model.base import read_params, write_params
+from booksengine.model.matrix import RatingMatrix
+
+
+class EASE:
+    name = "ease"
+
+    def __init__(self, lam: float = 500.0, n_top: int = 20_000, block: int = 2_000):
+        self.lam, self.n_top, self.block = float(lam), int(n_top), int(block)
+        self.topk: int | None = None
+        self.top_cols: np.ndarray | None = None
+        self.n_items = 0
+        self.B_full: np.ndarray | None = None
+        self._B: np.ndarray | sp.csc_matrix | None = None
+
+    def fit(self, train: RatingMatrix) -> None:
+        counts = train.X.getnnz(axis=0)
+        n = min(self.n_top, len(counts))
+        self.top_cols = np.sort(np.argsort(-counts, kind="stable")[:n])
+        self.n_items = train.X.shape[1]
+        Xb = train.X[:, self.top_cols].tocsc()
+        Xb.data[:] = 1.0
+        XbT = Xb.T.tocsr()
+        G = np.empty((n, n), dtype=np.float32)
+        for a in range(0, n, self.block):  # XᵀX блоками: целиком разреженный результат не влезает в память
+            b = min(a + self.block, n)
+            G[:, a:b] = (XbT @ Xb[:, a:b]).toarray()
+        G[np.diag_indices(n)] += self.lam
+        P = scipy.linalg.inv(G, overwrite_a=True, check_finite=False)
+        del G
+        B = P / (-np.diag(P))[None, :]
+        np.fill_diagonal(B, 0.0)
+        self.B_full = B.astype(np.float32, copy=False)
+        self.configure(topk=None)
+
+    def configure(self, topk: int | None = None) -> None:
+        self.topk = None if topk is None else int(topk)
+        if self.topk is None:
+            self._B = self.B_full
+            return
+        n = self.B_full.shape[0]
+        k = min(self.topk, n)
+        rows, cols, vals = [], [], []
+        for a in range(0, n, self.block):
+            b = min(a + self.block, n)
+            blk = self.B_full[:, a:b]
+            part = np.argpartition(-np.abs(blk), k - 1, axis=0)[:k]
+            rows.append(part.ravel(order="F"))
+            cols.append(np.repeat(np.arange(a, b), k))
+            vals.append(np.take_along_axis(blk, part, axis=0).ravel(order="F"))
+        self._B = sp.csc_matrix((np.concatenate(vals), (np.concatenate(rows), np.concatenate(cols))), shape=(n, n))
+        self._B.eliminate_zeros()
+
+    def score(self, inputs: sp.csr_matrix) -> np.ndarray:
+        Xin = inputs[:, self.top_cols]
+        Xin.data[:] = 1.0
+        s = Xin @ self._B
+        s = s.toarray() if sp.issparse(s) else np.asarray(s)
+        out = np.full((inputs.shape[0], self.n_items), -np.inf, dtype=np.float32)
+        out[:, self.top_cols] = s
+        return out
+
+    def save(self, path: Path) -> None:
+        if self.topk is None:
+            raise ValueError("полная матрица EASE на диск не пишется: сначала configure(topk=...)")
+        write_params(path, {"lam": self.lam, "n_top": self.n_top, "block": self.block, "topk": self.topk,
+                            "n_items": self.n_items})
+        np.save(path / "top_cols.npy", self.top_cols)
+        sp.save_npz(path / "B.npz", self._B.tocsc())
+
+    @classmethod
+    def load(cls, path: Path) -> "EASE":
+        p = read_params(path)
+        m = cls(lam=p["lam"], n_top=p["n_top"], block=p["block"])
+        m.topk, m.n_items = p["topk"], p["n_items"]
+        m.top_cols = np.load(path / "top_cols.npy")
+        m._B = sp.load_npz(path / "B.npz").tocsc()
+        return m

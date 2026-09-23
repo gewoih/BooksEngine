@@ -28,7 +28,8 @@
 
 **Текущий статус (2026-09-23):** этапы 1 и 2 закрыты и подтверждены пользователем.
 В БД — только каталог (решения — `docs/resheniya.md`, «этап 2»). Следующий —
-этап 3, `TODO.md` пп. 4–11.
+этап 3, разбит на подэтапы 3a → 3b → 3c (таблица в `TODO.md`). 3a (стенд + популярность, ALS, kNN)
+сделан 2026-09-23 — `reports/stage3a_report.md`; EASE отложен (п. 24). Следующий — 3b.
 
 ## Стек и структура
 
@@ -50,6 +51,9 @@
 | `src/booksengine/data/validate.py` | инварианты очищенных данных (нарушение — исключение) |
 | `src/booksengine/report.py` | генерация `reports/stage1_report.md` из profile + manifest |
 | `src/booksengine/db_load.py` | `load-db`: parquet каталога → PostgreSQL (COPY, external_ids, upsert, сверка с manifest) |
+| `src/booksengine/model/` | этап 3a: сплит, метрики, модели (popularity, als, knn, ease), `evaluate` |
+| `src/booksengine/report_3a.py` | генерация `reports/stage3a_report.md` из `models/eval/*.json` |
+| `models/` | gitignored: артефакты моделей и `eval/*.json` |
 | `dotnet/BooksEngine.Db/` | EF Core-модель и миграции — владелец схемы БД |
 | `docker-compose.yml` | PostgreSQL 17 + pgvector |
 | `tests/` | pytest на синтетических мини-фикстурах, по тесту на правило |
@@ -67,6 +71,9 @@ uv run pytest                       # test_db_load — против запуще
 docker compose up -d                                        # PostgreSQL + pgvector
 (cd dotnet/BooksEngine.Db && dotnet ef database update)     # применить миграции
 uv run booksengine load-db [--force]                        # каталог → БД; тот же manifest повторно не грузится
+uv run booksengine split [--force]                    # отложенная выборка → data/model/split/
+uv run booksengine evaluate <model> --stage val|test  # перебор настроек (модель сохраняется) / замер на тесте
+uv run booksengine report-3a                          # reports/stage3a_report.md
 ```
 
 Пути к датасету — `RAW_DIR` / `DATA_DIR` в `.env` (шаблон — `.env.example`).

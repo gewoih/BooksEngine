@@ -36,5 +36,37 @@ def report() -> None:
     print(r.write(prof, manifest))
 
 
+@app.command()
+def split(force: bool = typer.Option(False, "--force", help="пересобрать сплит")) -> None:
+    """Отложенная выборка: валидация 5K и тест 20K пользователей вне обучения (data/model/split/)."""
+    import json
+
+    from booksengine.model import split as s
+    from booksengine.paths import CLEAN_DIR, SPLIT_DIR
+    manifest = json.loads((CLEAN_DIR / "manifest.json").read_text())
+    meta = s.build(CLEAN_DIR / "ratings.parquet", SPLIT_DIR, manifest["outputs"]["ratings"]["checksum"], force=force)
+    print(json.dumps(meta["groups"], ensure_ascii=False, indent=1))
+
+
+@app.command()
+def evaluate(model: str = typer.Argument(..., help="popularity | als | knn | ease"),
+             stage: str = typer.Option("val", help="val — перебор настроек; test — замер лучшей и сохранение")) -> None:
+    """Метрики модели на валидации или тесте (models/eval/)."""
+    from booksengine.model import evaluate as ev
+    if stage == "val":
+        ev.tune(model)
+    elif stage == "test":
+        ev.test(model)
+    else:
+        raise typer.BadParameter("stage: val | test")
+
+
+@app.command("report-3a")
+def report_3a() -> None:
+    """Отчёт этапа 3a (reports/stage3a_report.md) из models/eval/*.json."""
+    from booksengine import report_3a as r
+    print(r.write())
+
+
 if __name__ == "__main__":
     app()

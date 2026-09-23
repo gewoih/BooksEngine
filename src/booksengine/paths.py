@@ -25,6 +25,9 @@ CLEAN_DIR = DATA_DIR / "clean"
 TMP_DIR = DATA_DIR / "tmp"
 REPORTS_DIR = PROJECT_ROOT / "reports"
 CONFIG_PATH = PROJECT_ROOT / "config" / "cleaning.yaml"
+SPLIT_DIR = DATA_DIR / "model" / "split"
+MODELS_DIR = PROJECT_ROOT / "models"
+EVAL_DIR = MODELS_DIR / "eval"
 
 RAW_FILES = {
     "interactions": "goodreads_interactions.csv",
