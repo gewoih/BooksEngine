@@ -38,13 +38,14 @@ def report() -> None:
 
 @app.command()
 def split(force: bool = typer.Option(False, "--force", help="пересобрать сплит")) -> None:
-    """Отложенная выборка: валидация 5K и тест 20K пользователей вне обучения (data/model/split/)."""
+    """Отложенная выборка: тест и валидация из групп 20-49/50-199/200+, вне обучения (data/model/split/)."""
     import json
 
     from booksengine.model import split as s
     from booksengine.paths import CLEAN_DIR, SPLIT_DIR
     manifest = json.loads((CLEAN_DIR / "manifest.json").read_text())
-    meta = s.build(CLEAN_DIR / "ratings.parquet", SPLIT_DIR, manifest["outputs"]["ratings"]["checksum"], force=force)
+    meta = s.build(CLEAN_DIR / "ratings.parquet", CLEAN_DIR / "users.parquet", SPLIT_DIR,
+                   manifest["outputs"]["ratings"]["checksum"], force=force)
     print(json.dumps(meta["groups"], ensure_ascii=False, indent=1))
 
 

@@ -12,8 +12,15 @@ NEW_RULES = ("nonbooks", "duplicates", "users_monotone", "users_low_variance", "
 
 
 def _label(core: str, man: dict) -> str:
-    k = man.get("config", {}).get("kcore", {}).get("min_work_ratings")
-    return f"≥ {k}" if k is not None else core
+    kc = man.get("config", {}).get("kcore", {})
+    u, w = kc.get("min_user_ratings"), kc.get("min_work_ratings")
+    if u is not None and w is not None:
+        return f"user ≥ {u}, work ≥ {w}"
+    if w is not None:
+        return f"≥ {w}"
+    if u is not None:
+        return f"≥ {u}"
+    return core
 
 
 def _overlap(a: dict, b: dict) -> str:

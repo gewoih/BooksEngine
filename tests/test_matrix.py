@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 
 from booksengine.model import matrix, split
-from tests.test_split import synthetic_ratings
+from tests.test_split import synthetic_ratings, synthetic_users
 
 
 def test_to_csr_uses_catalog_columns():
@@ -23,15 +23,20 @@ def test_train_excludes_holdout_and_holdout_aligns(tmp_path):
     r = synthetic_ratings()
     rp = tmp_path / "ratings.parquet"
     r.to_parquet(rp, index=False)
+    up = tmp_path / "users.parquet"
+    synthetic_users(r.user_id.unique()).to_parquet(up, index=False)
     out = tmp_path / "split"
-    split.build(rp, out, "fp", n_val=5, n_test=10, seed=11, share=0.2)
+    split.build(rp, up, out, "fp", test_per_bucket={"20-49": 16}, val_per_bucket={"20-49": 8},
+                bucket_pool_size={"20-49": 40}, seed=11, share=0.2)
     train = matrix.load_train(rp, out / "holdout_users.parquet")
     held = set(pd.read_parquet(out / "holdout_users.parquet").user_id)
     assert not held & set(train.user_ids.tolist())
     assert train.work_ids.tolist() == sorted(r.work_id.unique().tolist())
     assert train.X.nnz == int((~r.user_id.isin(held)).sum())
+    n_test = int((pd.read_parquet(out / "holdout_users.parquet")["group"] == "test").sum())
+    assert n_test > 0
     h = matrix.load_holdout(out, "test", train.work_ids)
-    assert len(h.user_ids) == 10 and h.inputs.shape == (10, len(train.work_ids))
+    assert len(h.user_ids) == n_test and h.inputs.shape == (n_test, len(train.work_ids))
     hid = pd.read_parquet(out / "test_hidden.parquet")
     assert sum(len(c) for c in h.hidden_cols) == len(hid)
     u0 = h.user_ids[0]

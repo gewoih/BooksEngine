@@ -1,9 +1,16 @@
-"""Отложенная выборка (TODO п. 4, спецификация 3a §3).
+"""Отложенная выборка (TODO пп. 4, 26, спецификация 3a §3).
 
 Пользователи валидации и теста целиком исключены из обучения: так мерится fold-in — тот же путь,
 по которому получат рекомендации реальные пользователи приложения. У каждого скрыто
 max(1, round(0.2·n)) случайных оценок, остальное — вход.
+
+Тест и валидация набираются по группам активности, с запасом в 20-49 и 50-199 (TODO п. 26: там
+погрешность метрики в 2-4 раза больше общей, а это профили пользователя и его друзей). Отбор —
+по стабильному хэшу внешнего id (`hash01`) с фиксированным порогом на группу, а не случайной
+перестановкой всего пула: порог не зависит от того, сколько сейчас всего людей в ядре, поэтому
+человек не покидает тест только из-за того, что очистка убрала кого-то другого.
 """
+import hashlib
 import json
 from pathlib import Path
 
@@ -12,12 +19,17 @@ import numpy as np
 import pandas as pd
 
 SEED = 20260923
-N_VAL = 5_000
-N_TEST = 20_000
 HIDDEN_SHARE = 0.2
-BUCKETS = ((10, "10-19"), (20, "20-49"), (50, "50-199"), (200, "200+"))
+BUCKETS = ((20, "20-49"), (50, "50-199"), (200, "200+"))
 BUCKET_ORDER = [name for _, name in BUCKETS]
 GROUPS = ("val", "test")
+
+# Размер группы активности в ядре (20, 100), замер 2026-09-23 (TODO п. 26) — калибровка порога хэша.
+# Фиксированный, не пересчитывается от текущего прогона: иначе порог, а с ним и состав теста, снова
+# зависел бы от того, сколько людей очистка оставила в ядре.
+BUCKET_POOL_SIZE = {"20-49": 199_000, "50-199": 278_000, "200+": 118_000}
+TEST_PER_BUCKET = {"20-49": 2_000, "50-199": 2_000, "200+": 2_000}
+VAL_PER_BUCKET = {"20-49": 1_000, "50-199": 1_000, "200+": 1_000}
 
 
 def bucket_of(n: np.ndarray) -> np.ndarray:
@@ -29,13 +41,29 @@ def bucket_of(n: np.ndarray) -> np.ndarray:
     return np.array(BUCKET_ORDER)[np.searchsorted(edges, n, side="right") - 1]
 
 
-def assign_groups(user_ids: np.ndarray, n_val: int, n_test: int, seed: int) -> dict[str, np.ndarray]:
-    """Две непересекающиеся случайные группы; результат не зависит от порядка входа."""
-    ids = np.sort(np.asarray(user_ids))
-    if n_val + n_test > len(ids):
-        raise ValueError(f"нужно {n_val + n_test} пользователей, есть {len(ids)}")
-    perm = np.random.default_rng(seed).permutation(len(ids))
-    return {"val": np.sort(ids[perm[:n_val]]), "test": np.sort(ids[perm[n_val:n_val + n_test]])}
+def hash01(external_id: np.ndarray, salt: int) -> np.ndarray:
+    """Число в [0, 1), стабильное между прогонами: зависит только от id и salt (blake2b), не от
+    порядка или состава входного массива."""
+    salt_b = int(salt).to_bytes(8, "little")
+    return np.array([int.from_bytes(hashlib.blake2b(salt_b + str(v).encode(), digest_size=8).digest(), "little")
+                      / 2 ** 64 for v in external_id])
+
+
+def assign_groups(external_id: np.ndarray, bucket: np.ndarray, *, seed: int = SEED,
+                   test_per_bucket: dict[str, int] = TEST_PER_BUCKET,
+                   val_per_bucket: dict[str, int] = VAL_PER_BUCKET,
+                   bucket_pool_size: dict[str, int] = BUCKET_POOL_SIZE) -> dict[str, np.ndarray]:
+    """Булевы маски val/test, выровненные с входом. Для каждого external_id независимо от остальных:
+    попадание решает порог на hash01, откалиброванный по bucket_pool_size."""
+    draw = hash01(external_id, seed)
+    label = np.full(len(external_id), "", dtype=object)
+    for b, pool in bucket_pool_size.items():
+        m = np.asarray(bucket) == b
+        t = test_per_bucket.get(b, 0) / pool
+        v = val_per_bucket.get(b, 0) / pool
+        label[m & (draw < t)] = "test"
+        label[m & (draw >= t) & (draw < t + v)] = "val"
+    return {"val": label == "val", "test": label == "test"}
 
 
 def hide(ratings: pd.DataFrame, share: float, seed: int) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -48,14 +76,20 @@ def hide(ratings: pd.DataFrame, share: float, seed: int) -> tuple[pd.DataFrame, 
     return df[~mask].reset_index(drop=True), df[mask].reset_index(drop=True)
 
 
-def fingerprint(data_fp: str, n_val: int, n_test: int, seed: int, share: float) -> str:
-    return f"{data_fp}|val={n_val}|test={n_test}|seed={seed}|share={share}"
+def fingerprint(data_fp: str, test_per_bucket: dict[str, int], val_per_bucket: dict[str, int],
+                 bucket_pool_size: dict[str, int], seed: int, share: float) -> str:
+    tb = tuple(sorted(test_per_bucket.items()))
+    vb = tuple(sorted(val_per_bucket.items()))
+    pb = tuple(sorted(bucket_pool_size.items()))
+    return f"{data_fp}|test={tb}|val={vb}|pool={pb}|seed={seed}|share={share}"
 
 
-def build(ratings_path: Path, out_dir: Path, data_fp: str, *, n_val: int = N_VAL, n_test: int = N_TEST,
+def build(ratings_path: Path, users_path: Path, out_dir: Path, data_fp: str, *,
+          test_per_bucket: dict[str, int] = TEST_PER_BUCKET, val_per_bucket: dict[str, int] = VAL_PER_BUCKET,
+          bucket_pool_size: dict[str, int] = BUCKET_POOL_SIZE,
           seed: int = SEED, share: float = HIDDEN_SHARE, force: bool = False) -> dict:
     """Строит сплит; при том же отпечатке (данные + параметры) переиспользует готовый."""
-    fp = fingerprint(data_fp, n_val, n_test, seed, share)
+    fp = fingerprint(data_fp, test_per_bucket, val_per_bucket, bucket_pool_size, seed, share)
     meta_path = out_dir / "split.json"
     if not force and meta_path.exists():
         meta = json.loads(meta_path.read_text())
@@ -64,7 +98,15 @@ def build(ratings_path: Path, out_dir: Path, data_fp: str, *, n_val: int = N_VAL
     con = duckdb.connect()
     counts = con.execute("SELECT user_id, count(*) AS n FROM read_parquet(?) GROUP BY user_id ORDER BY user_id",
                          [str(ratings_path)]).df()
-    groups = assign_groups(counts["user_id"].to_numpy(), n_val, n_test, seed)
+    users = con.execute("SELECT user_id, external_id FROM read_parquet(?)", [str(users_path)]).df()
+    counts = counts.merge(users, on="user_id", how="left")
+    if counts["external_id"].isna().any():
+        raise ValueError("в users.parquet не нашёлся external_id для части user_id из ratings.parquet")
+    buckets_all = bucket_of(counts["n"].to_numpy())
+    masks = assign_groups(counts["external_id"].to_numpy(), buckets_all, seed=seed,
+                           test_per_bucket=test_per_bucket, val_per_bucket=val_per_bucket,
+                           bucket_pool_size=bucket_pool_size)
+    groups = {g: np.sort(counts.loc[masks[g], "user_id"].to_numpy()) for g in GROUPS}
     n_of = counts.set_index("user_id")["n"]
     out_dir.mkdir(parents=True, exist_ok=True)
     meta = {"fingerprint": fp, "seed": seed, "share": share, "groups": {}}
