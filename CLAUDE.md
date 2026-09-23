@@ -28,7 +28,7 @@
 
 После каждого этапа — стоп, показ результата, ждём подтверждения.
 
-**Текущий статус (2026-09-23):** этапы 1, 2 и подэтапы 3a, 3b закрыты. Очистка ужесточена
+**Текущий статус (2026-09-23):** этапы 1, 2 и подэтап 3a закрыты. Очистка ужесточена
 (не-книги, дубли, однообразные оценщики, k-core по книге 100 — `docs/resheniya.md`, «очистка»).
 В 3b закрыт п. 26: k-core по пользователю поднят до 20, протокол сплита — по хэшу внешнего id
 (`docs/resheniya.md`, «порог по пользователю и протокол сплита»); модели переоценены на новом тесте.
@@ -36,7 +36,9 @@
 сигнал»). Основная метрика — вне начатых серий. Текущие модели: ALS — 128 координат, «≤ 2»
 (`models/als_neg`) — основная; kNN — k = 3, β = 50 (`models/knn`) — для объяснений. Гибрид ALS + kNN (п. 23)
 отклонён: вето kNN стоит 10% NDCG, как сильный негативный сигнал ALS (`docs/resheniya.md`, «гибрид»).
-Пп. 9 и 25 не нужны (`docs/resheniya.md`, «порог выдачи»): 3b закрыт. Следующий — 3c, п. 19 (поиск), затем п. 11 (демо).
+Пп. 9 и 25 не нужны (`docs/resheniya.md`, «порог выдачи»). П. 29 закрыт: шанс «понравится» в процентах
+(`models/als_neg/chance.json`, `docs/resheniya.md`, «шанс понравится»). В 3b открыт п. 24: EASE на валидации
+точнее ALS на треть (NDCG@20 0.252 против 0.189), но Low@20 14.7% против 9.6% — тест и профиль, затем 3c.
 
 ## Стек и структура
 
@@ -59,6 +61,7 @@
 | `src/booksengine/report.py` | генерация `reports/stage1_report.md` из profile + manifest |
 | `src/booksengine/db_load.py` | `load-db`: parquet каталога → PostgreSQL (COPY, external_ids, upsert, сверка с manifest) |
 | `src/booksengine/model/` | сплит, метрики, модели (popularity, als, knn, ease), `evaluate` |
+| `src/booksengine/model/chance.py` | шанс «понравится» в процентах: место в личном рейтинге + щедрость человека |
 | `src/booksengine/model/series.py` | серии из названий; продолжения начатых серий — вне выдачи и вне проверки |
 | `src/booksengine/model/experiment.py` | `booksengine exp`: сравнение вариантов ядра (правила, пороги) на общем тесте |
 | `src/booksengine/report_3a.py`, `report_exp.py` | отчёты `stage3a_report.md` и `cleanup_experiment.md` из JSON в `models/eval/` |
@@ -82,6 +85,7 @@ docker compose up -d                                        # PostgreSQL + pgvec
 uv run booksengine load-db [--force]                        # каталог → БД; тот же manifest повторно не грузится
 uv run booksengine split [--force]                    # отложенная выборка → data/model/split/
 uv run booksengine evaluate <model> --stage val|test  # перебор настроек (модель сохраняется) / замер на тесте
+uv run booksengine calibrate [model]                  # шанс «понравится» (п. 29) → models/<model>/chance.json
 uv run booksengine report-3a                          # reports/stage3a_report.md
 
 # сравнить вариант очистки с текущим: сохранить ядро, поменять config, prepare --force, затем

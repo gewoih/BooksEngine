@@ -62,6 +62,18 @@ def evaluate(model: str = typer.Argument(..., help="popularity | als | als_neg |
         raise typer.BadParameter("stage: val | test")
 
 
+@app.command()
+def calibrate(model: str = typer.Argument("als_neg", help="сохранённая модель в models/")) -> None:
+    """Шанс «понравится» (п. 29): учится на валидации, проверяется на тесте → models/<model>/chance.json."""
+    import json
+
+    from booksengine.model import chance
+    from booksengine.model.evaluate import RATINGS
+    from booksengine.paths import EVAL_DIR, MODELS_DIR, SPLIT_DIR
+    out = chance.calibrate(model, ratings_path=RATINGS, split_dir=SPLIT_DIR, models_dir=MODELS_DIR, eval_dir=EVAL_DIR)
+    print(json.dumps({k: out[k] for k in ("chance", "test", "reliability")}, ensure_ascii=False, indent=1))
+
+
 @app.command("report-3a")
 def report_3a() -> None:
     """Отчёт этапа 3a (reports/stage3a_report.md) из models/eval/*.json."""
