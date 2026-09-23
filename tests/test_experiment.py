@@ -1,5 +1,6 @@
 import json
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -61,10 +62,20 @@ def test_common_split_same_hidden_no_leak_and_dropped_users(data):
     assert meta["users"] == 1 and meta["users_dropped"] == 1
 
 
+def test_profile_input_uses_own_five_point_rating(tmp_path):
+    prof = tmp_path / "profile.csv"
+    pd.DataFrame({"title": ["Дюна", "Эмма", "Вне", "Улисс", "Возлюбленная"], "rating": [5, None, 8, 1, 7],
+                  "rating5": [2, 1, 4, 1, None], "status": ["read", "dnf", "read", "read", "read"],
+                  "goodreads_work_id": [1, 3, 999, 5, 6]}).to_csv(prof, index=False)
+    x = ex._profile_input(prof, np.array([1, 3, 5, 6]))
+    # 5/10 → своя 2/5, не 2.5; 1/10 → 1, не 0.5; dnf — 1/5; без rating5 — пропуск
+    assert x.toarray().tolist() == [[2.0, 1.0, 1.0, 0.0]]
+
+
 def _run(cores, split, tmp, name, model_dir):
     prof = tmp / "profile.csv"
-    pd.DataFrame({"title": ["Дюна", "Эмма", "Вне"], "rating": [10, None, 8], "status": ["read", "dnf", "read"],
-                  "goodreads_work_id": [1, 3, 999]}).to_csv(prof, index=False)
+    pd.DataFrame({"title": ["Дюна", "Эмма", "Вне"], "rating": [10, None, 8], "rating5": [5, None, 4],
+                  "status": ["read", "dnf", "read"], "goodreads_work_id": [1, 3, 999]}).to_csv(prof, index=False)
     return ex.run_core(name, ratings_path=cores[name] / "ratings.parquet", works_path=cores[name] / "works.parquet",
                        common_dir=tmp / "common" / name, holdout_path=split / "holdout_users.parquet",
                        profile_path=prof, model_dir=model_dir, eval_dir=tmp / "e", models=("popularity",))

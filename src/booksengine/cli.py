@@ -50,7 +50,7 @@ def split(force: bool = typer.Option(False, "--force", help="пересобра�
 
 
 @app.command()
-def evaluate(model: str = typer.Argument(..., help="popularity | als | knn | ease"),
+def evaluate(model: str = typer.Argument(..., help="popularity | als | als_neg | knn | ease"),
              stage: str = typer.Option("val", help="val — перебор настроек; test — замер лучшей и сохранение")) -> None:
     """Метрики модели на валидации или тесте (models/eval/)."""
     from booksengine.model import evaluate as ev

@@ -23,6 +23,10 @@ MODELS: dict[str, tuple[type, list[tuple[dict, list[dict]]]]] = {
                    + [({"formula": f, "m": m}, [{}]) for f in ("bayes", "bayes_log") for m in (10.0, 100.0, 1000.0)]),
     "als": (ALS, [({"factors": f, "regularization": r, "alpha": a}, [{}])
                   for f in (64, 128, 256) for r in (0.01, 0.1) for a in (1.0, 10.0)]),
+    # п. 8: лучшая настройка обучения als, перебор только правил негативного сигнала на fold-in
+    "als_neg": (ALS, [({"factors": 64, "regularization": 0.1, "alpha": 1.0},
+                       [{"neg_rule": "none"}] + [{"neg_rule": rule, "neg_weight": b}
+                                                 for rule in ("le2", "mu-1.5") for b in (0.0, 1.0, 3.0, 10.0)])]),
     "knn": (ItemKNN, [({"beta": b, "k_max": 200}, [{"k": k, "normalize": n} for k in (50, 100, 200)
                                                    for n in (False, True)]) for b in (0.0, 50.0)]),
     "ease": (EASE, [({"lam": lam, "n_top": 20_000}, [{"topk": t} for t in (None, 100, 500)])

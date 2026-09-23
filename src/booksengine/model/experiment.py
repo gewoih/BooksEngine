@@ -81,12 +81,12 @@ def build_common_split(cores: dict[str, Path], split_dir: Path, out_dir: Path) -
 
 
 def _profile_input(profile_path: Path, work_ids: np.ndarray) -> sp.csr_matrix:
-    """Оценённые книги профиля (1–10 → 1–5); dnf и книги вне ядра пропускаются."""
+    """Книги профиля по его собственной шкале 1–5 (`rating5`, у dnf — 1); книги вне ядра пропускаются."""
     p = pd.read_csv(profile_path)
-    p = p[(p.status == "read") & p.rating.notna() & p.goodreads_work_id.isin(work_ids)].sort_values(
+    p = p[p.rating5.notna() & p.goodreads_work_id.isin(work_ids)].sort_values(
         "goodreads_work_id")
     cols = columns(work_ids, p.goodreads_work_id.to_numpy())
-    vals = p.rating.to_numpy(dtype=np.float32) / 2
+    vals = p.rating5.to_numpy(dtype=np.float32)
     return sp.csr_matrix((vals, (np.zeros(len(cols), dtype=int), cols)), shape=(1, len(work_ids)))
 
 
