@@ -34,7 +34,8 @@ def test_tune_and_test_end_to_end(tmp_path):
     split.build(rp, sd, "fp", n_val=5, n_test=10, seed=11, share=0.2)
     grid = [({"formula": "count", "m": 0.0}, [{}]), ({"formula": "bayes", "m": 10.0}, [{}])]
     ed, md = tmp_path / "eval", tmp_path / "models"
-    val = evaluate.tune("popularity", ratings_path=rp, split_dir=sd, eval_dir=ed, grid=grid)
+    # models_dir обязателен: без него tune пишет в настоящую models/ (было 2026-09-23 — затёрло models/popularity)
+    val = evaluate.tune("popularity", ratings_path=rp, split_dir=sd, eval_dir=ed, grid=grid, models_dir=md)
     assert len(val) == 2 and json.loads((ed / "popularity_val.json").read_text()) == val
     res = evaluate.test("popularity", ratings_path=rp, split_dir=sd, eval_dir=ed, models_dir=md)
     assert res["n_users"] == 10 and res["variants"][0]["deployable"]

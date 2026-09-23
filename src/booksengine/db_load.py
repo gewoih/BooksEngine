@@ -70,7 +70,7 @@ EDITIONS = Entity("edition", "editions", "editions", "book_id", {
     "average_rating": "double precision", "image_url": "text", "url": "text",
 })
 
-# Таблицы manifest.json, которые попадают в БД. users / ratings / shelf_events — нет:
+# Таблицы manifest.json, которые попадают в БД. users / ratings / work_merges — нет:
 # обучение читает parquet, в БД модель попадёт векторами (решение 2026-09-23).
 LOADED_TABLES = ["works", "editions", "authors", "work_authors", "work_genres"]
 

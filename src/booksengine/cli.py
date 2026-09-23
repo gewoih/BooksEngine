@@ -68,5 +68,60 @@ def report_3a() -> None:
     print(r.write())
 
 
+exp_app = typer.Typer(help="Сравнение вариантов CF-ядра (правила очистки, пороги) на общем тесте")
+app.add_typer(exp_app, name="exp")
+
+
+def _exp_cores() -> dict:
+    """Ядра сравнения: сохранённые папки data/exp/<имя>/ и «new» — ссылки на текущий data/clean."""
+    from booksengine.paths import CLEAN_DIR, EXP_DIR
+    new = EXP_DIR / "new"
+    new.mkdir(parents=True, exist_ok=True)
+    for f in ("ratings.parquet", "works.parquet", "work_merges.parquet", "manifest.json"):
+        (new / f).unlink(missing_ok=True)
+        (new / f).symlink_to(CLEAN_DIR / f)
+    return {d.name: d for d in sorted(EXP_DIR.iterdir()) if d.is_dir() and d.name != "common"}
+
+
+@exp_app.command("save")
+def exp_save(name: str = typer.Argument(..., help="имя ядра, например old или k50")) -> None:
+    """Скопировать текущее ядро (data/clean) в data/exp/<name>/ — до `prepare --force` с другими правилами."""
+    from booksengine.model import experiment as ex
+    from booksengine.paths import CLEAN_DIR, EXP_DIR
+    if name in ("new", "common"):
+        raise typer.BadParameter("имена new и common заняты")
+    if (EXP_DIR / name / "ratings.parquet").exists():
+        raise typer.BadParameter(f"data/exp/{name}/ уже есть — сохранённое ядро не перезаписывается")
+    ex.save_core(CLEAN_DIR, EXP_DIR / name)
+
+
+@exp_app.command("split")
+def exp_split() -> None:
+    """Общий тест всех ядер сравнения (data/exp/common/)."""
+    from booksengine.model import experiment as ex
+    from booksengine.paths import EXP_DIR, SPLIT_DIR
+    print(ex.build_common_split(_exp_cores(), SPLIT_DIR, EXP_DIR / "common"))
+
+
+@exp_app.command("run")
+def exp_run(core: str = typer.Option(None, help="одно ядро; по умолчанию все")) -> None:
+    """Популярность, ALS, kNN с настройками 3a на общем тесте (models/eval/exp/<core>.json).
+    Модель ядра, уже лежащая в models/exp/<core>/, загружается, а не обучается заново."""
+    from booksengine.model import experiment as ex
+    from booksengine.paths import EXP_DIR, EXP_EVAL_DIR, EXP_MODELS_DIR, PROJECT_ROOT, SPLIT_DIR
+    for name in [core] if core else list(_exp_cores()):
+        ex.run_core(name, ratings_path=EXP_DIR / name / "ratings.parquet", works_path=EXP_DIR / name / "works.parquet",
+                    common_dir=EXP_DIR / "common" / name, holdout_path=SPLIT_DIR / "holdout_users.parquet",
+                    profile_path=PROJECT_ROOT / "profiles" / "my_ratings.csv",
+                    model_dir=EXP_MODELS_DIR / name, eval_dir=EXP_EVAL_DIR)
+
+
+@exp_app.command("report")
+def exp_report() -> None:
+    """reports/cleanup_experiment.md."""
+    from booksengine import report_exp
+    print(report_exp.write())
+
+
 if __name__ == "__main__":
     app()

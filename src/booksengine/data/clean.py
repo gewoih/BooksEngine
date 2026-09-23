@@ -166,7 +166,7 @@ def link_to_works(con, log: CleaningLog, src: str = "i_valid", dst: str = "i_lin
 
 def to_work_level(con, log: CleaningLog, explicit_min: int, explicit_max: int,
                   src: str = "i_linked") -> None:
-    """ratings_w: явные оценки, свёрнутые с изданий на произведение (среднее); shelf_w: rating = 0."""
+    """ratings_w: явные оценки, свёрнутые с изданий на произведение (среднее). rating = 0 отбрасывается."""
     total = _one(con, f"SELECT count(*) FROM {src}")
     explicit = f"rating BETWEEN {explicit_min} AND {explicit_max}"
     n_explicit = _one(con, f"SELECT count(*) FROM {src} WHERE {explicit}")
@@ -182,18 +182,11 @@ def to_work_level(con, log: CleaningLog, explicit_min: int, explicit_max: int,
                count(*) FILTER (rating_max - rating_min >= 2)
         FROM ratings_w
     """).fetchone()
-    shelf_rows = total - n_explicit
-    # Если у пары (user, work) есть явная оценка хоть одного издания, «полочная» запись избыточна.
-    _materialize(con, "shelf_w", f"""
-        SELECT user_id, work_id, max(is_read)::TINYINT AS is_read
-        FROM {src} s WHERE rating = 0
-          AND NOT EXISTS (SELECT 1 FROM ratings_w r WHERE r.user_id = s.user_id AND r.work_id = s.work_id)
-        GROUP BY user_id, work_id""")
     n_ratings = _one(con, "SELECT count(*) FROM ratings_w")
     log.add(Step("split_explicit_signal",
-                 "rating = 0 — это не оценка («прочитано без оценки» или «на полке»): уходит в shelf_events",
-                 total, n_explicit, detail={"shelf_rows": shelf_rows,
-                                            "shelf_pairs_work_level": _one(con, "SELECT count(*) FROM shelf_w")}))
+                 "rating = 0 — это не оценка («прочитано без оценки» или «на полке»): отбрасывается — ни модель, "
+                 "ни БД его не используют (решение 2026-09-23; исходные записи остаются в staging)",
+                 total, n_explicit, detail={"unrated_rows": total - n_explicit}))
     log.add(Step("editions_to_works",
                  "несколько изданий одного произведения у пользователя сворачиваются в одну оценку (среднее)",
                  n_explicit, n_ratings, detail={"pairs_with_multiple_editions": multi[0],
@@ -210,6 +203,111 @@ def drop_collections(con, log: CleaningLog, table: str = "ratings_w") -> None:
                  before[0], after[0], before[1], after[1], before[2], after[2]))
 
 
+# --- 4a. Не-книги ----------------------------------------------------------------------------------------
+
+
+def flag_nonbooks(con, patterns: list[str], exceptions: list[int], table: str = "works_valid") -> int:
+    """is_nonbook: ноты, раскраски, календари, аудиокурсы — по шаблонам названия (TODO п. 14)."""
+    regex = "|".join(f"({p})" for p in patterns)
+    # пустой список исключений нельзя подставлять как NOT IN (NULL): это дало бы NULL у всех
+    exc = f"AND work_id NOT IN ({', '.join(str(int(w)) for w in exceptions)})" if exceptions else ""
+    con.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS is_nonbook BOOLEAN")
+    con.execute(f"""
+        UPDATE {table} SET is_nonbook = regexp_matches(
+            lower(coalesce(title, '') || ' | ' || coalesce(best_edition_title, '')), ?) {exc}""", [regex])
+    return _one(con, f"SELECT count(*) FROM {table} WHERE is_nonbook")
+
+
+def drop_nonbooks(con, log: CleaningLog, table: str = "ratings_w") -> None:
+    before = _shape(con, table)
+    con.execute(f"DELETE FROM {table} WHERE work_id IN (SELECT work_id FROM works_valid WHERE is_nonbook)")
+    after = _shape(con, table)
+    log.add(Step("nonbooks", "не книги (ноты, раскраски, календари, аудиокурсы): те же читатели, что у книги, "
+                 "и попадают в её соседи", before[0], after[0], before[1], after[1], before[2], after[2]))
+
+
+# --- 4b. Дубли произведений -------------------------------------------------------------------------------
+
+
+def author_source(con) -> None:
+    """_author_src: издание, из которого берутся авторы произведения, — лучшее, а если в нём нет авторов —
+    самое популярное издание с авторами. Общий источник для work_authors и основного автора."""
+    con.execute("""
+        CREATE OR REPLACE TEMP TABLE _author_src AS
+        SELECT e.work_id, e.authors FROM editions e JOIN works_valid w USING (work_id)
+        WHERE len(e.authors) > 0
+        QUALIFY row_number() OVER (PARTITION BY e.work_id
+                                   ORDER BY (e.book_id = w.best_book_id) DESC, e.ratings_count DESC NULLS LAST,
+                                            e.book_id) = 1
+    """)
+
+
+def primary_authors(con) -> None:
+    """work_primary: основной автор произведения — без роли (не иллюстратор, не переводчик), первый по позиции."""
+    author_source(con)
+    con.execute("""
+        CREATE OR REPLACE TEMP TABLE work_primary AS
+        SELECT work_id, arg_min(a.author_id, pos) AS author_id
+        FROM (SELECT work_id, unnest(authors) AS a, generate_subscripts(authors, 1) AS pos FROM _author_src)
+        WHERE coalesce(a.role, '') = '' AND a.author_id IN (SELECT author_id FROM authors)
+        GROUP BY 1""")
+
+
+def find_duplicates(con, adaptation_patterns: list[str], max_shadow_share: float, table: str = "ratings_w") -> int:
+    """dup_map: уверенные «тени» — то же название (без хвостовой скобки и пунктуации, буквы любых алфавитов
+    сохраняются) + тот же основной автор + номер в серии не различается, не адаптация и не сборник, оценок
+    меньше max_shadow_share от главного (самого оценённого в группе). TODO п. 17."""
+    regex = "|".join(f"({p})" for p in adaptation_patterns)
+    con.execute(f"""
+        CREATE OR REPLACE TEMP TABLE _dup_keys AS
+        SELECT w.work_id, p.author_id, c.n,
+               trim(regexp_replace(lower(regexp_replace(w.title, '\\s*\\([^)]*\\)\\s*$', '')),
+                                   '[^\\p{{L}}\\p{{N}}]+', ' ', 'g')) AS key,
+               regexp_extract(coalesce(w.best_edition_title, ''), '#\\s*(\\d+(\\.\\d+)?)\\s*\\)\\s*$', 1) AS series_no
+        FROM works_valid w
+        JOIN work_primary p USING (work_id)
+        JOIN (SELECT work_id, count(*) AS n FROM {table} GROUP BY 1) c USING (work_id)
+        WHERE NOT coalesce(w.is_collection, false)
+          AND NOT regexp_matches(lower(coalesce(w.title, '') || ' | ' || coalesce(w.best_edition_title, '')), ?)
+    """, [regex])
+    con.execute("""
+        CREATE OR REPLACE TEMP TABLE dup_map AS
+        SELECT work_id AS shadow_work_id, main_id AS main_work_id FROM (
+            SELECT work_id, n, series_no,
+                   first_value(work_id) OVER g AS main_id, first_value(n) OVER g AS main_n,
+                   first_value(series_no) OVER g AS main_series
+            FROM _dup_keys WHERE key <> ''
+            WINDOW g AS (PARTITION BY key, author_id ORDER BY n DESC, work_id))
+        -- у теней номера в серии часто нет — это не мешает; номер у тени без такого же у главного — другой том
+        -- («Musashi» ← «Musashi #2»)
+        WHERE work_id <> main_id AND (series_no = main_series OR series_no = '')
+          AND n < ? * main_n
+    """, [max_shadow_share])
+    con.execute("DROP TABLE _dup_keys")
+    return _one(con, "SELECT count(*) FROM dup_map")
+
+
+def merge_duplicates(con, log: CleaningLog, table: str = "ratings_w") -> None:
+    """Оценки тени переносятся на главное; обе у одного человека — среднее, взвешенное по изданиям."""
+    before = _shape(con, table)
+    both = _one(con, f"""SELECT count(*) FROM {table} s JOIN dup_map d ON d.shadow_work_id = s.work_id
+                         JOIN {table} m ON m.user_id = s.user_id AND m.work_id = d.main_work_id""")
+    con.execute(f"""
+        CREATE OR REPLACE TEMP TABLE _merged AS
+        SELECT r.user_id, coalesce(d.main_work_id, r.work_id) AS work_id,
+               round(sum(r.rating * r.n_editions) / sum(r.n_editions), 6)::REAL AS rating,
+               sum(r.n_editions)::SMALLINT AS n_editions
+        FROM {table} r LEFT JOIN dup_map d ON d.shadow_work_id = r.work_id
+        GROUP BY 1, 2""")
+    con.execute(f"DROP TABLE {table}")
+    con.execute(f"ALTER TABLE _merged RENAME TO {table}")
+    after = _shape(con, table)
+    log.add(Step("duplicates", "«теневое» произведение той же книги сливается в главное (как издания): иначе "
+                 "модель советует прочитанное под другим work_id", before[0], after[0], before[1], after[1],
+                 before[2], after[2], {"shadows": _one(con, "SELECT count(*) FROM dup_map"),
+                                       "users_rated_both": both}))
+
+
 # --- 5. Аномальные пользователи -------------------------------------------------------------------------
 
 
@@ -219,7 +317,11 @@ def user_stats(con, table: str = "ratings_w") -> None:
         -- округление: параллельные агрегаты с плавающей точкой отличаются в последних битах от прогона к прогону,
         -- а сравнение с порогом должно быть детерминированным
         SELECT user_id, count(*) AS n, round(avg(rating), 6) AS mean,
-               round(coalesce(stddev_pop(rating), 0), 6) AS sd
+               round(coalesce(stddev_pop(rating), 0), 6) AS sd,
+               -- доля самого частого значения; дробные (среднее по изданиям) — «половина вверх», как в метриках
+               round(greatest(avg((floor(rating + 0.5) = 1)::INT), avg((floor(rating + 0.5) = 2)::INT),
+                              avg((floor(rating + 0.5) = 3)::INT), avg((floor(rating + 0.5) = 4)::INT),
+                              avg((floor(rating + 0.5) = 5)::INT)), 6) AS mode_share
         FROM {table} GROUP BY user_id
     """)
 
@@ -232,13 +334,17 @@ def _drop_users(con, log, table: str, where: str, rule: str, reason: str, detail
 
 
 def filter_users(con, log: CleaningLog, max_sd: float, min_ratings_for_sd: int, max_ratings: int,
-                 table: str = "ratings_w") -> None:
+                 table: str = "ratings_w", max_mode_share: float | None = None) -> None:
     user_stats(con, table)
     _drop_users(con, log, table, f"n >= {min_ratings_for_sd} AND sd < {max_sd}", "users_low_variance",
                 f"разброс оценок < {max_sd} при ≥ {min_ratings_for_sd} оценках: все книги оценены одинаково, "
                 "предпочтения не различимы",
                 {"of_them_all_fives": _one(con, f"SELECT count(*) FROM user_stats WHERE n >= {min_ratings_for_sd} "
                                                 f"AND sd < {max_sd} AND mean > 4.9")})
+    if max_mode_share is not None:
+        _drop_users(con, log, table, f"n >= {min_ratings_for_sd} AND mode_share >= {max_mode_share}",
+                    "users_monotone", f"≥ {max_mode_share:.0%} оценок одного значения при ≥ {min_ratings_for_sd} "
+                    "оценках: вкуса относительно своей средней не видно")
     _drop_users(con, log, table, f"n > {max_ratings}", "users_hyperactive",
                 f"больше {max_ratings} оценённых произведений: каталогизация/импорт, а не личный вкус")
 

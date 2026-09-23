@@ -4,7 +4,7 @@ import yaml
 from booksengine.db import connect
 from booksengine.paths import CLEAN_DIR, CONFIG_PATH
 
-TABLES = ["works", "editions", "authors", "work_authors", "work_genres", "users", "ratings", "shelf_events"]
+TABLES = ["works", "editions", "authors", "work_authors", "work_genres", "users", "ratings", "work_merges"]
 
 
 def checks(k_user: int, k_work: int) -> dict[str, str]:
@@ -24,6 +24,11 @@ def checks(k_user: int, k_work: int) -> dict[str, str]:
         "works: есть название": "SELECT count(*) FROM works WHERE title IS NULL",
         "works: in_cf согласован с ratings":
             "SELECT count(*) FROM works w WHERE in_cf <> EXISTS (SELECT 1 FROM ratings r WHERE r.work_id = w.work_id)",
+        "works: не-книги вне ядра": "SELECT count(*) FROM works WHERE is_nonbook AND in_cf",
+        "work_merges: тень вне ядра":
+            "SELECT count(*) FROM work_merges m JOIN works w ON w.work_id = m.shadow_work_id WHERE w.in_cf",
+        "work_merges → works (главное)":
+            "SELECT count(*) FROM work_merges m ANTI JOIN works w ON w.work_id = m.main_work_id",
         "editions: уникальность book_id": "SELECT count(*) - count(DISTINCT book_id) FROM editions",
         "editions → works": "SELECT count(*) FROM editions e ANTI JOIN works w USING (work_id)",
         "works: у каждого есть издание": "SELECT count(*) FROM works w ANTI JOIN editions e USING (work_id)",
@@ -32,10 +37,6 @@ def checks(k_user: int, k_work: int) -> dict[str, str]:
         "work_genres → works": "SELECT count(*) FROM work_genres g ANTI JOIN works w USING (work_id)",
         "users: уникальность и внешний id":
             "SELECT count(*) - count(DISTINCT user_id) + count(*) FILTER (external_id IS NULL) FROM users",
-        "shelf_events: не пересекаются с ratings":
-            "SELECT count(*) FROM shelf_events s SEMI JOIN ratings r USING (user_id, work_id)",
-        "shelf_events → users": "SELECT count(*) FROM shelf_events s ANTI JOIN users u USING (user_id)",
-        "shelf_events → works": "SELECT count(*) FROM shelf_events s ANTI JOIN works w USING (work_id)",
     }
 
 

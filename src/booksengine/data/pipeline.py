@@ -48,15 +48,7 @@ def _export(con, sql: str, name: str) -> dict:
 
 def export(con) -> dict:
     CLEAN_DIR.mkdir(parents=True, exist_ok=True)
-    # Для авторов произведения берём лучшее издание, а если в нём нет авторов — самое популярное издание с авторами.
-    con.execute("""
-        CREATE OR REPLACE TEMP TABLE _author_src AS
-        SELECT e.work_id, e.authors FROM editions e JOIN works_valid w USING (work_id)
-        WHERE len(e.authors) > 0
-        QUALIFY row_number() OVER (PARTITION BY e.work_id
-                                   ORDER BY (e.book_id = w.best_book_id) DESC, e.ratings_count DESC NULLS LAST,
-                                            e.book_id) = 1
-    """)
+    clean.author_source(con)
     con.execute("""
         CREATE OR REPLACE TEMP TABLE _work_authors AS
         SELECT DISTINCT ON (work_id, a.author_id) work_id, a.author_id AS author_id, a.role AS role,
@@ -69,7 +61,6 @@ def export(con) -> dict:
         CREATE OR REPLACE TEMP TABLE _cf_works AS
         SELECT work_id, count(*) AS cf_ratings, round(avg(rating), 6) AS cf_mean_rating FROM ratings_w GROUP BY 1
     """)
-    kept_users = "(SELECT DISTINCT user_id FROM ratings_w)"
     res = {
         "works": _export(con, """
             SELECT w.*, c.work_id IS NOT NULL AS in_cf, coalesce(c.cf_ratings, 0) AS cf_ratings, c.cf_mean_rating
@@ -97,9 +88,8 @@ def export(con) -> dict:
             "users"),
         "ratings": _export(con, "SELECT user_id, work_id, rating, n_editions FROM ratings_w ORDER BY user_id, work_id",
                            "ratings"),
-        "shelf_events": _export(con, f"""
-            SELECT user_id, work_id, is_read FROM shelf_w WHERE user_id IN {kept_users}
-            ORDER BY user_id, work_id""", "shelf_events"),
+        # тень → главное: тени остаются в каталоге вне ядра, оценки по ним — у главного (TODO п. 17)
+        "work_merges": _export(con, "SELECT shadow_work_id, main_work_id FROM dup_map ORDER BY 1", "work_merges"),
     }
     for t in ("_author_src", "_work_authors", "_cf_works"):
         con.execute(f"DROP TABLE {t}")
@@ -165,8 +155,16 @@ def prepare(force: bool = False, skip_profile: bool = False) -> dict:
     extra = {"collections": collection_totals(con), "collection_examples": collection_examples(con)}
     if cfg["collections"]["drop_from_ratings"]:
         clean.drop_collections(con, log)
+    nb = cfg["nonbooks"]
+    clean.flag_nonbooks(con, nb["title_patterns"], nb["exceptions"])
+    clean.drop_nonbooks(con, log)
+    clean.primary_authors(con)
+    d = cfg["duplicates"]
+    clean.find_duplicates(con, d["adaptation_patterns"], d["max_shadow_share"])
+    clean.merge_duplicates(con, log)
     u = cfg["users"]
-    clean.filter_users(con, log, u["low_variance_max_sd"], u["low_variance_min_ratings"], u["max_ratings"])
+    clean.filter_users(con, log, u["low_variance_max_sd"], u["low_variance_min_ratings"], u["max_ratings"],
+                       max_mode_share=u["monotone_max_mode_share"])
     k = cfg["kcore"]
     print("[kcore] варианты порогов")
     extra["kcore_options"] = clean.kcore_options(con, k["report_options"])

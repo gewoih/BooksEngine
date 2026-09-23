@@ -4,8 +4,9 @@
 [UCSD Goodreads Book Graph](https://mengtingwan.github.io/data/goodreads.html)
 (228M взаимодействий, 876K пользователей, 2.36M изданий).
 
-Готово: изучение и очистка датасета (этап 1), каталог книг в PostgreSQL + pgvector (этап 2).
-Дальше — базовая модель рекомендаций (см. `TODO.md`).
+Готово: изучение и очистка датасета (этап 1), каталог книг в PostgreSQL + pgvector (этап 2),
+стенд оценки и модели — популярность, ALS, item-kNN (этап 3a). Дальше — качество выдачи и демо
+(см. `TODO.md`).
 
 ## Требования
 
@@ -42,7 +43,7 @@ uv run pytest
 Результат:
 
 - `data/clean/*.parquet` — каталог (`works`, `editions`, `authors`, `work_authors`, `work_genres`),
-  матрица оценок `ratings` (user × work, 1–5), неявный сигнал `shelf_events`, `users`;
+  матрица оценок `ratings` (user × work, 1–5), `users`, дубли произведений `work_merges`;
 - `data/clean/manifest.json` — отпечатки входов/конфига/кода, журнал очистки, контрольные суммы;
 - `reports/stage1_report.md` — структура данных, качество, распределения, все решения по очистке с цифрами.
 
@@ -69,3 +70,7 @@ uv run booksengine load-db                                  # каталог и�
 | `booksengine validate` | проверить инварианты готовых данных |
 | `booksengine report` | пересобрать отчёт без пересчёта |
 | `booksengine load-db [--force]` | загрузить каталог в PostgreSQL, сверить с `manifest.json` |
+| `booksengine split [--force]` | отложенная выборка: 5K пользователей для настройки, 20K для теста |
+| `booksengine evaluate <model> --stage val\|test` | перебор настроек / замер модели на тесте |
+| `booksengine report-3a` | `reports/stage3a_report.md` — сравнение моделей |
+| `booksengine exp save\|split\|run\|report` | сравнить варианты очистки на общем тесте |

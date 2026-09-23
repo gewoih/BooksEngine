@@ -8,6 +8,9 @@ users:
   # Почти нулевой разброс оценок: пользователь ставит всем книгам одно и то же — предпочтений не видно.
   low_variance_max_sd: 0.2
   low_variance_min_ratings: 10
+  # Почти все оценки одного значения (после округления «половина вверх»), при ≥ low_variance_min_ratings:
+  # вкуса относительно своей средней не видно (замер 2026-09-23: 16K человек, 1.5% оценок). Шире sd < 0.2.
+  monotone_max_mode_share: 0.9
   # Сверхактивные аккаунты: каталогизация/импорт, а не личное чтение; перекашивают item-item статистику.
   max_ratings: 3000
 
@@ -19,8 +22,35 @@ collections:
     - '\b(\d|two|three|four|five|six|seven) (books|novels) in one|\d-in-1|\d in 1\b'
   drop_from_ratings: false
 
+nonbooks:
+  # Не книги: ноты, раскраски, календари, аудиокурсы (TODO п. 14). Шаблоны — по названию произведения
+  # и лучшего издания, не по полкам и не по всем изданиям (замер 2026-09-23: там шум).
+  title_patterns:
+    - 'sheet music|piano[ /-]vocal|vocal selections|\bfor (soprano|flute|clarinet|violin|trumpet|piano solo)\b'
+    - '\bcolou?ring book\b'
+    - '\b(19|20)\d\d (wall |desk |day-to-day |engagement )?calendar\b'
+    - '\bgreat courses\b'
+  # Ложные срабатывания — настоящие книги (work_id), найдены просмотром 79 совпадений в ядре 2026-09-23.
+  exceptions:
+    - 6746434    # Sheet Music: A Rock 'N' Roll Love Story — роман
+    - 13530963   # Sheet Music (Covert Attractions, #1) — роман
+    - 63413      # Sheet Music: Uncovering the Secrets of Sexual Intimacy in Marriage — книга
+    - 42901328   # The Coloring Book: A Comedian Solves Race Relations in America — мемуары
+
+duplicates:
+  # Уверенные «теневые» произведения той же книги сливаются в главное (TODO п. 17, решение 2026-09-23).
+  # Адаптации и пересказы не сливаются — их отсекает фильтр выдачи (3c).
+  max_shadow_share: 0.1
+  adaptation_patterns:
+    - 'graphic novel|\bmanga\b|\bcomic\b|no fear|sparknotes|cliffsnotes|study guide'
+    - 'oxford bookworms|classic starts|\bretold\b|abridged|adaptation|\bsampler\b'
+    - '\bpart (\d+|one|two|three|four|i+)\b|\bvol(ume)?\.? ?\d+'
+    # сборники, не пойманные collections.title_patterns, и ознакомительные фрагменты (просмотр 151 пары 2026-09-23)
+    - '\d+ ?[-–] ?\d+\)|\d+ book series|\(books? \d|\d+ stories\)|integral|preview'
+
 kcore:
   min_user_ratings: 10
-  min_work_ratings: 20
+  # 100 (было 20, затем 50) — решение 2026-09-23: редкие книги для пользователя шум; проверка — reports/cleanup_experiment.md
+  min_work_ratings: 100
   # Варианты, которые считаются для отчёта (компромисс «сохранено оценок / плотность»)
-  report_options: [[5, 5], [5, 10], [10, 10], [10, 20], [20, 20], [20, 50]]
+  report_options: [[5, 5], [5, 10], [10, 10], [10, 20], [10, 50], [10, 100], [20, 20], [20, 50]]

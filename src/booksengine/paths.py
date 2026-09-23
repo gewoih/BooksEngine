@@ -28,6 +28,9 @@ CONFIG_PATH = PROJECT_ROOT / "config" / "cleaning.yaml"
 SPLIT_DIR = DATA_DIR / "model" / "split"
 MODELS_DIR = PROJECT_ROOT / "models"
 EVAL_DIR = MODELS_DIR / "eval"
+EXP_DIR = DATA_DIR / "exp"                 # копия старого ядра и общий тест сравнения очистки
+EXP_MODELS_DIR = MODELS_DIR / "exp"
+EXP_EVAL_DIR = EVAL_DIR / "exp"
 
 RAW_FILES = {
     "interactions": "goodreads_interactions.csv",
