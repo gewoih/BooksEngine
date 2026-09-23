@@ -25,3 +25,4 @@ def test_report_contains_numbers_from_json(tmp_path):
     out = report_3a.write(ed, sd, tmp_path / "r.md")
     text = out.read_text()
     assert "0.0512" in text and "Популярность" in text and "20 000" in text and "1 800" in text
+    assert "вне начатых серий" in text and "50–199 и 200+" in text

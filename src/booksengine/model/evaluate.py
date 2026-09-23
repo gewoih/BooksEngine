@@ -24,8 +24,9 @@ MODELS: dict[str, tuple[type, list[tuple[dict, list[dict]]]]] = {
                    + [({"formula": f, "m": m}, [{}]) for f in ("bayes", "bayes_log") for m in (10.0, 100.0, 1000.0)]),
     "als": (ALS, [({"factors": f, "regularization": r, "alpha": a}, [{}])
                   for f in (64, 128, 256) for r in (0.01, 0.1) for a in (1.0, 10.0)]),
-    # п. 8: лучшая настройка обучения als, перебор веса негативного сигнала «≤ 2» на fold-in
-    "als_neg": (ALS, [({"factors": 64, "regularization": 0.1, "alpha": 1.0},
+    # п. 8, 21: 128 координат (256 — та же точность вдвое дороже, выдача гуще по автору), λ = 0.1, α = 1;
+    # перебор веса негативного сигнала «≤ 2» на fold-in, «none» — контроль
+    "als_neg": (ALS, [({"factors": 128, "regularization": 0.1, "alpha": 1.0},
                        [{"neg_rule": "none"}] + [{"neg_rule": "le2", "neg_weight": b} for b in (0.0, 1.0, 3.0, 10.0)])]),
     # normalize=True снят: на валидации NDCG@20 0.003–0.014 против 0.24 (2026-09-23)
     "knn": (ItemKNN, [({"beta": b, "k_max": 200}, [{"k": k, "normalize": False} for k in (3, 5, 7, 10, 20, 50)])
@@ -36,8 +37,11 @@ MODELS: dict[str, tuple[type, list[tuple[dict, list[dict]]]]] = {
 
 
 def deployable(name: str, score_params: dict) -> bool:
-    """Можно ли так отдать модель в C#: полная матрица EASE в БД не ложится."""
-    return not (name == "ease" and score_params.get("topk") is None)
+    """Можно ли выбрать настройку: полная матрица EASE в БД не ложится; ALS без негативного сигнала —
+    контроль для сверки, правило «≤ 2» зафиксировано (docs/resheniya.md, «негативный сигнал»)."""
+    if name == "ease" and score_params.get("topk") is None:
+        return False
+    return not (name == "als_neg" and score_params.get("neg_rule") == "none")
 
 
 def run_eval(model, hold: Holdout, batch: int = 500) -> tuple[pd.DataFrame, float]:
@@ -69,12 +73,17 @@ def _best(val: list[dict], name: str) -> dict:
     return max(ok, key=lambda r: r["summary"]["all"]["ndcg20"]["mean"] or -1.0)
 
 
-def _saved_matches(path: Path, fit_params: dict, score_params: dict) -> bool:
-    """Модель в path обучена с этими параметрами и настроена на эту выдачу."""
+def _needs_refit(name: str, variants: list[dict]) -> bool:
+    """Вариант, которого нет в сохранённой модели: полная матрица EASE на диск не пишется."""
+    return name == "ease" and any(v.get("topk") is None for v in variants)
+
+
+def _saved_matches(path: Path, fit_params: dict) -> bool:
+    """Модель в path обучена с этими параметрами; настройки выдачи задаются потом через `configure`."""
     if not (path / "params.json").exists():
         return False
     saved = read_params(path)
-    return all(saved.get(k) == v for k, v in {**fit_params, **score_params}.items())
+    return all(saved.get(k) == v for k, v in fit_params.items())
 
 
 def tune(name: str, *, ratings_path: Path = RATINGS, split_dir: Path = SPLIT_DIR, eval_dir: Path = EVAL_DIR,
@@ -123,9 +132,9 @@ def test(name: str, *, ratings_path: Path = RATINGS, split_dir: Path = SPLIT_DIR
     same_fit = [r for r in val if r["fit_params"] == best["fit_params"]]
     top_any = max(same_fit, key=lambda r: r["summary"]["all"]["ndcg20"]["mean"] or -1.0)
     variants = [best["score_params"]] + ([top_any["score_params"]] if top_any is not best else [])
-    if len(variants) == 1 and _saved_matches(models_dir / name, best["fit_params"], best["score_params"]):
+    if not _needs_refit(name, variants) and _saved_matches(models_dir / name, best["fit_params"]):
         model, fit_s = cls.load(models_dir / name), best["fit_seconds"]  # сохранена при подборе
-    else:  # нужен вариант, которого нет на диске (полная матрица EASE), — обучаем заново
+    else:  # нужен вариант, которого нет на диске, — обучаем заново
         model = cls(**best["fit_params"])
         t0 = time.perf_counter()
         model.fit(train)

@@ -5,8 +5,9 @@ from pathlib import Path
 from booksengine.model.split import BUCKET_ORDER
 from booksengine.paths import EVAL_DIR, REPORTS_DIR, SPLIT_DIR
 
-NAMES = {"popularity": "Популярность", "als": "ALS", "knn": "item-kNN", "ease": "EASE^R"}
-ORDER = ["popularity", "als", "knn", "ease"]
+NAMES = {"popularity": "Популярность", "als": "ALS", "als_neg": "ALS", "knn": "item-kNN",
+         "ease": "EASE^R"}
+ORDER = ["popularity", "als", "als_neg", "knn", "ease"]
 
 
 def _n(x: int) -> str:
@@ -19,7 +20,13 @@ def _cell(m: dict) -> str:
 
 def _label(name: str, v: dict) -> str:
     tail = "" if v["label"] == "—" else f" ({v['label']})"
-    return f"{NAMES.get(name, name)}{tail}" + ("" if v["deployable"] else " — не переносится в C#")
+    if v["deployable"]:
+        why = ""
+    elif v["score_params"].get("neg_rule") == "none":
+        why = " — контроль без отрицательного сигнала"
+    else:
+        why = " — не переносится в C#"
+    return f"{NAMES.get(name, name)}{tail}{why}"
 
 
 def write(eval_dir: Path = EVAL_DIR, split_dir: Path = SPLIT_DIR,
@@ -42,6 +49,8 @@ def write(eval_dir: Path = EVAL_DIR, split_dir: Path = SPLIT_DIR,
          "- **Coverage** — доля каталога, которая хоть кому-то попала в топ: низкая — всем советуют одно и то же.",
          "- **Low@20** — доля спрятанных 1–2★, которые модель всё-таки посоветовала. Чем ниже, тем лучше.",
          "- В квадратных скобках — 95% интервал. Если интервалы двух моделей перекрываются, разница может быть случайной.",
+         "- Все метрики — вне начатых серий: продолжения и части серий из профиля человека не советуются и не "
+         "считаются попаданием (иначе метрика награждает «угадай следующий том»).",
          "", "## Итог на тесте", "",
          "| модель | NDCG@20 | NDCG@10 | Recall@20 | MAP@20 | Coverage | Low@20 | обучение, с |",
          "|---|---|---|---|---|---|---|---|"]
@@ -52,7 +61,7 @@ def write(eval_dir: Path = EVAL_DIR, split_dir: Path = SPLIT_DIR,
             L.append(f"| {_label(n, v)} | {_cell(a['ndcg20'])} | {_cell(a['ndcg10'])} | {_cell(a['recall20'])} | "
                      f"{_cell(a['map20'])} | {v['coverage']:.4f} | {_cell(a['low20'])} | {r['fit_seconds']} |")
     L += ["", "## NDCG@20 по активности пользователя", "",
-          "Лёгкие пользователи (10–49 оценок) — профиль реальных пользователей приложения.", "",
+          "Целевые группы — читающие, 50–199 и 200+ оценок; 20–49 — вторична.", "",
           "| модель | " + " | ".join(BUCKET_ORDER) + " |", "|---|" + "---|" * len(BUCKET_ORDER)]
     for n in names:
         for v in tests[n]["variants"]:

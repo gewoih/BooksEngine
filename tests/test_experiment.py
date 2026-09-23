@@ -97,7 +97,7 @@ def test_run_core_refuses_saved_model_with_other_params(data):
     ex.build_common_split(cores, split, tmp / "common")
     bad = tmp / "m" / "popularity"
     bad.mkdir(parents=True)
-    (bad / "params.json").write_text(json.dumps({"formula": "count", "m": 0.0}))
+    (bad / "params.json").write_text(json.dumps({"formula": "bayes_log", "m": 1000.0}))
     with pytest.raises(ValueError, match="настройки"):
         _run(cores, split, tmp, "old", tmp / "m")
 

@@ -77,3 +77,21 @@ def test_test_reuses_model_saved_by_tune(tmp_path, monkeypatch):
     monkeypatch.setattr(Popularity, "fit", no_fit)
     res = evaluate.test("popularity", ratings_path=rp, split_dir=sd, eval_dir=ed, models_dir=md)
     assert res["n_users"] == n_test
+
+
+def test_negative_signal_control_is_not_selectable():
+    assert not evaluate.deployable("als_neg", {"neg_rule": "none"})
+    assert evaluate.deployable("als_neg", {"neg_rule": "le2", "neg_weight": 0.0})
+
+
+def test_saved_model_reused_when_only_score_settings_differ(tmp_path):
+    from booksengine.model.base import write_params
+    write_params(tmp_path, {"factors": 8, "alpha": 1.0, "neg_rule": "none", "neg_weight": 0.0})
+    assert evaluate._saved_matches(tmp_path, {"factors": 8, "alpha": 1.0})
+    assert not evaluate._saved_matches(tmp_path, {"factors": 16, "alpha": 1.0})
+
+
+def test_only_full_ease_needs_refit():
+    assert evaluate._needs_refit("ease", [{"topk": 100}, {"topk": None}])
+    assert not evaluate._needs_refit("ease", [{"topk": 100}])
+    assert not evaluate._needs_refit("als_neg", [{"neg_rule": "le2", "neg_weight": 0.0}, {"neg_rule": "none"}])

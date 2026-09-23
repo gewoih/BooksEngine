@@ -20,11 +20,12 @@ from booksengine.model.evaluate import MODELS, run_eval
 from booksengine.model.matrix import columns, load_holdout, load_train
 from booksengine.model.series import SeriesIndex, exclusion, without_started_series
 
-# Лучшие по валидации 3a (models/eval/*_test.json); здесь не перебираются.
+# Лучшие по валидации вне начатых серий (models/eval/{popularity,als_neg,knn}_test.json, 2026-09-23);
+# здесь не перебираются.
 FIXED: dict[str, tuple[dict, dict]] = {
-    "popularity": ({"formula": "bayes_log", "m": 1000.0}, {}),
-    "als": ({"factors": 64, "regularization": 0.1, "alpha": 1.0}, {}),
-    "knn": ({"beta": 0.0, "k_max": 200}, {"k": 50, "normalize": False}),
+    "popularity": ({"formula": "count", "m": 0.0}, {}),
+    "als": ({"factors": 128, "regularization": 0.1, "alpha": 1.0}, {"neg_rule": "le2", "neg_weight": 0.0}),
+    "knn": ({"beta": 50.0, "k_max": 200}, {"k": 3, "normalize": False}),
 }
 
 
