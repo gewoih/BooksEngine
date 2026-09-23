@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from booksengine.model import chance, evaluate, split
+from booksengine.model.base import fingerprint
 from tests.test_evaluate import _QUOTA, _write_works
 from tests.test_split import synthetic_ratings, synthetic_users
 
@@ -51,6 +52,6 @@ def test_calibrate_end_to_end(tmp_path):
     evaluate.tune("popularity", ratings_path=rp, split_dir=sd, eval_dir=ed, models_dir=md,
                   grid=[({"formula": "count", "m": 0.0}, [{}])])
     out = chance.calibrate("popularity", ratings_path=rp, split_dir=sd, models_dir=md, eval_dir=ed)
-    saved = chance.Chance.load(md / "popularity" / "chance.json", chance.fingerprint(md / "popularity"))
+    saved = chance.Chance.load(md / "popularity" / "chance.json", fingerprint(md / "popularity"))
     assert saved.coef == out["chance"]["coef"]
     assert "место + щедрость" in json.loads((ed / "chance_popularity.json").read_text())["test"]

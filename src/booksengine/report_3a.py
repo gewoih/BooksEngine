@@ -6,8 +6,8 @@ from booksengine.model.split import BUCKET_ORDER
 from booksengine.paths import EVAL_DIR, REPORTS_DIR, SPLIT_DIR
 
 NAMES = {"popularity": "Популярность", "als": "ALS", "als_neg": "ALS", "knn": "item-kNN",
-         "ease": "EASE^R"}
-ORDER = ["popularity", "als", "als_neg", "knn", "ease"]
+         "mix": "Смесь ALS + EASE", "ease": "EASE^R"}
+ORDER = ["popularity", "als", "als_neg", "knn", "ease", "mix"]
 
 
 def _n(x: int) -> str:

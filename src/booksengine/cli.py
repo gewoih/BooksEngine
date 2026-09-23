@@ -50,7 +50,7 @@ def split(force: bool = typer.Option(False, "--force", help="пересобра�
 
 
 @app.command()
-def evaluate(model: str = typer.Argument(..., help="popularity | als | als_neg | knn | ease"),
+def evaluate(model: str = typer.Argument(..., help="popularity | als | als_neg | knn | ease | mix"),
              stage: str = typer.Option("val", help="val — перебор настроек; test — замер лучшей и сохранение")) -> None:
     """Метрики модели на валидации или тесте (models/eval/)."""
     from booksengine.model import evaluate as ev
@@ -63,7 +63,7 @@ def evaluate(model: str = typer.Argument(..., help="popularity | als | als_neg |
 
 
 @app.command()
-def calibrate(model: str = typer.Argument("als_neg", help="сохранённая модель в models/")) -> None:
+def calibrate(model: str = typer.Argument("mix", help="сохранённая модель в models/")) -> None:
     """Шанс «понравится» (п. 29): учится на валидации, проверяется на тесте → models/<model>/chance.json."""
     import json
 

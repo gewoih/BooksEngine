@@ -9,7 +9,6 @@
 Учится на скрытых прочитанных книгах валидации, проверяется на тесте: это шанс «понравится, если прочтёте».
 Коэффициенты — три числа и a, p0 (переносятся в C#); файл привязан к отпечатку весов модели.
 """
-import hashlib
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -18,6 +17,7 @@ import numpy as np
 import pandas as pd
 
 from booksengine.model import metrics
+from booksengine.model.base import fingerprint
 from booksengine.model.matrix import Holdout
 
 PRIOR_GRID = (1.0, 3.0, 10.0, 30.0, 100.0)
@@ -145,15 +145,6 @@ def reliability(y: np.ndarray, p: np.ndarray, bins=(0, .3, .4, .5, .6, .7, .8, .
         n=("y", "size"), promised=("p", "mean"), actual=("y", "mean"))
     return [{"bin": str(i), "n": int(r.n), "promised": float(r.promised), "actual": float(r.actual)}
             for i, r in t.iterrows()]
-
-
-def fingerprint(path: Path) -> str:
-    """Отпечаток сохранённых весов модели (все .npy/.npz папки)."""
-    h = hashlib.blake2b(digest_size=16)
-    for f in sorted(path.glob("*.np[yz]")):
-        h.update(f.name.encode())
-        h.update(f.read_bytes())
-    return h.hexdigest()
 
 
 def calibrate(name: str, *, ratings_path: Path, split_dir: Path, models_dir: Path, eval_dir: Path) -> dict:

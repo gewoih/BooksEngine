@@ -12,6 +12,7 @@ from booksengine.model.als import ALS
 from booksengine.model.ease import EASE
 from booksengine.model.knn import ItemKNN
 from booksengine.model.matrix import Holdout, load_holdout, load_train
+from booksengine.model.mix import Mix
 from booksengine.model.popularity import Popularity
 from booksengine.model.series import SeriesIndex, without_started_series
 from booksengine.paths import CLEAN_DIR, EVAL_DIR, MODELS_DIR, SPLIT_DIR
@@ -31,6 +32,9 @@ MODELS: dict[str, tuple[type, list[tuple[dict, list[dict]]]]] = {
     # normalize=True снят: на валидации NDCG@20 0.003–0.014 против 0.24 (2026-09-23)
     "knn": (ItemKNN, [({"beta": b, "k_max": 200}, [{"k": k, "normalize": False} for k in (3, 5, 7, 10, 20, 50)])
                       for b in (0.0, 50.0)]),
+    # п. 24: смесь готовых als_neg и ease (вход EASE по оценке −2/−1/0/1/2); 0 — чистый EASE, 1 — чистый ALS
+    "mix": (Mix, [({"als_dir": str(MODELS_DIR / "als_neg"), "ease_dir": str(MODELS_DIR / "ease")},
+                   [{"als_weight": w} for w in (0.0, 0.5, 0.6, 0.65, 0.7, 0.75, 0.8, 1.0)])]),
     "ease": (EASE, [({"lam": lam, "n_top": 20_000}, [{"topk": t} for t in (None, 100, 500)])
                     for lam in (100.0, 500.0, 2000.0)]),
 }

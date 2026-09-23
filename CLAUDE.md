@@ -28,17 +28,13 @@
 
 После каждого этапа — стоп, показ результата, ждём подтверждения.
 
-**Текущий статус (2026-09-23):** этапы 1, 2 и подэтап 3a закрыты. Очистка ужесточена
-(не-книги, дубли, однообразные оценщики, k-core по книге 100 — `docs/resheniya.md`, «очистка»).
-В 3b закрыт п. 26: k-core по пользователю поднят до 20, протокол сплита — по хэшу внешнего id
-(`docs/resheniya.md`, «порог по пользователю и протокол сплита»); модели переоценены на новом тесте.
-П. 8 закрыт: негативный сигнал ALS на fold-in (`models/als_neg`, `docs/resheniya.md`, «негативный
-сигнал»). Основная метрика — вне начатых серий. Текущие модели: ALS — 128 координат, «≤ 2»
-(`models/als_neg`) — основная; kNN — k = 3, β = 50 (`models/knn`) — для объяснений. Гибрид ALS + kNN (п. 23)
-отклонён: вето kNN стоит 10% NDCG, как сильный негативный сигнал ALS (`docs/resheniya.md`, «гибрид»).
-Пп. 9 и 25 не нужны (`docs/resheniya.md`, «порог выдачи»). П. 29 закрыт: шанс «понравится» в процентах
-(`models/als_neg/chance.json`, `docs/resheniya.md`, «шанс понравится»). В 3b открыт п. 24: EASE на валидации
-точнее ALS на треть (NDCG@20 0.252 против 0.189), но Low@20 14.7% против 9.6% — тест и профиль, затем 3c.
+**Текущий статус (2026-09-23):** этапы 1, 2 и подэтапы 3a, 3b закрыты. Очистка ужесточена
+(не-книги, дубли, однообразные оценщики, k-core (20, 100) — `docs/resheniya.md`, «очистка», «порог по пользователю»).
+Основная метрика — вне начатых серий. **Основная модель — смесь ALS + EASE 50/50** (`models/mix`, `docs/resheniya.md`,
+«смесь ALS и EASE»): ALS 128 координат, «≤ 2» (`models/als_neg`) + EASE λ = 500, 500 соседей (`models/ease`), вход
+EASE по оценке −2/−1/0/1/2; тест NDCG@20 0.251, Low@20 8.6% (ALS — 0.192 / 9.0%). Шанс «понравится» в процентах —
+`models/mix/chance.json` (п. 29). kNN (k = 3, β = 50, `models/knn`) — кандидат для объяснений. Отклонены: гибрид
+ALS + kNN (п. 23), порог выдачи (п. 25), кластеры вкуса (п. 9). Следующий — 3c: п. 19 (поиск), затем п. 11 (демо).
 
 ## Стек и структура
 
@@ -60,7 +56,8 @@
 | `src/booksengine/data/validate.py` | инварианты очищенных данных (нарушение — исключение) |
 | `src/booksengine/report.py` | генерация `reports/stage1_report.md` из profile + manifest |
 | `src/booksengine/db_load.py` | `load-db`: parquet каталога → PostgreSQL (COPY, external_ids, upsert, сверка с manifest) |
-| `src/booksengine/model/` | сплит, метрики, модели (popularity, als, knn, ease), `evaluate` |
+| `src/booksengine/model/` | сплит, метрики, модели (popularity, als, knn, ease, mix), `evaluate` |
+| `src/booksengine/model/mix.py` | основная модель: смесь готовых ALS и EASE (вход EASE по оценке), без своего обучения |
 | `src/booksengine/model/chance.py` | шанс «понравится» в процентах: место в личном рейтинге + щедрость человека |
 | `src/booksengine/model/series.py` | серии из названий; продолжения начатых серий — вне выдачи и вне проверки |
 | `src/booksengine/model/experiment.py` | `booksengine exp`: сравнение вариантов ядра (правила, пороги) на общем тесте |
@@ -85,7 +82,8 @@ docker compose up -d                                        # PostgreSQL + pgvec
 uv run booksengine load-db [--force]                        # каталог → БД; тот же manifest повторно не грузится
 uv run booksengine split [--force]                    # отложенная выборка → data/model/split/
 uv run booksengine evaluate <model> --stage val|test  # перебор настроек (модель сохраняется) / замер на тесте
-uv run booksengine calibrate [model]                  # шанс «понравится» (п. 29) → models/<model>/chance.json
+uv run booksengine calibrate [model]                  # шанс «понравится» (по умолчанию mix) → models/<model>/chance.json
+# смесь (mix) не обучается: после переобучения als_neg или ease — `evaluate mix --stage val`, затем `calibrate mix`
 uv run booksengine report-3a                          # reports/stage3a_report.md
 
 # сравнить вариант очистки с текущим: сохранить ядро, поменять config, prepare --force, затем
