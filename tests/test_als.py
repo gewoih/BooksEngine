@@ -50,14 +50,6 @@ def test_fold_in_middle_rating_stays_liked():
     np.testing.assert_allclose(out, [[1.0, 1.0, 1.0]], atol=1e-6)
 
 
-def test_fold_in_relative_rule_depends_on_own_mean():
-    r = _row(5, 5, 2.5)  # средняя 4.17: 2.5 на 1.67 ниже — отрицательная по mu-1.5, но не по le2
-    np.testing.assert_allclose(_identity_model(n=3, neg_rule="mu-1.5", neg_weight=1.0).fold_in(r)[0, 2], -1.0,
-                               atol=1e-6)
-    np.testing.assert_allclose(_identity_model(n=3, neg_rule="le2", neg_weight=1.0).fold_in(r)[0, 2], 1.0,
-                               atol=1e-6)
-
-
 def test_configure_rejects_unknown_rule():
     with pytest.raises(ValueError):
         ALS().configure(neg_rule="sometimes")

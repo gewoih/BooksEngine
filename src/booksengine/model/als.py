@@ -5,7 +5,7 @@ x_u = (YᵀY + Yᵀ(C_u − I)Y + λI)⁻¹ · YᵀC_u·p_u, где p_u = 1 на
 
 Негативный сигнал (TODO п. 8) — настройка выдачи, обучение не меняет: низкая оценка по правилу
 `neg_rule` получает p = −1 и уверенность c = 1 + β (`neg_weight`) — вектор человека отталкивается
-от соседей книги, а не притягивается. Правила: «le2» — r ≤ 2; «mu-1.5» — r ≤ μ_u − 1.5 (своя средняя).
+от соседей книги, а не притягивается. Правило «le2» — r ≤ 2 («не понравилось»).
 """
 from pathlib import Path
 
@@ -16,15 +16,11 @@ from booksengine.model.base import read_params, write_params
 from booksengine.model.matrix import RatingMatrix
 from booksengine.model.split import SEED
 
-NEG_RULES = ("none", "le2", "mu-1.5")
+NEG_RULES = ("none", "le2")
 
 
 def negative_mask(r: np.ndarray, rule: str) -> np.ndarray:
-    if rule == "none":
-        return np.zeros(len(r), dtype=bool)
-    if rule == "le2":
-        return r <= 2.0
-    return r <= r.mean() - 1.5
+    return r <= 2.0 if rule == "le2" else np.zeros(len(r), dtype=bool)
 
 
 class ALS:

@@ -26,6 +26,7 @@ class Holdout:
     inputs: sp.csr_matrix          # вход fold-in, те же столбцы, что у обучения
     hidden_cols: list[np.ndarray]  # скрытые произведения пользователя (номера столбцов)
     hidden_ratings: list[np.ndarray]
+    exclude: sp.csr_matrix | None = None  # не советовать: вход и продолжения начатых серий; None — только вход
 
 
 def columns(work_ids: np.ndarray, wanted: np.ndarray) -> np.ndarray:

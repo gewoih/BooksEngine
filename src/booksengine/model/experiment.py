@@ -18,6 +18,7 @@ from booksengine.model import metrics
 from booksengine.model.base import read_params
 from booksengine.model.evaluate import MODELS, run_eval
 from booksengine.model.matrix import columns, load_holdout, load_train
+from booksengine.model.series import SeriesIndex, exclusion, without_started_series
 
 # Лучшие по валидации 3a (models/eval/*_test.json); здесь не перебираются.
 FIXED: dict[str, tuple[dict, dict]] = {
@@ -114,16 +115,18 @@ def _model(m: str, path: Path, train):
 def run_core(name: str, *, ratings_path: Path, works_path: Path, common_dir: Path, holdout_path: Path,
              profile_path: Path, model_dir: Path, eval_dir: Path, models=("popularity", "als", "knn")) -> dict:
     train = load_train(ratings_path, holdout_path)
-    hold = load_holdout(common_dir, "test", train.work_ids)
+    series = SeriesIndex.from_works(works_path, train.work_ids)
+    hold = without_started_series(load_holdout(common_dir, "test", train.work_ids), series)
     titles = duckdb.execute("SELECT work_id, title FROM read_parquet(?)", [str(works_path)]).df() \
         .set_index("work_id")["title"]
     prof = _profile_input(profile_path, train.work_ids)
+    prof_ex = exclusion(prof, series)
     out = {"core": name, "n_users": int(len(hold.user_ids)), "models": {}}
     eval_dir.mkdir(parents=True, exist_ok=True)
     for m in models:
         model, fit_s = _model(m, model_dir / m, train)
         per_user, cov = run_eval(model, hold)
-        top = metrics.top_k(model.score(prof), prof, min(metrics.K, prof.shape[1]))[0]
+        top = metrics.top_k(model.score(prof), prof_ex, min(metrics.K, prof.shape[1]))[0]
         out["models"][m] = {"fit_seconds": fit_s, "summary": metrics.summarize(per_user), "coverage": cov,
                             "profile": [str(titles.get(train.work_ids[c], c)) for c in top if c >= 0]}
         print(f"{name} {m}: NDCG@20 = {out['models'][m]['summary']['all']['ndcg20']['mean']}", flush=True)

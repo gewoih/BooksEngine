@@ -27,6 +27,12 @@ def test_run_eval_counts_hidden_book_without_train_ratings_as_miss():
     assert cov == 0.8  # 20 из 25 книг, прочитанная книга 0 в топ не попала
 
 
+def _write_works(r, tmp_path):
+    """works.parquet рядом с ratings.parquet — стенд берёт из него серии."""
+    ids = sorted(r.work_id.unique())
+    pd.DataFrame({"work_id": ids, "title": [f"Book {i}" for i in ids]}).to_parquet(tmp_path / "works.parquet")
+
+
 _QUOTA = dict(test_per_bucket={"20-49": 10}, val_per_bucket={"20-49": 5}, bucket_pool_size={"20-49": 60})
 
 
@@ -34,6 +40,7 @@ def test_tune_and_test_end_to_end(tmp_path):
     rp = tmp_path / "ratings.parquet"
     r = synthetic_ratings(n_users=60)
     r.to_parquet(rp, index=False)
+    _write_works(r, tmp_path)
     up = tmp_path / "users.parquet"
     synthetic_users(r.user_id.unique()).to_parquet(up, index=False)
     sd = tmp_path / "split"
@@ -55,6 +62,7 @@ def test_test_reuses_model_saved_by_tune(tmp_path, monkeypatch):
     rp = tmp_path / "ratings.parquet"
     r = synthetic_ratings(n_users=60)
     r.to_parquet(rp, index=False)
+    _write_works(r, tmp_path)
     up = tmp_path / "users.parquet"
     synthetic_users(r.user_id.unique()).to_parquet(up, index=False)
     sd = tmp_path / "split"

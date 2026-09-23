@@ -13,6 +13,7 @@ from booksengine.model.ease import EASE
 from booksengine.model.knn import ItemKNN
 from booksengine.model.matrix import Holdout, load_holdout, load_train
 from booksengine.model.popularity import Popularity
+from booksengine.model.series import SeriesIndex, without_started_series
 from booksengine.paths import CLEAN_DIR, EVAL_DIR, MODELS_DIR, SPLIT_DIR
 
 RATINGS = CLEAN_DIR / "ratings.parquet"
@@ -23,12 +24,12 @@ MODELS: dict[str, tuple[type, list[tuple[dict, list[dict]]]]] = {
                    + [({"formula": f, "m": m}, [{}]) for f in ("bayes", "bayes_log") for m in (10.0, 100.0, 1000.0)]),
     "als": (ALS, [({"factors": f, "regularization": r, "alpha": a}, [{}])
                   for f in (64, 128, 256) for r in (0.01, 0.1) for a in (1.0, 10.0)]),
-    # п. 8: лучшая настройка обучения als, перебор только правил негативного сигнала на fold-in
+    # п. 8: лучшая настройка обучения als, перебор веса негативного сигнала «≤ 2» на fold-in
     "als_neg": (ALS, [({"factors": 64, "regularization": 0.1, "alpha": 1.0},
-                       [{"neg_rule": "none"}] + [{"neg_rule": rule, "neg_weight": b}
-                                                 for rule in ("le2", "mu-1.5") for b in (0.0, 1.0, 3.0, 10.0)])]),
-    "knn": (ItemKNN, [({"beta": b, "k_max": 200}, [{"k": k, "normalize": n} for k in (50, 100, 200)
-                                                   for n in (False, True)]) for b in (0.0, 50.0)]),
+                       [{"neg_rule": "none"}] + [{"neg_rule": "le2", "neg_weight": b} for b in (0.0, 1.0, 3.0, 10.0)])]),
+    # normalize=True снят: на валидации NDCG@20 0.003–0.014 против 0.24 (2026-09-23)
+    "knn": (ItemKNN, [({"beta": b, "k_max": 200}, [{"k": k, "normalize": False} for k in (3, 5, 7, 10, 20, 50)])
+                      for b in (0.0, 50.0)]),
     "ease": (EASE, [({"lam": lam, "n_top": 20_000}, [{"topk": t} for t in (None, 100, 500)])
                     for lam in (100.0, 500.0, 2000.0)]),
 }
@@ -44,9 +45,10 @@ def run_eval(model, hold: Holdout, batch: int = 500) -> tuple[pd.DataFrame, floa
     n_items = hold.inputs.shape[1]
     k = min(metrics.K, n_items)
     rows, tops = [], []
+    exclude = hold.inputs if hold.exclude is None else hold.exclude
     for s in range(0, len(hold.user_ids), batch):
         X = hold.inputs[s:s + batch]
-        top = metrics.top_k(model.score(X), X, k)
+        top = metrics.top_k(model.score(X), exclude[s:s + batch], k)
         tops.append(top)
         for i, t in enumerate(top):
             rows.append(metrics.user_metrics(t, hold.hidden_cols[s + i], hold.hidden_ratings[s + i]))
@@ -54,6 +56,12 @@ def run_eval(model, hold: Holdout, batch: int = 500) -> tuple[pd.DataFrame, floa
     per_user["bucket"] = hold.buckets
     per_user["user_id"] = hold.user_ids
     return per_user, metrics.coverage(np.concatenate(tops), n_items)
+
+
+def load_eval_holdout(ratings_path: Path, split_dir: Path, group: str, work_ids: np.ndarray) -> Holdout:
+    """Отложенная группа без продолжений начатых серий (works.parquet лежит рядом с ratings.parquet)."""
+    hold = load_holdout(split_dir, group, work_ids)
+    return without_started_series(hold, SeriesIndex.from_works(ratings_path.parent / "works.parquet", work_ids))
 
 
 def _best(val: list[dict], name: str) -> dict:
@@ -77,7 +85,7 @@ def tune(name: str, *, ratings_path: Path = RATINGS, split_dir: Path = SPLIT_DIR
     eval_dir.mkdir(parents=True, exist_ok=True)
     best_ndcg = -1.0
     train = load_train(ratings_path, split_dir / "holdout_users.parquet")
-    hold = load_holdout(split_dir, "val", train.work_ids)
+    hold = load_eval_holdout(ratings_path, split_dir, "val", train.work_ids)
     results = []
     for fit_params, score_grid in grid or default_grid:
         model = cls(**fit_params)
@@ -111,7 +119,7 @@ def test(name: str, *, ratings_path: Path = RATINGS, split_dir: Path = SPLIT_DIR
     val = json.loads((eval_dir / f"{name}_val.json").read_text())
     best = _best(val, name)
     train = load_train(ratings_path, split_dir / "holdout_users.parquet")
-    hold = load_holdout(split_dir, "test", train.work_ids)
+    hold = load_eval_holdout(ratings_path, split_dir, "test", train.work_ids)
     same_fit = [r for r in val if r["fit_params"] == best["fit_params"]]
     top_any = max(same_fit, key=lambda r: r["summary"]["all"]["ndcg20"]["mean"] or -1.0)
     variants = [best["score_params"]] + ([top_any["score_params"]] if top_any is not best else [])
