@@ -394,9 +394,12 @@ def profiles(*, clean_dir: Path, models_dir: Path, profiles_dir: Path, top: int 
 
 
 # TODO п. 38, идея 1: подбор толпы «ценность» — регуляризация λ и веса звёзд на входе (1★ … 5★).
-# (500, W0) — нынешний models/ease_like, не переобучается. W1: 3★ — слабый плюс «прочитал»; W2: пятёрка весит больше.
+# Сохранённый models/ease_like всегда в сравнении и не переобучается. W1: 3★ — слабый плюс «прочитал»; W2: пятёрка
+# весит больше; W3 (предложение пользователя): всё положительно и удваивается — пятёрка в 16 раз весомее единицы,
+# сигнала «не понравилось» на входе нет (масштаб не важен — только отношения).
 W0, W1, W2 = (-2.0, -1.0, 0.0, 1.0, 2.0), (-2.0, -1.0, 0.5, 1.0, 2.0), (-2.0, -1.0, 0.0, 1.0, 3.0)
-LIKE_GRID = [(500.0, W0), (250.0, W0), (1000.0, W0), (500.0, W1), (500.0, W2)]
+W3 = (2.0, 4.0, 8.0, 16.0, 32.0)
+LIKE_GRID = [(500.0, W0), (250.0, W0), (1000.0, W0), (500.0, W1), (500.0, W2), (500.0, W3)]
 LIKE_JUDGED = (Variant("like", 0.1, None, 0.25), Variant("like", 0.0, None, 0.25))   # выбранный вариант и без вкуса
 
 
@@ -417,6 +420,9 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
     base = Layers.from_models(models_dir)
     ref = Variant(*REFERENCE)
     saved = read_params(models_dir / "ease_like") if (models_dir / "ease_like" / "params.json").exists() else {}
+    if saved:  # сохранённая толпа — всегда точка сравнения: без неё прогон из одной настройки записал бы худшую
+        cur = (float(saved["lam"]), tuple(saved.get("weights", W0)))
+        grid = [cur] + [g for g in grid if (float(g[0]), tuple(g[1])) != cur]
     results, best, best_model = [], None, None
     eval_dir.mkdir(parents=True, exist_ok=True)
     for lam, weights in grid:

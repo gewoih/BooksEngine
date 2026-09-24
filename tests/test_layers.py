@@ -184,3 +184,7 @@ def test_tune_like_trains_grid_and_saves_best(world):
     again = ly.tune_like(clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval",
                          grid=[(best["lam"], tuple(best["weights"]))], fit_kw={"topk": 20})
     assert again["results"][0]["saved"]                 # сохранённая настройка не переобучается
+    other = (7.0, ly.W3)
+    res3 = ly.tune_like(clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval", grid=[other],
+                        fit_kw={"topk": 20})
+    assert [(r["lam"], tuple(r["weights"])) for r in res3["results"]] == [(best["lam"], tuple(best["weights"])), other]

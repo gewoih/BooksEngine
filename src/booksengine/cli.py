@@ -156,12 +156,19 @@ def ease_like(lam: float = typer.Option(500.0, help="регуляризация 
 
 
 @app.command("ease-like-tune")
-def ease_like_tune() -> None:
-    """П. 38: подбор толпы «ценность» (λ, веса звёзд) на валидации → лучшая в models/ease_like; ~40–60 мин."""
+def ease_like_tune(lam: float = typer.Option(None, help="одна настройка вместо сетки: λ"),
+                   weights: str = typer.Option(None, help="одна настройка: веса 1★…5★ через запятую, например 2,4,8,16,32")
+                   ) -> None:
+    """П. 38: подбор толпы «ценность» (λ, веса звёзд) на валидации → лучшая в models/ease_like; сетка ~50–70 мин.
+    Сохранённая толпа всегда в сравнении; --lam / --weights — проверить одну настройку против неё."""
     from booksengine.model import layers as ly
     from booksengine.paths import CLEAN_DIR, EVAL_DIR, MODELS_DIR, REPORTS_DIR, SPLIT_DIR
+    grid = ly.LIKE_GRID
+    if lam is not None or weights:
+        grid = [(lam if lam is not None else 500.0,
+                 tuple(float(w) for w in weights.split(",")) if weights else ly.W0)]
     text = ly.report_like(ly.tune_like(clean_dir=CLEAN_DIR, split_dir=SPLIT_DIR, models_dir=MODELS_DIR,
-                                       eval_dir=EVAL_DIR))
+                                       eval_dir=EVAL_DIR, grid=grid))
     REPORTS_DIR.mkdir(exist_ok=True)
     (REPORTS_DIR / "ease_like_tune.md").write_text(text)
     print(text)
