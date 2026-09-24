@@ -43,7 +43,7 @@ MODELS: dict[str, tuple[type, list[tuple[dict, list[dict]]]]] = {
 
 def deployable(name: str, score_params: dict) -> bool:
     """Можно ли выбрать настройку: полная матрица EASE в БД не ложится; ALS без негативного сигнала —
-    контроль для сверки, правило «≤ 2» зафиксировано (docs/resheniya.md, «негативный сигнал»)."""
+    контроль для сверки, правило «≤ 2» зафиксировано."""
     if name == "ease" and score_params.get("topk") is None:
         return False
     return not (name == "als_neg" and score_params.get("neg_rule") == "none")

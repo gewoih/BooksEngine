@@ -246,7 +246,7 @@ goodreads_interactions.csv (user_id_csv, book_id_csv, is_read, rating 0–5, is_
         w(f"- **Однообразные: ≥ {uc['monotone_max_mode_share']:.0%} оценок одного значения — "
           f"−{_n(mo['users_before'] - mo['users_after'])} пользователей, −{_n(mo['rows_removed'])} оценок "
           f"({_pct(mo['rows_removed'], total_explicit)}).** Шире правила разброса: «95% пятёрок и пара четвёрок» — "
-          "вкуса относительно своей средней не видно. Решение 2026-09-23 (`docs/resheniya.md`).\n")
+          "вкуса относительно своей средней не видно. Решение 2026-09-23.\n")
     for rule, text in (("nonbooks", "Не-книги (ноты, раскраски, календари, аудиокурсы; шаблоны названия, "
                                     "`config/cleaning.yaml` → `nonbooks`)"),
                        ("duplicates", "Слияние дублей: «теневое» произведение той же книги → главное "

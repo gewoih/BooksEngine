@@ -153,7 +153,7 @@ def reliability(y: np.ndarray, p: np.ndarray, bins=(0, .3, .4, .5, .6, .7, .8, .
 
 def with_taste(obs_fit: pd.DataFrame, obs: pd.DataFrame, prior: float, p0: float) -> np.ndarray:
     """Сравнение (только замер): место + щедрость + прогноз оценки модели вкуса. В шанс не входит — книга ниже
-    в списке могла бы получить больший процент (docs/resheniya.md, «шанс», «какой моделью»)."""
+    в списке могла бы получить больший процент."""
     def X(d):
         own = (d.k_like.to_numpy() + prior * p0) / (d.n_rated.to_numpy() + prior)
         return np.column_stack([np.ones(len(d)), np.log10(d.pct.to_numpy()), _logit(own), d.taste.to_numpy() - 3.0])
