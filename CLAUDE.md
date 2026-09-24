@@ -70,6 +70,7 @@ Goodreads); выдачу считает C# по модели из `export-model`
 | `src/booksengine/model/filters.py` | фильтр выдачи «уже оценено по сути»: дубли, сборники с оценёнными книгами, части оценённых сборников |
 | `src/booksengine/recommend.py` | `recommend`: CSV (`goodreads_work_id`, `rating` 1–5) → топ смеси с шансом и объяснением |
 | `src/booksengine/model/series.py` | серии из названий; продолжения начатых серий — вне выдачи и вне проверки |
+| `src/booksengine/model/ease_size.py` | `booksengine ease-size`: замер к п. 32 — что теряется из-за 20 000 книг EASE (профили, тест, выдача ALS по диапазонам мест) |
 | `src/booksengine/model/experiment.py` | `booksengine exp`: сравнение вариантов ядра (правила, пороги) на общем тесте |
 | `src/booksengine/report_3a.py`, `report_exp.py` | отчёты `stage3a_report.md` и `cleanup_experiment.md` из JSON в `models/eval/` |
 | `models/` | gitignored: артефакты моделей и `eval/*.json` |
@@ -99,6 +100,7 @@ uv run booksengine evaluate <model> --stage val|test  # перебор наст�
 uv run booksengine calibrate [model]                  # шанс «понравится» (по умолчанию mix) → models/<model>/chance.json
 # смесь (mix) не обучается: после переобучения als_neg или ease — `evaluate mix --stage val`, затем `calibrate mix`
 uv run booksengine report-3a                          # reports/stage3a_report.md
+uv run booksengine ease-size                          # reports/ease_size.md — замер к п. 32 (размер EASE)
 uv run booksengine recommend --ratings profiles/my_ratings.csv [--top 20]  # рекомендации по CSV
 
 # веб-интерфейс
