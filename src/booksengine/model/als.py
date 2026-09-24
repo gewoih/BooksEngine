@@ -61,20 +61,25 @@ class ALS:
             raise ValueError(f"neg_rule: {' | '.join(NEG_RULES)}, а не {neg_rule!r}")
         self.neg_rule, self.neg_weight = neg_rule, float(neg_weight)
 
+    def fold_in_system(self, cols: np.ndarray, r: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Fold-in одного человека как A·x = Yuᵀ·w: вектор x — сумма вкладов книг входа w_i·A⁻¹y_i
+        (на этом держится объяснение выдачи, `model/explain.py`). Возвращает A, Yu, w."""
+        Yu = self.item_factors[cols].astype(np.float64)
+        r = np.asarray(r, dtype=np.float64)
+        neg = negative_mask(r, self.neg_rule)
+        m = np.where(neg, self.neg_weight, self.alpha * r)  # c − 1
+        p = np.where(neg, -1.0, 1.0)
+        A = self._YtY + (Yu.T * m) @ Yu + self.regularization * np.eye(Yu.shape[1])
+        return A, Yu, (1.0 + m) * p
+
     def fold_in(self, inputs: sp.csr_matrix) -> np.ndarray:
-        Y = self.item_factors.astype(np.float64)
-        reg = self.regularization * np.eye(Y.shape[1])
-        out = np.zeros((inputs.shape[0], Y.shape[1]))
+        out = np.zeros((inputs.shape[0], self.item_factors.shape[1]))
         for u in range(inputs.shape[0]):
             s, e = inputs.indptr[u], inputs.indptr[u + 1]
             if s == e:
                 continue
-            Yu = Y[inputs.indices[s:e]]
-            r = inputs.data[s:e].astype(np.float64)
-            neg = negative_mask(r, self.neg_rule)
-            m = np.where(neg, self.neg_weight, self.alpha * r)  # c − 1
-            p = np.where(neg, -1.0, 1.0)
-            out[u] = np.linalg.solve(self._YtY + (Yu.T * m) @ Yu + reg, Yu.T @ ((1.0 + m) * p))
+            A, Yu, w = self.fold_in_system(inputs.indices[s:e], inputs.data[s:e])
+            out[u] = np.linalg.solve(A, Yu.T @ w)
         return out
 
     def score(self, inputs: sp.csr_matrix) -> np.ndarray:

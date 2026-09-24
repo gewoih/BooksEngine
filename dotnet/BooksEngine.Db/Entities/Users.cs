@@ -10,13 +10,12 @@ public class AppUser
     public DateTime CreatedAt { get; set; }
 }
 
-/// <summary>Оценка пользователя приложения: сырое значение и шкала (приложение — 1–10).</summary>
+/// <summary>Оценка пользователя приложения, 1–5 (шкала Goodreads и модели).</summary>
 public class Rating
 {
     public long UserId { get; set; }
     public long WorkId { get; set; }
     public short Value { get; set; }
-    public short ScaleMax { get; set; } = 10;
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

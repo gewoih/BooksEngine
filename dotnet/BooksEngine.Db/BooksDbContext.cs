@@ -112,12 +112,11 @@ public class BooksDbContext(DbContextOptions<BooksDbContext> options) : DbContex
         {
             e.HasKey(x => new { x.UserId, x.WorkId });
             e.HasIndex(x => x.WorkId);
-            e.Property(x => x.ScaleMax).HasDefaultValue((short)10);
             e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
             e.Property(x => x.UpdatedAt).HasDefaultValueSql("now()");
             e.HasOne<AppUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne<Work>().WithMany().HasForeignKey(x => x.WorkId).OnDelete(DeleteBehavior.Restrict);
-            e.ToTable(t => t.HasCheckConstraint("ck_ratings_value", "value BETWEEN 1 AND scale_max"));
+            e.ToTable(t => t.HasCheckConstraint("ck_ratings_value", "value BETWEEN 1 AND 5"));
         });
 
         b.Entity<ShelfEntry>(e =>

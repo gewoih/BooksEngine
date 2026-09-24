@@ -253,6 +253,18 @@ def primary_authors(con) -> None:
         GROUP BY 1""")
 
 
+def title_key_sql(col: str) -> str:
+    """Ключ названия для дублей: без хвостовой скобки («(Series, #1)») и пунктуации, буквы любых алфавитов
+    сохраняются. Общий для очистки (`find_duplicates`) и фильтра выдачи (`model/filters.py`)."""
+    return (f"trim(regexp_replace(lower(regexp_replace({col}, '\\s*\\([^)]*\\)\\s*$', '')), "
+            f"'[^\\p{{L}}\\p{{N}}]+', ' ', 'g'))")
+
+
+def series_no_sql(col: str) -> str:
+    """Номер в серии из хвоста названия издания «… #3)»; '' — номера нет."""
+    return f"regexp_extract(coalesce({col}, ''), '#\\s*(\\d+(\\.\\d+)?)\\s*\\)\\s*$', 1)"
+
+
 def find_duplicates(con, adaptation_patterns: list[str], max_shadow_share: float, table: str = "ratings_w") -> int:
     """dup_map: уверенные «тени» — то же название (без хвостовой скобки и пунктуации, буквы любых алфавитов
     сохраняются) + тот же основной автор + номер в серии не различается, не адаптация и не сборник, оценок
@@ -261,9 +273,7 @@ def find_duplicates(con, adaptation_patterns: list[str], max_shadow_share: float
     con.execute(f"""
         CREATE OR REPLACE TEMP TABLE _dup_keys AS
         SELECT w.work_id, p.author_id, c.n,
-               trim(regexp_replace(lower(regexp_replace(w.title, '\\s*\\([^)]*\\)\\s*$', '')),
-                                   '[^\\p{{L}}\\p{{N}}]+', ' ', 'g')) AS key,
-               regexp_extract(coalesce(w.best_edition_title, ''), '#\\s*(\\d+(\\.\\d+)?)\\s*\\)\\s*$', 1) AS series_no
+               {title_key_sql('w.title')} AS key, {series_no_sql('w.best_edition_title')} AS series_no
         FROM works_valid w
         JOIN work_primary p USING (work_id)
         JOIN (SELECT work_id, count(*) AS n FROM {table} GROUP BY 1) c USING (work_id)

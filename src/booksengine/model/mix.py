@@ -54,16 +54,24 @@ class Mix:
             raise ValueError("als_weight — от 0 до 1, ease_input — пять весов для оценок 1..5")
         self.als_weight, self.ease_input = float(als_weight), tuple(float(v) for v in ease_input)
 
-    def score(self, inputs: sp.csr_matrix) -> np.ndarray:
-        top = self.ease.top_cols
-        weighted = inputs[:, top].tocsr()
+    def ease_inputs(self, inputs: sp.csr_matrix) -> sp.csr_matrix:
+        """Вход EASE: столбцы — 20 000 книг EASE, значение — вес по оценке."""
+        weighted = inputs[:, self.ease.top_cols].tocsr()
         weighted.data = np.asarray(self.ease_input, np.float32)[metrics.rounded(weighted.data).astype(int) - 1]
         weighted.eliminate_zeros()  # 3★ с весом 0 — как не поданная книга
-        s_ease = weighted @ self.ease._B
+        return weighted
+
+    def components(self, inputs: sp.csr_matrix) -> tuple[np.ndarray, np.ndarray]:
+        """Баллы ALS и EASE по 20 000 книг EASE (до нормировки)."""
+        s_ease = self.ease_inputs(inputs) @ self.ease._B
         s_ease = s_ease.toarray() if sp.issparse(s_ease) else np.asarray(s_ease)
-        s_als = self.als.score(inputs)[:, top]
+        s_als = self.als.score(inputs)[:, self.ease.top_cols]
+        return s_als.astype(np.float64), s_ease.astype(np.float64)
+
+    def score(self, inputs: sp.csr_matrix) -> np.ndarray:
+        s_als, s_ease = self.components(inputs)
         out = np.full(inputs.shape, -np.inf, dtype=np.float32)
-        out[:, top] = self.als_weight * _z(s_als.astype(np.float64)) + (1 - self.als_weight) * _z(s_ease.astype(np.float64))
+        out[:, self.ease.top_cols] = self.als_weight * _z(s_als) + (1 - self.als_weight) * _z(s_ease)
         return out
 
     def save(self, path: Path) -> None:

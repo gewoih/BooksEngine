@@ -74,6 +74,17 @@ def calibrate(model: str = typer.Argument("mix", help="сохранённая м
     print(json.dumps({k: out[k] for k in ("chance", "test", "reliability")}, ensure_ascii=False, indent=1))
 
 
+@app.command()
+def recommend(ratings: str = typer.Option(..., "--ratings", help="CSV: goodreads_work_id, rating 1–5, status, title"),
+              top: int = typer.Option(20, "--top", help="сколько книг показать")) -> None:
+    """Оценки из CSV → рекомендации смеси с шансом «понравится» и объяснением (п. 11)."""
+    from pathlib import Path
+
+    from booksengine import recommend as rec
+    from booksengine.paths import CLEAN_DIR, MODELS_DIR
+    print(rec.format_result(rec.recommend(Path(ratings), clean_dir=CLEAN_DIR, models_dir=MODELS_DIR, top=top)))
+
+
 @app.command("report-3a")
 def report_3a() -> None:
     """Отчёт этапа 3a (reports/stage3a_report.md) из models/eval/*.json."""
