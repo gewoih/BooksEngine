@@ -25,8 +25,9 @@ from booksengine.model.evaluate import MODELS, load_eval_holdout
 from booksengine.model.matrix import Holdout, load_train
 from booksengine.model.split import BUCKET_ORDER
 
-MODEL_NAMES = ("mix", "ease", "als_neg", "knn")
-LABELS = {"mix": "смесь (основная)", "ease": "EASE (вход «прочитал»)", "als_neg": "ALS", "knn": "item-kNN",
+MODEL_NAMES = ("mix", "taste", "ease", "als_neg", "knn")
+LABELS = {"mix": "смесь (основная)", "taste": "модель вкуса (п. 37)", "ease": "EASE (вход «прочитал»)",
+          "als_neg": "ALS", "knn": "item-kNN",
           "book_mean": "средняя оценка книги у толпы", "book_count": "число оценок книги (популярность)"}
 
 
@@ -96,9 +97,11 @@ def summarize(per_user: dict[str, pd.DataFrame], reference: str, n_boot: int = 1
     """Личная точность с 95% бутстреп-интервалом, парная разница с reference (те же люди), угаданные в топ-20."""
     out = {}
     ref = per_user[reference].set_index("user_id")
+    mean = per_user["book_mean"].set_index("user_id") if "book_mean" in per_user else ref
     for name, d in per_user.items():
         d = d.set_index("user_id")
         diff = d.auc - ref.auc.reindex(d.index)
+        diff_mean = d.auc - mean.auc.reindex(d.index)
         parts = [("all", d.index)] + [(b, d.index[d.bucket == b]) for b in BUCKET_ORDER if (d.bucket == b).any()]
         out[name] = {}
         for part, idx in parts:
@@ -106,6 +109,7 @@ def summarize(per_user: dict[str, pd.DataFrame], reference: str, n_boot: int = 1
             hits = int(d.loc[idx, "hits"].sum())
             out[name][part] = {"auc": _boot(d.loc[idx, "auc"].to_numpy(dtype=np.float64), rng, n_boot),
                                "diff": _boot(diff.loc[idx].to_numpy(dtype=np.float64), rng, n_boot),
+                               "diff_book_mean": _boot(diff_mean.loc[idx].to_numpy(dtype=np.float64), rng, n_boot),
                                "hits_per_user": hits / max(len(idx), 1),
                                "liked_share_of_hits": d.loc[idx, "liked_hits"].sum() / hits if hits else None,
                                "liked_share_of_hidden": float(d.loc[idx, "liked_hidden"].sum()
@@ -123,17 +127,19 @@ def _fmt(x: dict, signed: bool = False) -> str:
 def report(res: dict) -> str:
     s, ref = res["summary"], res["reference"]
     groups = ["all"] + [b for b in BUCKET_ORDER if b in s[ref]]
-    lines = ["# Личная точность: понимает ли модель, что понравится (шаг 0, TODO п. 37)", "",
+    lines = ["# Личная точность: понимает ли модель, что понравится (TODO п. 37)", "",
              f"Валидация, {res['n_users']} человек, скрытые книги в EASE без продолжений начатых серий. "
              f"Личная точность — доля пар «понравилась (4–5★) / нет (1–3★)» среди скрытых книг человека, где "
              f"понравившаяся стоит выше; 0.5 — монетка. В скобках — 95% интервал; разница — с «{label(ref)}» "
              f"на тех же людях.", "",
-             "| модель | " + " | ".join(groups) + f" | разница с «{label(ref)}», все |",
-             "|---|" + "---|" * (len(groups) + 1)]
+             "| модель | " + " | ".join(groups)
+             + f" | разница с «{label(ref)}», все | разница со средней оценкой книги, все |",
+             "|---|" + "---|" * (len(groups) + 2)]
     for name, v in s.items():
         cells = [_fmt(v[g]["auc"]) for g in groups]
         lines.append(f"| {label(name)} | " + " | ".join(cells)
-                     + f" | {'—' if name == ref else _fmt(v['all']['diff'], signed=True)} |")
+                     + f" | {'—' if name == ref else _fmt(v['all']['diff'], signed=True)}"
+                     + f" | {'—' if name == 'book_mean' else _fmt(v['all']['diff_book_mean'], signed=True)} |")
     base = s[ref]["all"]["liked_share_of_hidden"]
     lines += ["", f"Угаданные в топ-20 (все): сколько скрытых книг попало в топ и сколько из них на 4–5★. "
                   f"Среди всех скрытых книг на 4–5★ — {base:.0%}.", "",
@@ -143,7 +149,9 @@ def report(res: dict) -> str:
         share = "—" if a["liked_share_of_hits"] is None else f"{a['liked_share_of_hits']:.0%}"
         lines.append(f"| {label(name)} | {a['hits_per_user']:.2f} | {share} |")
     lines += ["", "Как читать (план шага 0): если «средняя оценка книги у толпы» не хуже смеси по личной точности — "
-                  "у системы нет слоя вкуса, переходим к шагу 1 (модель вкуса должна обойти обе). Если смесь заметно "
+                  "у системы нет слоя вкуса, "
+                  "переходим к шагу 1. Шаг 1 пройден, если модель вкуса выше и смеси, и средней (обе разницы в её "
+                  "строке больше нуля, интервалы нуля не касаются). Если смесь заметно "
                   "лучше средней — разрыв меньше, чем предполагалось, план пересматривается."]
     return "\n".join(lines) + "\n"
 
@@ -153,7 +161,9 @@ def run(*, ratings_path: Path, split_dir: Path, models_dir: Path, eval_dir: Path
     """Все доступные модели из names (первая доступная — точка сравнения) и подсказки по книгам."""
     train = load_train(ratings_path, split_dir / "holdout_users.parquet")
     hold = load_eval_holdout(ratings_path, split_dir, stage, train.work_ids)
-    scorers = {n: MODELS[n][0].load(models_dir / n) for n in names if (models_dir / n / "params.json").exists()}
+    from booksengine.model.taste import Taste
+    classes = {n: c for n, (c, _) in MODELS.items()} | {"taste": Taste}
+    scorers = {n: classes[n].load(models_dir / n) for n in names if (models_dir / n / "params.json").exists()}
     scorers.update(book_scores(train.X))
     del train
     allowed = np.ones(hold.inputs.shape[1], dtype=bool)

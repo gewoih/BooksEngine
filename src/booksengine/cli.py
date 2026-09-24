@@ -96,6 +96,18 @@ def ease_size() -> None:
     print(text)
 
 
+@app.command()
+def taste() -> None:
+    """Модель вкуса (п. 37, шаг 1): перебор на валидации по личной точности → models/taste, reports/taste_val.md."""
+    from booksengine.model import taste as tm
+    from booksengine.model.evaluate import RATINGS
+    from booksengine.paths import EVAL_DIR, MODELS_DIR, REPORTS_DIR, SPLIT_DIR
+    text = tm.report(tm.tune(ratings_path=RATINGS, split_dir=SPLIT_DIR, models_dir=MODELS_DIR, eval_dir=EVAL_DIR))
+    REPORTS_DIR.mkdir(exist_ok=True)
+    (REPORTS_DIR / "taste_val.md").write_text(text)
+    print(text)
+
+
 @app.command("taste-gap")
 def taste_gap() -> None:
     """Личная точность: ставит ли модель понравившиеся книги выше непонравившихся (п. 37) → reports/taste_gap.md."""

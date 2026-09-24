@@ -71,6 +71,7 @@ Goodreads); выдачу считает C# по модели из `export-model`
 | `src/booksengine/recommend.py` | `recommend`: CSV (`goodreads_work_id`, `rating` 1–5) → топ смеси с шансом и объяснением |
 | `src/booksengine/model/series.py` | серии из названий; продолжения начатых серий — вне выдачи и вне проверки |
 | `src/booksengine/model/ease_size.py` | `booksengine ease-size`: книги профилей и теста за границей EASE (30K) по диапазонам мест, память и время — повторять для новых профилей (п. 32) |
+| `src/booksengine/model/taste.py` | модель вкуса (п. 37): прогноз оценки 1–5 со сдвигами книги и человека, fold-in по отклонениям от обычной оценки книги; `booksengine taste` — перебор по личной точности |
 | `src/booksengine/model/taste_gap.py` | `booksengine taste-gap`: личная точность — ставит ли модель понравившиеся скрытые книги выше непонравившихся (п. 37, шаг 0) |
 | `src/booksengine/model/experiment.py` | `booksengine exp`: сравнение вариантов ядра (правила, пороги) на общем тесте |
 | `src/booksengine/report_3a.py`, `report_exp.py` | отчёты `stage3a_report.md` и `cleanup_experiment.md` из JSON в `models/eval/` |
@@ -102,6 +103,7 @@ uv run booksengine calibrate [model]                  # шанс «понрав�
 # смесь (mix) не обучается: после переобучения als_neg или ease — `evaluate mix --stage val`, затем `calibrate mix`
 uv run booksengine report-3a                          # reports/stage3a_report.md
 uv run booksengine ease-size                          # reports/ease_size.md — стоит ли расширять EASE (новые профили)
+uv run booksengine taste                              # модель вкуса: перебор на валидации → models/taste, reports/taste_val.md (~1–1.5 ч)
 uv run booksengine taste-gap                          # reports/taste_gap.md — личная точность моделей на валидации (п. 37)
 uv run booksengine recommend --ratings profiles/my_ratings.csv [--top 20]  # рекомендации по CSV
 
