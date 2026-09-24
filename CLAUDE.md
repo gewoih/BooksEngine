@@ -16,9 +16,9 @@
 
 ## Модель
 
-- `recommend` и приложение пока считают старой смесью ALS + EASE (`models/mix`).
-- Лучшая по замерам — `models/layers` (ещё не подключена к `recommend`): толпа «ценность» — `EASELike`
+- `recommend` считает лучшей моделью — `models/layers` (шанс — `calibrate layers`): толпа «ценность» — `EASELike`
   (цель «оценка − 3», вход — звёзды с весами 1/2/4/8/16) + ALS с весом 0.25; модель вкуса — вес 0.
+  Каждая выдача пишется в `profiles/history/`. Приложение (C#) пока считает старой смесью (`models/mix`).
 - Судья — ценность топа на отложенных людях: сумма (оценка − 3) их скрытых книг, попавших в топ-20.
   Рядом NDCG@20 и Low@20; целевые группы — 50–199 и 200+ оценок. Тестовые люди в обучение не входят (fold-in).
 - Профили пользователя и Леры — ориентир и поиск явных дефектов глазами (продолжения серий, дубли,
@@ -35,6 +35,7 @@ uv run booksengine ease-like-tune [--weights … --force --min-user N]   # то�
 uv run booksengine layers val|test|profiles     # подбор и проверка толпа + вкус → models/layers
 uv run booksengine profile-check                # каждая книга профиля прячется — её место
 uv run booksengine why "<книга>"                # почему книга стоит на своём месте
+uv run booksengine calibrate layers             # шанс «понравится» для models/layers
 uv run booksengine recommend --ratings profiles/my_ratings.csv
 ```
 

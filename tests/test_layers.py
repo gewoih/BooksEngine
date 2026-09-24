@@ -232,3 +232,46 @@ def test_why_explains_place_of_hidden_book(world):
     pd.DataFrame({"goodreads_work_id": [100, 101, 102, 125], "rating": [5, 5, 4, 1]}).to_csv(prof / "p.csv", index=False)
     text = ly.why(clean_dir=tp, models_dir=md, profile_csv=prof / "p.csv", query="Book 101")
     assert "оценена на 5★ и спрятана" in text and "| итог |" in text and "| 125 | 1 |" in text
+
+
+def test_layers_contributions_sum_to_score(world):
+    from booksengine.model import explain
+    from booksengine.model.ease import EASELike
+    tp, sd, md = world
+    train = load_train(tp / "ratings.parquet", sd / "holdout_users.parquet")
+    like = EASELike(lam=10.0, topk=20, weights=ly.W3)
+    like.fit(train)
+    like.save(md / "ease_like")
+    mix = Mix(md / "als_neg", md / "ease_like")
+    mix.fit(train)
+    mix.configure(als_weight=0.5, ease_input=like.weights)
+    mix.save(md / "mix_like")
+    L = ly.Layers.from_models(md)
+    x = train.X[5:6]
+    cols = L.mix.ease.top_cols[:7]
+    for v in (ly.Variant("like", 0.3, None, 0.25), ly.Variant("mix", 0.5), ly.Variant("like", 0.0, None, 0.0)):
+        L.variant = v
+        in_cols, c, const = explain.layers_contributions(L, x, cols)
+        assert np.array_equal(in_cols, x.indices)
+        np.testing.assert_allclose(c.sum(axis=0) + const, L.score(x)[0, cols], atol=1e-4)
+
+
+def test_recommend_uses_layers_with_chance_and_writes_history(world):
+    from booksengine import recommend as rec
+    from booksengine.model import chance
+    tp, sd, md = world
+    ly.run("val", clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval")
+    prof = tp / "p.csv"
+    pd.DataFrame({"goodreads_work_id": [100, 101, 102, 125], "rating": [5, 5, 4, 1],
+                  "title": ["А", "Б", "В", "Г"]}).to_csv(prof, index=False)
+    with pytest.raises(FileNotFoundError, match="calibrate layers"):
+        rec.recommend(prof, clean_dir=tp, models_dir=md, top=5)
+    chance.calibrate("layers", ratings_path=tp / "ratings.parquet", split_dir=sd, models_dir=md, eval_dir=tp / "eval")
+    res = rec.recommend(prof, clean_dir=tp, models_dir=md, top=5, history_dir=tp / "history")
+    assert len(res.recs) == 5 and all(0 <= r.chance <= 100 for r in res.recs)
+    assert all(set(r.because) <= {"А", "Б", "В", "Г"} for r in res.recs)
+    hist = list((tp / "history").glob("p-*.csv"))
+    assert len(hist) == 1 and len(pd.read_csv(hist[0])) == 5
+    chance.calibrate("mix", ratings_path=tp / "ratings.parquet", split_dir=sd, models_dir=md, eval_dir=tp / "eval")
+    mix_res = rec.recommend(prof, clean_dir=tp, models_dir=md, top=5, model="mix")  # приложение — смесь
+    assert len(mix_res.recs) == 5
