@@ -24,7 +24,7 @@ from booksengine.model.base import fingerprint, read_params
 from booksengine.model.mix import Mix, _z
 from booksengine.model.split import BUCKET_ORDER
 from booksengine.model.taste import Taste
-from booksengine.model.taste_gap import personal_auc
+from booksengine.model.taste_gap import graded_auc, personal_auc
 
 # «прочитал» и отсечение 300 замерены 2026-09-24 и отклонены (docs/resheniya.md, «слой вкуса, шаг 2»):
 # толпа без звёзд — Low@20 8.7% → 11–14%, отсечение не даёт личной точности. Остаются в коде для повторного замера.
@@ -32,7 +32,10 @@ CROWDS = ("mix",)
 WEIGHTS = (0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0, 1.5)
 CUTOFFS = (None,)
 REFERENCE = ("mix", 0.0, None)     # нынешняя выдача
-CHECKED = ("ndcg20", "low20", "auc")
+CHECKED = ("ndcg20", "low20", "auc", "gauc")
+# ценность пятёрки против четвёрки (4★ = 1): 1 — «5 = 4» (обычная личная точность), 2 — как в NDCG, 3 — втрое.
+# Выбор идёт по 2; отчёт показывает, какой вес вкуса выбрали бы при каждой — чувствительность к договорённости.
+FIVE_VALUES = {"auc": 1.0, "gauc": 2.0, "gauc3": 3.0}
 
 
 @dataclass(frozen=True)
@@ -159,7 +162,11 @@ def evaluate(layers: Layers, hold, info: pd.DataFrame, variants: list[Variant], 
                 keep = hp >= 0
                 a = author[t]
                 a = a[a >= 0]
-                m.update(auc=personal_auc(sc[i, hp[keep]], hold.hidden_ratings[u][keep]),
+                hr = hold.hidden_ratings[u]
+                in_top = np.isin(hold.hidden_cols[u], top[t])
+                m.update(auc=personal_auc(sc[i, hp[keep]], hr[keep]), gauc=graded_auc(sc[i, hp[keep]], hr[keep]),
+                         gauc3=graded_auc(sc[i, hp[keep]], hr[keep], five=3.0),
+                         fives=float((metrics.rounded(hr[in_top]) >= 5).sum()),
                          later=float(later[t].mean()) if len(t) else np.nan,
                          max_author=float(np.bincount(np.unique(a, return_inverse=True)[1]).max()) if len(a) else 0.0,
                          user_id=hold.user_ids[u], bucket=hold.buckets[u])
@@ -185,7 +192,7 @@ def summarize(per_user: dict[Variant, pd.DataFrame], reference: Variant, n_boot:
         row = {"variant": asdict(v), "label": v.label(), "groups": {}}
         for name, idx in parts:
             g = {}
-            for m in CHECKED + ("recall20", "later", "max_author"):
+            for m in CHECKED + ("gauc3", "recall20", "later", "max_author", "fives"):
                 g[m] = _boot(d.loc[idx, m].to_numpy(dtype=np.float64), np.random.default_rng(0), n_boot)
             for m in CHECKED:
                 diff = (d.loc[idx, m] - ref.loc[idx, m]).to_numpy(dtype=np.float64)
@@ -202,8 +209,9 @@ def allowed(row: dict) -> bool:
     return g["ndcg20_diff"]["hi"] >= 0 and g["low20_diff"]["lo"] <= 0
 
 
-def choose(summary: list[dict]) -> dict:
-    return max((r for r in summary if allowed(r)), key=lambda r: r["groups"]["all"]["auc"]["mean"])
+def choose(summary: list[dict], metric: str = "gauc") -> dict:
+    """Из допустимых — наибольшая взвешенная личная точность (пятёрка ценнее четвёрки, решение пользователя)."""
+    return max((r for r in summary if allowed(r)), key=lambda r: r["groups"]["all"][metric]["mean"])
 
 
 def _hold(ratings_path: Path, split_dir: Path, stage: str, work_ids: np.ndarray):
@@ -231,6 +239,7 @@ def run(stage: str, *, clean_dir: Path, split_dir: Path, models_dir: Path, eval_
     if stage == "val":
         best = choose(summary)
         res["chosen"] = best["variant"]
+        res["chosen_by_five_value"] = {str(v): choose(summary, m)["label"] for m, v in FIVE_VALUES.items()}
         (models_dir / "layers").mkdir(parents=True, exist_ok=True)
         (models_dir / "layers" / "params.json").write_text(json.dumps(
             {"variant": best["variant"], "label": best["label"],
@@ -258,25 +267,31 @@ def report(res: dict) -> str:
              f"{res['n_users']} человек. Разницы — с нынешней выдачей («толпа по оценкам, вкус 0») на тех же людях, "
              f"в скобках 95% интервал. Допустим — NDCG@20 не значимо хуже и Low@20 не значимо выше (интервал разницы "
              f"касается нуля или лучше); "
-             f"из допустимых выбирается наибольшая личная точность.", "",
-             "| вариант | личная точность | разница | NDCG@20 | разница | Low@20 | разница | поздние тома | "
-             "книг одного автора (макс.) | допустим |",
-             "|---|---|---|---|---|---|---|---|---|---|"]
+             f"из допустимых выбирается наибольшая взвешенная личная точность (пятёрка ценнее четвёрки: пары "
+             f"«5 против 4» и «4 против ≤ 3» весят 1, «5 против ≤ 3» — 2).", "",
+             "| вариант | взвешенная точность | разница | личная точность (4–5 против 1–3) | NDCG@20 | разница | "
+             "Low@20 | разница | пятёрок в топ-20 на человека | поздние тома | книг одного автора (макс.) | допустим |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in res["summary"]:
         g = r["groups"]["all"]
         mark = " **← выбран**" if chosen and r["variant"] == chosen else ""
         lines.append(
-            f"| {r['label']}{mark} | {_f(g['auc'])} | {_f(g['auc_diff'], True)}{_ci(g['auc_diff'])} | "
-            f"{_f(g['ndcg20'])} | {_f(g['ndcg20_diff'], True)}{_ci(g['ndcg20_diff'])} | {_f(g['low20'], pct=True)} | "
-            f"{_f(g['low20_diff'], True, pct=True)} | {_f(g['later'], pct=True)} | {g['max_author']['mean']:.2f} | "
+            f"| {r['label']}{mark} | {_f(g['gauc'])} | {_f(g['gauc_diff'], True)}{_ci(g['gauc_diff'])} | "
+            f"{_f(g['auc'])} | {_f(g['ndcg20'])} | {_f(g['ndcg20_diff'], True)}{_ci(g['ndcg20_diff'])} | "
+            f"{_f(g['low20'], pct=True)} | {_f(g['low20_diff'], True, pct=True)} | {g['fives']['mean']:.3f} | "
+            f"{_f(g['later'], pct=True)} | {g['max_author']['mean']:.2f} | "
             f"{'да' if allowed(r) else 'нет'} |")
+    if "chosen_by_five_value" in res:
+        lines += ["", "Какой вариант выбран при разной ценности пятёрки (четвёрка = 1): "
+                  + "; ".join(f"пятёрка = {k.rstrip('0').rstrip('.')} → {v}" for k, v in res["chosen_by_five_value"].items())
+                  + ". Одинаковый выбор — точные очки на решение не влияют."]
     groups = [b for b in BUCKET_ORDER if b in res["summary"][0]["groups"]]
-    lines += ["", "По группам (личная точность / NDCG@20 / Low@20):", "",
+    lines += ["", "По группам (взвешенная точность / NDCG@20 / Low@20):", "",
               "| вариант | " + " | ".join(groups) + " |", "|---|" + "---|" * len(groups)]
     for r in res["summary"]:
         if res["stage"] == "val" and not (r["variant"] == chosen or tuple(r["variant"].values()) == REFERENCE):
             continue
-        cells = [f"{_f(r['groups'][b]['auc'])} / {_f(r['groups'][b]['ndcg20'])} / "
+        cells = [f"{_f(r['groups'][b]['gauc'])} / {_f(r['groups'][b]['ndcg20'])} / "
                  f"{_f(r['groups'][b]['low20'], pct=True)}" for b in groups]
         lines.append(f"| {r['label']} | " + " | ".join(cells) + " |")
     return "\n".join(lines) + "\n"

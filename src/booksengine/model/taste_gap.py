@@ -63,6 +63,28 @@ def personal_auc(scores: np.ndarray, ratings: np.ndarray) -> float:
     return float((r[liked].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg))
 
 
+def graded_auc(scores: np.ndarray, ratings: np.ndarray, five: float = 2.0) -> float:
+    """Взвешенная личная точность: пары скрытых книг с разной ценностью (5★ = five, 4★ = 1, ≤ 3★ = 0; по умолчанию
+    как в NDCG), вес пары — разница ценностей: при five = 2 «5 против 4» — 1, «5 против ≤ 3» — 2, «4 против ≤ 3» — 1.
+    Доля веса пар, где более ценная выше (ничья — ½). NaN — у человека все скрытые книги одной ценности.
+    Ценность пятёрки — договорённость, а не факт из данных: `layers` показывает выбор при нескольких."""
+    r5 = metrics.rounded(ratings)
+    g = np.where(r5 >= 5, five, np.where(r5 >= 4, 1.0, 0.0))
+    num = den = 0.0
+    for hi, lo in ((five, 1.0), (five, 0.0), (1.0, 0.0)):
+        a, b = g == hi, g == lo
+        n_a, n_b = int(a.sum()), int(b.sum())
+        if n_a == 0 or n_b == 0:
+            continue
+        both = a | b
+        r = rankdata(scores[both])
+        auc = (r[a[both]].sum() - n_a * (n_a + 1) / 2) / (n_a * n_b)
+        w = (hi - lo) * n_a * n_b
+        num += w * auc
+        den += w
+    return float(num / den) if den else np.nan
+
+
 def measure(model, hold: Holdout, allowed: np.ndarray, batch: int = 500) -> pd.DataFrame:
     """По человеку: личная точность на скрытых книгах из allowed (маска столбцов), угаданные в топ-20."""
     rows = []
@@ -79,6 +101,7 @@ def measure(model, hold: Holdout, allowed: np.ndarray, batch: int = 500) -> pd.D
             hit = np.isin(cols, top[i])
             rows.append({"user_id": hold.user_ids[u], "bucket": hold.buckets[u],
                          "auc": personal_auc(sc[i, cols].astype(np.float64), r),
+                         "gauc": graded_auc(sc[i, cols].astype(np.float64), r),
                          "hits": int(hit.sum()), "liked_hits": int((metrics.rounded(r[hit]) >= 4).sum()),
                          "hidden": len(r), "liked_hidden": int((metrics.rounded(r) >= 4).sum())})
     return pd.DataFrame(rows)
@@ -102,6 +125,8 @@ def summarize(per_user: dict[str, pd.DataFrame], reference: str, n_boot: int = 1
         d = d.set_index("user_id")
         diff = d.auc - ref.auc.reindex(d.index)
         diff_mean = d.auc - mean.auc.reindex(d.index)
+        gdiff = d.gauc - ref.gauc.reindex(d.index)
+        gdiff_mean = d.gauc - mean.gauc.reindex(d.index)
         parts = [("all", d.index)] + [(b, d.index[d.bucket == b]) for b in BUCKET_ORDER if (d.bucket == b).any()]
         out[name] = {}
         for part, idx in parts:
@@ -110,6 +135,9 @@ def summarize(per_user: dict[str, pd.DataFrame], reference: str, n_boot: int = 1
             out[name][part] = {"auc": _boot(d.loc[idx, "auc"].to_numpy(dtype=np.float64), rng, n_boot),
                                "diff": _boot(diff.loc[idx].to_numpy(dtype=np.float64), rng, n_boot),
                                "diff_book_mean": _boot(diff_mean.loc[idx].to_numpy(dtype=np.float64), rng, n_boot),
+                               "gauc": _boot(d.loc[idx, "gauc"].to_numpy(dtype=np.float64), rng, n_boot),
+                               "gdiff": _boot(gdiff.loc[idx].to_numpy(dtype=np.float64), rng, n_boot),
+                               "gdiff_book_mean": _boot(gdiff_mean.loc[idx].to_numpy(dtype=np.float64), rng, n_boot),
                                "hits_per_user": hits / max(len(idx), 1),
                                "liked_share_of_hits": d.loc[idx, "liked_hits"].sum() / hits if hits else None,
                                "liked_share_of_hidden": float(d.loc[idx, "liked_hidden"].sum()
@@ -140,6 +168,16 @@ def report(res: dict) -> str:
         lines.append(f"| {label(name)} | " + " | ".join(cells)
                      + f" | {'—' if name == ref else _fmt(v['all']['diff'], signed=True)}"
                      + f" | {'—' if name == 'book_mean' else _fmt(v['all']['diff_book_mean'], signed=True)} |")
+    lines += ["", "Взвешенная личная точность — пятёрка ценнее четвёрки (как в NDCG: 5★ = 2, 4★ = 1, ≤ 3★ = 0): "
+                  "пары «5 против 4» и «4 против ≤ 3» весят 1, «5 против ≤ 3» — 2.", "",
+              "| модель | " + " | ".join(groups)
+              + f" | разница с «{label(ref)}», все | разница со средней оценкой книги, все |",
+              "|---|" + "---|" * (len(groups) + 2)]
+    for name, v in s.items():
+        cells = [_fmt(v[g]["gauc"]) for g in groups]
+        lines.append(f"| {label(name)} | " + " | ".join(cells)
+                     + f" | {'—' if name == ref else _fmt(v['all']['gdiff'], signed=True)}"
+                     + f" | {'—' if name == 'book_mean' else _fmt(v['all']['gdiff_book_mean'], signed=True)} |")
     base = s[ref]["all"]["liked_share_of_hidden"]
     lines += ["", f"Угаданные в топ-20 (все): сколько скрытых книг попало в топ и сколько из них на 4–5★. "
                   f"Среди всех скрытых книг на 4–5★ — {base:.0%}.", "",

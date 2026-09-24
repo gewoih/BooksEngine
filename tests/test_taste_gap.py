@@ -1,6 +1,7 @@
 import json
 
 import numpy as np
+import pytest
 import scipy.sparse as sp
 
 from booksengine.model import evaluate, split, taste_gap
@@ -55,3 +56,13 @@ def test_run_end_to_end(tmp_path):
     assert pop["diff"]["mean"] == 0.0
     assert json.loads((ed / "taste_gap.json").read_text())["n_users"] == res["n_users"]
     assert "Личная точность" in taste_gap.report(res)
+
+
+def test_graded_auc_weights_five_over_four():
+    r = np.array([5.0, 4.0, 2.0])
+    assert taste_gap.graded_auc(np.array([3.0, 2.0, 1.0]), r) == 1.0
+    # 4 выше 5, остальное верно: проиграна пара «5 против 4» (вес 1 из 1 + 2 + 1)
+    assert taste_gap.graded_auc(np.array([2.0, 3.0, 1.0]), r) == 0.75
+    assert taste_gap.graded_auc(np.array([2.0, 3.0, 1.0]), r, five=3.0) == pytest.approx(1 - 2 / (2 + 3 + 1))
+    assert taste_gap.graded_auc(np.array([2.0, 3.0, 1.0]), r, five=1.0) == 1.0   # «5 = 4»: пара не считается
+    assert np.isnan(taste_gap.graded_auc(np.array([1.0, 2.0]), np.array([5.0, 5.0])))
