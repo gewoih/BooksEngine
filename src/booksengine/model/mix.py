@@ -4,6 +4,8 @@
 разброс 1); остальные книги ядра — −∞: EASE их не знает, а ALS почти не советует (0.2% рекомендаций).
 EASE не видит оценок, поэтому вход ему взвешен по оценке: 1★ −2, 2★ −1, 3★ 0, 4★ 1, 5★ 2 (решение
 пользователя) — без этого он советует книги, похожие на оценённые низко, и «Сумерки» за «Голодные игры».
+Недочитанная книга (`dnf`, оценка 1) во входе EASE — 0, в ALS — как 1★ (TODO п. 31, docs/resheniya.md,
+«недочитанные»): с −2 одна брошенная книга опускала всего автора на дно рейтинга.
 
 Своего обучения нет: `fit` загружает готовые компоненты (models/als_neg, models/ease) и запоминает их
 отпечатки; если компонент переобучен, `load` падает — иначе смесь молча стала бы другой моделью.
@@ -20,6 +22,8 @@ from booksengine.model.ease import EASE
 from booksengine.model.matrix import RatingMatrix
 
 EASE_INPUT = (-2.0, -1.0, 0.0, 1.0, 2.0)  # вес книги входа EASE по оценке 1..5
+# вес недочитанной книги во входе EASE; в датасете dnf нет — на обучение и калибровку не влияет, поэтому не в params
+DNF_INPUT = 0.0
 
 
 def _z(m: np.ndarray) -> np.ndarray:
@@ -54,22 +58,27 @@ class Mix:
             raise ValueError("als_weight — от 0 до 1, ease_input — пять весов для оценок 1..5")
         self.als_weight, self.ease_input = float(als_weight), tuple(float(v) for v in ease_input)
 
-    def ease_inputs(self, inputs: sp.csr_matrix) -> sp.csr_matrix:
-        """Вход EASE: столбцы — 20 000 книг EASE, значение — вес по оценке."""
+    def ease_inputs(self, inputs: sp.csr_matrix, dnf: sp.csr_matrix | None = None) -> sp.csr_matrix:
+        """Вход EASE: столбцы — 20 000 книг EASE, значение — вес по оценке.
+        dnf — той же формы, что inputs: ненулевое — книга недочитана, её вес — DNF_INPUT."""
         weighted = inputs[:, self.ease.top_cols].tocsr()
         weighted.data = np.asarray(self.ease_input, np.float32)[metrics.rounded(weighted.data).astype(int) - 1]
+        if dnf is not None:
+            mask = (dnf[:, self.ease.top_cols] != 0).astype(np.float32)
+            weighted = (weighted - weighted.multiply(mask) + DNF_INPUT * mask).tocsr()
         weighted.eliminate_zeros()  # 3★ с весом 0 — как не поданная книга
         return weighted
 
-    def components(self, inputs: sp.csr_matrix) -> tuple[np.ndarray, np.ndarray]:
+    def components(self, inputs: sp.csr_matrix,
+                   dnf: sp.csr_matrix | None = None) -> tuple[np.ndarray, np.ndarray]:
         """Баллы ALS и EASE по 20 000 книг EASE (до нормировки)."""
-        s_ease = self.ease_inputs(inputs) @ self.ease._B
+        s_ease = self.ease_inputs(inputs, dnf) @ self.ease._B
         s_ease = s_ease.toarray() if sp.issparse(s_ease) else np.asarray(s_ease)
         s_als = self.als.score(inputs)[:, self.ease.top_cols]
         return s_als.astype(np.float64), s_ease.astype(np.float64)
 
-    def score(self, inputs: sp.csr_matrix) -> np.ndarray:
-        s_als, s_ease = self.components(inputs)
+    def score(self, inputs: sp.csr_matrix, dnf: sp.csr_matrix | None = None) -> np.ndarray:
+        s_als, s_ease = self.components(inputs, dnf)
         out = np.full(inputs.shape, -np.inf, dtype=np.float32)
         out[:, self.ease.top_cols] = self.als_weight * _z(s_als) + (1 - self.als_weight) * _z(s_ease)
         return out

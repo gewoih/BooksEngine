@@ -20,15 +20,16 @@ MIN_OF_LEADER = 0.25     # книга называется, если её вкл
 DESPITE_OF_LEADER = 0.5  # отрицательный вклад по модулю не меньше этой доли от самого большого — «несмотря на»
 
 
-def contributions(mix: Mix, x: sp.csr_matrix, cols: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Вклады книг входа одного человека (x — строка 1 × книги ядра) в балл смеси книг cols.
-    Возвращает (столбцы входа, матрица вкладов вход × cols). cols — только книги EASE."""
+def contributions(mix: Mix, x: sp.csr_matrix, cols: np.ndarray,
+                  dnf: sp.csr_matrix | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """Вклады книг входа одного человека (x — строка 1 × книги ядра, dnf — недочитанные, как в `Mix.score`)
+    в балл смеси книг cols. Возвращает (столбцы входа, матрица вкладов вход × cols). cols — только книги EASE."""
     top = mix.ease.top_cols
     pos = np.searchsorted(top, cols)
     if not np.array_equal(top[np.minimum(pos, len(top) - 1)], cols):
         raise ValueError("объясняются только книги EASE: у остальных нет балла смеси")
     in_cols = x.indices
-    s_als, s_ease = mix.components(x)
+    s_als, s_ease = mix.components(x, dnf)
     w_als = mix.als_weight
 
     A, Yu, w = mix.als.fold_in_system(in_cols, x.data)
@@ -36,7 +37,7 @@ def contributions(mix: Mix, x: sp.csr_matrix, cols: np.ndarray) -> tuple[np.ndar
     Y = mix.als.item_factors.astype(np.float64)
     c_als = G @ Y[cols].T - (G @ Y[top].mean(axis=0))[:, None]
 
-    v = mix.ease_inputs(x)                                     # 1 × 20 000, вес оценки у книг EASE
+    v = mix.ease_inputs(x, dnf)                                   # 1 × 20 000, вес оценки у книг EASE
     rows = sp.csr_matrix((v.data, (np.searchsorted(in_cols, top[v.indices]), v.indices)),
                          shape=(len(in_cols), len(top)))       # вход × книги EASE
     c_ease_all = rows @ mix.ease._B

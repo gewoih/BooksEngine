@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+import scipy.sparse as sp
 
 from booksengine.model import explain
 from tests.test_mix import _mix, components  # noqa: F401 — фикстура
@@ -13,6 +14,18 @@ def test_contributions_sum_to_mix_score(components, w):  # noqa: F811
     in_cols, c = explain.contributions(m, x, cols)
     assert np.array_equal(in_cols, x.indices) and c.shape == (x.nnz, len(cols))
     np.testing.assert_allclose(c.sum(axis=0), m.score(x)[0, cols], atol=1e-4)
+
+
+def test_contributions_with_dnf_sum_to_mix_score(components):  # noqa: F811
+    m = _mix(components)
+    x = components[0].X[3:4].copy()
+    cols = m.ease.top_cols
+    k = int(np.flatnonzero(np.isin(x.indices, cols))[0])  # недочитана книга из EASE
+    x.data[k] = 1.0
+    dnf = sp.csr_matrix(([1.0], ([0], [x.indices[k]])), shape=x.shape, dtype=np.float32)
+    assert not np.allclose(m.score(x, dnf), m.score(x))
+    _, c = explain.contributions(m, x, cols, dnf)
+    np.testing.assert_allclose(c.sum(axis=0), m.score(x, dnf)[0, cols], atol=1e-4)
 
 
 def test_books_outside_ease_cannot_be_explained(components):  # noqa: F811

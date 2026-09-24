@@ -1,6 +1,7 @@
 """`booksengine recommend` (TODO п. 11): оценки человека из CSV → топ книг смеси с шансом и объяснением.
 
-CSV: `goodreads_work_id`, `rating` 1–5, необязательно `status` (`dnf` без оценки = 1) и `title` (так книга
+CSV: `goodreads_work_id`, `rating` 1–5, необязательно `status` (`dnf` без оценки = 1; во входе
+EASE недочитанная книга весит 0 — `mix.DNF_INPUT`) и `title` (так книга
 называется в объяснении). Книгу с произведением сопоставляет нейросеть заранее, своего поиска нет
 (docs/resheniya.md, «поиск по каталогу»). Тень из `work_merges.parquet` заменяется главным произведением,
 несколько строк одного произведения — средней оценкой (как издания при очистке).
@@ -28,6 +29,7 @@ NO_ID, NOT_IN_CATALOG, NOT_IN_CORE = "нет goodreads_work_id", "нет в ка
 @dataclass
 class Profile:
     x: sp.csr_matrix              # 1 × книги ядра, оценка 1–5
+    dnf: sp.csr_matrix            # 1 × книги ядра, 1 — недочитана (все строки книги в CSV — dnf)
     names: dict[int, str]         # столбец входа → как книга названа у человека
     skipped: list[tuple[str, str]]  # (книга, почему не учтена)
 
@@ -73,11 +75,13 @@ def read_profile(path: Path, work_ids: np.ndarray, clean_dir: Path) -> Profile:
     skipped = [(n, w) for n, w in zip(name, why) if w]
 
     used = p[why == ""].assign(name=name[why == ""])
-    g = used.groupby("work_id", sort=True).agg(rating=("rating", "mean"), name=("name", "first"))
+    g = used.assign(dnf=dnf[why == ""]).groupby("work_id", sort=True).agg(
+        rating=("rating", "mean"), name=("name", "first"), dnf=("dnf", "all"))
     cols = np.searchsorted(work_ids, g.index.to_numpy(dtype=np.int64))
-    x = sp.csr_matrix((g.rating.to_numpy(np.float32), (np.zeros(len(cols), dtype=int), cols)),
-                      shape=(1, len(work_ids)))
-    return Profile(x, dict(zip(cols.tolist(), g.name)), skipped)
+    x, d = (sp.csr_matrix((v, (np.zeros(len(cols), dtype=int), cols)), shape=(1, len(work_ids)))
+            for v in (g.rating.to_numpy(np.float32), g.dnf.to_numpy(np.float32)))
+    d.eliminate_zeros()
+    return Profile(x, d, dict(zip(cols.tolist(), g.name)), skipped)
 
 
 def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int = 20) -> Result:
@@ -91,7 +95,7 @@ def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int 
     info = work_info(clean_dir, work_ids)
 
     # как при калибровке шанса: вход и начатые серии — не кандидаты
-    sc = mix.score(prof.x)[0].astype(np.float64)
+    sc = mix.score(prof.x, prof.dnf)[0].astype(np.float64)
     ex = exclusion(prof.x, SeriesIndex(info.title.tolist()))
     sc[ex.indices] = -np.inf
     order = np.argsort(-sc, kind="stable")
@@ -107,7 +111,7 @@ def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int 
 
     r = metrics.rounded(prof.x.data)
     pct = chance.predict(personal_pct(sc, picked), int((r >= 4).sum()), prof.x.nnz)
-    in_cols, contrib = explain.contributions(mix, prof.x, picked)
+    in_cols, contrib = explain.contributions(mix, prof.x, picked, prof.dnf)
     names = [prof.names[c] for c in in_cols.tolist()]
     recs = []
     for k, c in enumerate(picked):

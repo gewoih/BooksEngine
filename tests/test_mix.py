@@ -4,6 +4,7 @@ import scipy.sparse as sp
 
 from booksengine.model.als import ALS
 from booksengine.model.ease import EASE
+from booksengine.model import mix as mix_module
 from booksengine.model.mix import Mix, _z
 from booksengine.model.matrix import RatingMatrix
 from tests.test_als import random_matrix
@@ -61,6 +62,19 @@ def test_one_star_pushes_ease_neighbours_down(components):
     nbr = int(np.argmax(B[src]))
     loved, hated = (sp.csr_matrix(([r], ([0], [top[src]])), shape=(1, 40), dtype=np.float32) for r in (5.0, 1.0))
     assert m.score(loved)[0, top[nbr]] > 0 > m.score(hated)[0, top[nbr]]
+
+
+def test_dnf_weighs_dnf_input_in_ease_and_one_star_in_als(components):
+    m = _mix(components)
+    top = m.ease.top_cols
+    x = sp.csr_matrix(([1.0, 5.0], ([0, 0], [top[0], top[1]])), shape=(1, 40), dtype=np.float32)
+    dnf = sp.csr_matrix(([1.0], ([0], [top[0]])), shape=(1, 40), dtype=np.float32)
+    v = m.ease_inputs(x, dnf)
+    assert v.toarray()[0, 0] == mix_module.DNF_INPUT and v.toarray()[0, 1] == 2.0
+    s_als, _ = m.components(x, dnf)
+    np.testing.assert_array_equal(s_als, m.components(x)[0])     # ALS видит 1★
+    without = sp.csr_matrix(([5.0], ([0], [top[1]])), shape=(1, 40), dtype=np.float32)
+    np.testing.assert_allclose(m.components(x, dnf)[1], m.components(without)[1], atol=1e-6)  # вес 0 — нет в EASE
 
 
 def test_save_load_roundtrip_and_stale_component_is_rejected(components, tmp_path):

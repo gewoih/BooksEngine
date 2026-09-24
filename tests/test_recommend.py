@@ -24,8 +24,15 @@ def test_profile_maps_shadows_averages_and_reports_skipped(clean):
                      ("Чужая", 777, 3, "read")])
     prof = rec.read_profile(p, np.array([1, 2, 3]), clean)
     assert prof.x.toarray().tolist() == [[5.0, 3.0, 1.0]]            # тень → главное, среднее; dnf = 1
+    assert prof.dnf.toarray().tolist() == [[0.0, 0.0, 1.0]]
     assert prof.names == {0: "Дюна", 1: "Эмма", 2: "Бросил"}
     assert prof.skipped == [("Новая", rec.NO_ID), ("Редкая", rec.NOT_IN_CORE), ("Чужая", rec.NOT_IN_CATALOG)]
+
+
+def test_work_is_dnf_only_if_every_row_is_dnf(clean):
+    p = _csv(clean, [("Дюна", 1, None, "dnf"), ("Дюна-тень", 1, 4, "read"), ("Эмма", 2, 1, "dnf")])
+    prof = rec.read_profile(p, np.array([1, 2, 3]), clean)
+    assert prof.x.toarray().tolist() == [[2.5, 1.0, 0.0]] and prof.dnf.toarray().tolist() == [[0.0, 1.0, 0.0]]
 
 
 @pytest.mark.parametrize("bad", [7, 3.5, None])
