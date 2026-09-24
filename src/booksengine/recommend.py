@@ -1,4 +1,7 @@
-"""`booksengine recommend`: оценки человека из CSV → топ книг смеси (models/mix) с шансом и объяснением.
+"""`booksengine recommend`: оценки человека из CSV → топ книг с шансом и объяснением; выдача пишется в журнал.
+
+Модель — слои «толпа + вкус» (models/layers), если выбраны, иначе смесь (models/mix); `model="mix"` — смесь явно
+(ею считает приложение).
 
 CSV: `goodreads_work_id`, `rating` 1–5, необязательно `status` (`dnf` без оценки = 1; во входе
 EASE недочитанная книга весит 0 — `mix.DNF_INPUT`) и `title` (так книга
@@ -84,18 +87,31 @@ def read_profile(path: Path, work_ids: np.ndarray, clean_dir: Path) -> Profile:
     return Profile(x, d, dict(zip(cols.tolist(), g.name)), skipped)
 
 
-def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int = 20) -> Result:
+def load_model(models_dir: Path, model: str | None = None):
+    """Модель выдачи и её шанс: лучшая — слои «толпа + вкус» (models/layers), если выбрана; иначе смесь (models/mix).
+    model="mix" — смесь явно (приложение и его эталон пока считают ею)."""
+    from booksengine.model.layers import Layers
+    layers_dir = models_dir / "layers"
+    if model != "mix" and (layers_dir / "params.json").exists():
+        model, d = Layers.load(layers_dir), layers_dir
+    else:
+        model, d = Mix.load(models_dir / "mix"), models_dir / "mix"
+    if not (d / "chance.json").exists():
+        raise FileNotFoundError(f"нет {d / 'chance.json'}: запустите `booksengine calibrate {d.name}`")
+    return model, Chance.load(d / "chance.json", model_fp=fingerprint(d)), fingerprint(d)
+
+
+def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int = 20,
+              history_dir: Path | None = None, model: str | None = None) -> Result:
     work_ids = catalog_works(clean_dir / "ratings.parquet")
     prof = read_profile(ratings_csv, work_ids, clean_dir)
     if prof.x.nnz == 0:
         return Result([], skipped=prof.skipped)
-    mix_dir = models_dir / "mix"
-    mix = Mix.load(mix_dir)
-    chance = Chance.load(mix_dir / "chance.json", model_fp=fingerprint(mix_dir))
+    model, chance, model_fp = load_model(models_dir, model)
     info = work_info(clean_dir, work_ids)
 
     # как при калибровке шанса: вход и начатые серии — не кандидаты
-    sc = mix.score(prof.x, prof.dnf)[0].astype(np.float64)
+    sc = model.score(prof.x, prof.dnf)[0].astype(np.float64)
     ex = exclusion(prof.x, SeriesIndex(info.title.tolist()))
     sc[ex.indices] = -np.inf
     order = np.argsort(-sc, kind="stable")
@@ -111,14 +127,31 @@ def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int 
 
     r = metrics.rounded(prof.x.data)
     pct = chance.predict(personal_pct(sc, picked), int((r >= 4).sum()), prof.x.nnz)
-    in_cols, contrib = explain.contributions(mix, prof.x, picked, prof.dnf)
+    if isinstance(model, Mix):
+        in_cols, contrib = explain.contributions(model, prof.x, picked, prof.dnf)
+    else:
+        in_cols, contrib, _ = explain.layers_contributions(model, prof.x, picked, prof.dnf)
     names = [prof.names[c] for c in in_cols.tolist()]
     recs = []
     for k, c in enumerate(picked):
         why = explain.reason(contrib[:, k])
         recs.append(Rec(int(work_ids[c]), info.title[c], info.author[c] or "", int(round(pct[k] * 100)),
                         [names[i] for i in why.because], None if why.despite is None else names[why.despite]))
-    return Result(recs, [f"{info.title[c]} — {info.author[c]}" for c in filtered], prof.skipped, prof.x.nnz)
+    res = Result(recs, [f"{info.title[c]} — {info.author[c]}" for c in filtered], prof.skipped, prof.x.nnz)
+    if history_dir is not None:
+        save_history(res, ratings_csv.stem, model_fp, history_dir)
+    return res
+
+
+def save_history(res: Result, profile: str, model_fp: str, history_dir: Path) -> Path:
+    """Журнал выдачи: что и когда советовалось — потом сравнить с оценками прочитанного (проверка на своих оценках
+    в будущем, а не на отложенной выборке). Одна выдача в день на профиль — повторный запуск перезаписывает."""
+    from datetime import date
+    history_dir.mkdir(parents=True, exist_ok=True)
+    path = history_dir / f"{profile}-{date.today().isoformat()}.csv"
+    pd.DataFrame([{"rank": i, "goodreads_work_id": r.work_id, "title": r.title, "author": r.author,
+                   "chance": r.chance, "model": model_fp} for i, r in enumerate(res.recs, 1)]).to_csv(path, index=False)
+    return path
 
 
 def format_result(res: Result) -> str:

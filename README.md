@@ -5,9 +5,9 @@
 (228M взаимодействий, 876K пользователей, 2.36M изданий).
 
 Готово: изучение и очистка датасета (этап 1), каталог книг в PostgreSQL + pgvector (этап 2),
-модель — смесь ALS + EASE с шансом «понравится» и объяснением, CLI-демо `recommend` (этап 3),
+модель «толпа + вкус» (`models/layers`: EASE с целью «оценка − 3» + ALS) с шансом «понравится», объяснением
+и журналом выдач, CLI `recommend`; приложение пока на прежней смеси ALS + EASE,
 веб-интерфейс: библиотека с поиском и оценками, рекомендации, карточка книги, импорт CSV.
-Лучшая по замерам модель — слои «толпа + вкус» (`booksengine layers`), к `recommend` и приложению ещё не подключена.
 Открытые задачи — `TODO.md`.
 
 ## Требования
@@ -90,12 +90,12 @@ uv run booksengine load-db                                  # каталог и�
 | `ease-size` | книги профилей и теста за границей EASE (30 000) — стоит ли её расширять |
 | `exp save\|split\|run\|report` | сравнить варианты очистки на общем тесте |
 | **выдача** | |
-| `recommend --ratings <csv> [--top 20]` | рекомендации смеси по CSV (`goodreads_work_id`, `rating` 1–5, `status`, `title`) |
+| `recommend --ratings <csv> [--top 20]` | рекомендации по CSV (`goodreads_work_id`, `rating` 1–5, `status`, `title`): слои `models/layers`, без них — смесь; выдача пишется в `profiles/history/` |
 | `export-model` | смесь → БД для веб-интерфейса (перезаписывает целиком) |
 
 Порядок сборки моделей: `split` → `evaluate als_neg` и `evaluate ease` (val, затем test) → `evaluate mix` →
-`calibrate mix` → `taste` → `ease-like-tune` → `layers val` → `layers test`. Переобученный компонент ломает загрузку
-смеси и слоёв с подсказкой, что пересобрать.
+`calibrate mix` (приложение) → `taste` → `ease-like-tune` → `layers val` → `layers test` → `calibrate layers`
+(`recommend`). Переобученный компонент ломает загрузку смеси и слоёв с подсказкой, что пересобрать.
 
 ### Веб-интерфейс
 

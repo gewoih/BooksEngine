@@ -77,12 +77,13 @@ def calibrate(model: str = typer.Argument("mix", help="сохранённая м
 @app.command()
 def recommend(ratings: str = typer.Option(..., "--ratings", help="CSV: goodreads_work_id, rating 1–5, status, title"),
               top: int = typer.Option(20, "--top", help="сколько книг показать")) -> None:
-    """Оценки из CSV → рекомендации смеси (models/mix) с шансом «понравится» и объяснением."""
+    """Оценки из CSV → рекомендации с шансом «понравится» и объяснением; выдача пишется в profiles/history/."""
     from pathlib import Path
 
     from booksengine import recommend as rec
-    from booksengine.paths import CLEAN_DIR, MODELS_DIR
-    print(rec.format_result(rec.recommend(Path(ratings), clean_dir=CLEAN_DIR, models_dir=MODELS_DIR, top=top)))
+    from booksengine.paths import CLEAN_DIR, MODELS_DIR, PROJECT_ROOT
+    print(rec.format_result(rec.recommend(Path(ratings), clean_dir=CLEAN_DIR, models_dir=MODELS_DIR, top=top,
+                                          history_dir=PROJECT_ROOT / "profiles" / "history")))
 
 
 @app.command("ease-size")
