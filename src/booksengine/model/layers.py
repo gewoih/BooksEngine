@@ -37,6 +37,7 @@ CHECKED = ("value20", "ndcg20", "low20", "auc", "gauc")
 # ценность пятёрки против четвёрки (4★ = 1): 1 — «5 = 4» (обычная личная точность), 2 — как в NDCG, 3 — втрое.
 # Выбор идёт по 2; отчёт показывает, какой вес вкуса выбрали бы при каждой — чувствительность к договорённости.
 FIVE_VALUES = {"value20": 2.0, "value20_5": 3.0}
+LIKE_ALS = (0.0, 0.25, 0.5, 0.75)   # вес ALS в толпе «ценность»: ALS находит прочитанное, «ценность» — отсеивает плохое
 
 
 @dataclass(frozen=True)
@@ -44,10 +45,13 @@ class Variant:
     crowd: str = "mix"
     taste_weight: float = 0.0
     cutoff: int | None = None
+    als_weight: float = 0.5      # только для толпы «ценность»: вес ALS в её смеси (у «mix» — сохранённый, 0.5)
 
     def label(self) -> str:
-        c = {"mix": "толпа по оценкам", "read": "толпа «прочитал»", "like": "толпа «ценность» + ALS",
-             "like_only": "толпа «ценность» без ALS"}[self.crowd]
+        if self.crowd == "like":
+            c = f"толпа «ценность», ALS {self.als_weight:g}"
+        else:
+            c = {"mix": "толпа по оценкам", "read": "толпа «прочитал»"}[self.crowd]
         return f"{c}, вкус {self.taste_weight:g}" + (f", из первых {self.cutoff}" if self.cutoff else "")
 
 
@@ -73,7 +77,7 @@ class Layers:
 
     def crowds(self) -> tuple[str, ...]:
         """Толпы для перебора: нынешняя и, если обучена (TODO п. 38), «ценность» со смесью ALS и без."""
-        return CROWDS + (("like", "like_only") if self.like_mix is not None else ())
+        return CROWDS + (("like",) if self.like_mix is not None else ())
 
     @staticmethod
     def component_fingerprints(models_dir: Path) -> dict[str, str]:
@@ -99,7 +103,8 @@ class Layers:
         """Балл выбранного варианта по всем книгам ядра; вне EASE — −∞ (как у смеси). Без исключения входа."""
         top = self.mix.ease.top_cols
         excl = np.zeros((inputs.shape[0], len(top)), dtype=bool)
-        s = self.combine(self.crowd(self.variant.crowd, inputs, dnf), self.taste_z(inputs), excl, self.variant)
+        c = self.crowd(self.variant.crowd, inputs, dnf, self.variant.als_weight)
+        s = self.combine(c, self.taste_z(inputs), excl, self.variant)
         out = np.full(inputs.shape, -np.inf, dtype=np.float32)
         out[:, top] = s
         return out
@@ -108,16 +113,17 @@ class Layers:
         """Прогноз оценки 1–5 модели вкуса по всем книгам ядра — признак шанса «понравится»."""
         return self.taste.score(inputs)
 
-    def crowd(self, kind: str, inputs: sp.csr_matrix, dnf: sp.csr_matrix | None = None) -> np.ndarray:
-        """z-балл толпы по книгам EASE (строки × 30 000)."""
-        if kind in ("like", "like_only"):
-            m = self.like_mix
-            w0 = m.als_weight
-            m.configure(als_weight=0.5 if kind == "like" else 0.0, ease_input=m.ease_input)
-            try:
-                return m.score(inputs, dnf)[:, m.ease.top_cols].astype(np.float64)
-            finally:
-                m.configure(als_weight=w0, ease_input=m.ease_input)
+    def like_parts(self, inputs: sp.csr_matrix, dnf: sp.csr_matrix | None = None) -> tuple[np.ndarray, np.ndarray]:
+        """z(ALS) и z(EASE «ценность») по книгам EASE — толпа «ценность» при любом весе ALS без пересчёта."""
+        a, e = self.like_mix.components(inputs, dnf)
+        return _z(a), _z(e)
+
+    def crowd(self, kind: str, inputs: sp.csr_matrix, dnf: sp.csr_matrix | None = None,
+              als_weight: float = 0.5) -> np.ndarray:
+        """z-балл толпы по книгам EASE (строки × 30 000); als_weight — только для «ценности»."""
+        if kind == "like":
+            za, ze = self.like_parts(inputs, dnf)
+            return als_weight * za + (1 - als_weight) * ze
         w, ein, rule, beta = self._mix_cfg
         if kind == "read":
             self.mix.configure(als_weight=w, ease_input=(1.0,) * 5)
@@ -162,11 +168,15 @@ def evaluate(layers: Layers, hold, info: pd.DataFrame, variants: list[Variant], 
     rows = {v: [] for v in variants}
     for s in range(0, len(hold.user_ids), batch):
         X = hold.inputs[s:s + batch]
-        crowds = {k: layers.crowd(k, X) for k in {v.crowd for v in variants}}
+        crowds = {k: layers.crowd(k, X) for k in {v.crowd for v in variants} - {"like"}}
+        if any(v.crowd == "like" for v in variants):
+            za, ze = layers.like_parts(X)
+            for w in {v.als_weight for v in variants if v.crowd == "like"}:
+                crowds[("like", w)] = w * za + (1 - w) * ze
         taste = layers.taste_z(X)
         excl = (exclude[s:s + batch][:, top].toarray() != 0)
         for v in variants:
-            sc = layers.combine(crowds[v.crowd], taste, excl, v)
+            sc = layers.combine(crowds[("like", v.als_weight) if v.crowd == "like" else v.crowd], taste, excl, v)
             k = min(metrics.K, sc.shape[1])
             part = np.argpartition(-sc, k - 1, axis=1)[:, :k]
             vals = np.take_along_axis(sc, part, axis=1)
@@ -189,6 +199,8 @@ def evaluate(layers: Layers, hold, info: pd.DataFrame, variants: list[Variant], 
                          value20=float((metrics.rounded(hr[in_top]) - 3).sum()),
                          value20_5=float(value_of(hr[in_top], five=3.0).sum()),
                          hits=float(in_top.sum()), hit_stars=float(metrics.rounded(hr[in_top]).sum()),
+                         fives_ideal=float(min(metrics.K, int((metrics.rounded(hr) >= 5).sum()))),
+                         value_ideal=float(np.clip(np.sort(metrics.rounded(hr) - 3)[::-1][:metrics.K], 0, None).sum()),
                          later=float(later[t].mean()) if len(t) else np.nan,
                          max_author=float(np.bincount(np.unique(a, return_inverse=True)[1]).max()) if len(a) else 0.0,
                          user_id=hold.user_ids[u], bucket=hold.buckets[u])
@@ -214,7 +226,7 @@ def summarize(per_user: dict[Variant, pd.DataFrame], reference: Variant, n_boot:
         row = {"variant": asdict(v), "label": v.label(), "groups": {}}
         for name, idx in parts:
             g = {}
-            for m in CHECKED + ("hits", "value20_5", "gauc3", "recall20", "later", "max_author", "fives"):
+            for m in CHECKED + ("hits", "fives_ideal", "value_ideal", "value20_5", "gauc3", "recall20", "later", "max_author", "fives"):
                 g[m] = _boot(d.loc[idx, m].to_numpy(dtype=np.float64), np.random.default_rng(0), n_boot)
             for m in CHECKED:
                 diff = (d.loc[idx, m] - ref.loc[idx, m]).to_numpy(dtype=np.float64)
@@ -261,7 +273,8 @@ def run(stage: str, *, clean_dir: Path, split_dir: Path, models_dir: Path, eval_
     hold = _hold(ratings_path, split_dir, stage, work_ids)
     ref = Variant(*REFERENCE)
     if stage == "val":
-        variants = [Variant(c, w, n) for c in layers.crowds() for n in CUTOFFS for w in WEIGHTS]
+        variants = [Variant(c, w, n, a) for c in layers.crowds() for a in (LIKE_ALS if c == "like" else (0.5,))
+                    for n in CUTOFFS for w in WEIGHTS]
     else:
         chosen = Variant(**json.loads((models_dir / "layers" / "params.json").read_text())["variant"])
         variants = list(dict.fromkeys([ref, chosen]))
@@ -313,6 +326,10 @@ def report(res: dict) -> str:
             f"{_f(g['ndcg20'])} | {_f(g['ndcg20_diff'], True)}{_ci(g['ndcg20_diff'])} | "
             f"{_f(g['low20'], pct=True)} | {_f(g['low20_diff'], True, pct=True)} | {'да' if allowed(r) else 'нет'} | "
             f"{_f(g['gauc'])} | {_f(g['later'], pct=True)} | {g['max_author']['mean']:.2f} |")
+    ref_all = res["summary"][0]["groups"]["all"]
+    lines += ["", f"Потолок — топ из лучших скрытых книг человека (больше угадать нельзя: остальное он не читал или "
+                  f"не оценил): ценность {ref_all['value_ideal']['mean']:.2f}, пятёрок {ref_all['fives_ideal']['mean']:.2f} "
+                  f"на человека."]
     if "chosen_by_five_value" in res:
         lines += ["", "Выбор при разной ценности пятёрки (4★ = +1): "
                   + "; ".join(f"5★ = +{k.rstrip('0').rstrip('.')} → {v}" for k, v in res["chosen_by_five_value"].items())
@@ -321,7 +338,7 @@ def report(res: dict) -> str:
     lines += ["", "По группам (ценность топа / NDCG@20 / Low@20):", "",
               "| вариант | " + " | ".join(groups) + " |", "|---|" + "---|" * len(groups)]
     for r in res["summary"]:
-        if res["stage"] == "val" and not (r["variant"] == chosen or tuple(r["variant"].values()) == REFERENCE):
+        if res["stage"] == "val" and not (r["variant"] == chosen or Variant(**r["variant"]) == Variant(*REFERENCE)):
             continue
         cells = [f"{_f(r['groups'][b]['value20'])} / {_f(r['groups'][b]['ndcg20'])} / "
                  f"{_f(r['groups'][b]['low20'], pct=True)}" for b in groups]
@@ -350,12 +367,12 @@ def profiles(*, clean_dir: Path, models_dir: Path, profiles_dir: Path, top: int 
         if prof.x.nnz == 0:
             continue
         excl = exclusion(prof.x, series)[:, top_cols].toarray() != 0
-        crowds = {k: layers.crowd(k, prof.x, prof.dnf) for k in {ref.crowd, chosen.crowd}}
+        crowds = {v: layers.crowd(v.crowd, prof.x, prof.dnf, v.als_weight) for v in (ref, chosen)}
         taste = layers.taste_z(prof.x)
         rated = RatedFilter(info, prof.x.indices)
         lists = {}
         for v in (ref, chosen):
-            sc = layers.combine(crowds[v.crowd], taste, excl, v)[0]
+            sc = layers.combine(crowds[v], taste, excl, v)[0]
             order = [p for p in np.argsort(-sc, kind="stable") if np.isfinite(sc[p])]
             lists[v] = [p for p in order if not rated.is_rated_already(int(top_cols[p]))][:top]
         before = set(lists[ref])

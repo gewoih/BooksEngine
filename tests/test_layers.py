@@ -155,11 +155,14 @@ def test_val_includes_value_crowd_when_trained(world):
     mix.fit(train)
     mix.save(md / "mix_like")
     L = ly.Layers.from_models(md)
-    assert L.crowds() == ("mix", "like", "like_only")
+    assert L.crowds() == ("mix", "like")
     x = train.X[:3]
-    w0 = L.like_mix.als_weight
-    assert not np.allclose(L.crowd("like", x), L.crowd("like_only", x)) and L.like_mix.als_weight == w0
+    top = L.like_mix.ease.top_cols
+    np.testing.assert_allclose(L.crowd("like", x, als_weight=0.5), L.like_mix.score(x)[:, top], rtol=1e-5, atol=1e-5)
+    assert not np.allclose(L.crowd("like", x, als_weight=0.0), L.crowd("like", x, als_weight=0.5))
     val = ly.run("val", clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval")
-    assert len(val["summary"]) == 3 * len(ly.WEIGHTS)
+    assert len(val["summary"]) == (1 + len(ly.LIKE_ALS)) * len(ly.WEIGHTS)
+    g = val["summary"][0]["groups"]["all"]
+    assert g["fives_ideal"]["mean"] >= g["fives"]["mean"] and g["value_ideal"]["mean"] >= g["value20"]["mean"]
     assert "mix_like" in json.loads((md / "layers" / "params.json").read_text())["components"]
     assert ly.Layers.load(md / "layers").like_mix is not None
