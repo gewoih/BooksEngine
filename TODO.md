@@ -45,7 +45,7 @@
 3. Шанс (прогноз оценки — признак), объяснение, экспорт, C#, эталонные тесты — после согласия пользователя.
 
 Где: `model/taste_gap.py` (шаг 0, пройден: средняя оценка книги 0.655 против смеси 0.613), `model/taste.py`
-(шаг 1, `booksengine taste`, пройден: 0.706, +0.094 к смеси), дальше — `model/mix.py`, `model/chance.py`.
+(шаг 1, `booksengine taste`, пройден: 0.706, +0.094 к смеси), шаг 2 — `model/layers.py` (`booksengine layers val/test/profiles`), дальше — `model/chance.py`, `explain.py`, C#.
 
 ---
 
