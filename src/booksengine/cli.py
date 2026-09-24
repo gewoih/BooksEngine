@@ -85,6 +85,17 @@ def recommend(ratings: str = typer.Option(..., "--ratings", help="CSV: goodreads
     print(rec.format_result(rec.recommend(Path(ratings), clean_dir=CLEAN_DIR, models_dir=MODELS_DIR, top=top)))
 
 
+@app.command("ease-size")
+def ease_size() -> None:
+    """Что теряется из-за границы EASE (30 000 книг): профили, тест, выдача ALS → reports/ease_size.md."""
+    from booksengine.model import ease_size as es
+    from booksengine.paths import CLEAN_DIR, MODELS_DIR, PROJECT_ROOT, REPORTS_DIR, SPLIT_DIR
+    text = es.run(clean_dir=CLEAN_DIR, split_dir=SPLIT_DIR, models_dir=MODELS_DIR, profiles_dir=PROJECT_ROOT / "profiles")
+    REPORTS_DIR.mkdir(exist_ok=True)
+    (REPORTS_DIR / "ease_size.md").write_text(text)
+    print(text)
+
+
 @app.command("export-model")
 def export_model() -> None:
     """Смесь models/mix → PostgreSQL для C# API: перезаписывает модель целиком (веб-интерфейс)."""
