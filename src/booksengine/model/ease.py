@@ -16,7 +16,7 @@ from booksengine.model.matrix import RatingMatrix
 class EASE:
     name = "ease"
 
-    def __init__(self, lam: float = 500.0, n_top: int = 20_000, block: int = 2_000):
+    def __init__(self, lam: float = 500.0, n_top: int = 30_000, block: int = 2_000):
         self.lam, self.n_top, self.block = float(lam), int(n_top), int(block)
         self.topk: int | None = None
         self.top_cols: np.ndarray | None = None

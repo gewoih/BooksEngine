@@ -14,7 +14,7 @@ public class ModelMeta
     public DateTime ExportedAt { get; set; }
 }
 
-/// <summary>Книга CF-ядра в модели: столбец матрицы, позиция в EASE (null — вне 20 000) и вектор ALS.</summary>
+/// <summary>Книга CF-ядра в модели: столбец матрицы, позиция в EASE (null — вне 30 000) и вектор ALS.</summary>
 public class WorkEmbedding
 {
     public long WorkId { get; set; }

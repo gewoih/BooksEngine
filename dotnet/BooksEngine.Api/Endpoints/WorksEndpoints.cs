@@ -28,7 +28,7 @@ public static class WorksEndpoints
                 ORDER BY wg.votes DESC, g.name
                 """, new { id })).ToList();
 
-            // шанс и похожие — только у книг EASE (20 000): у остальных «мало данных»
+            // шанс и похожие — только у книг EASE (30 000): у остальных «мало данных»
             var m = store.Current;
             int? chance = null;
             var similar = new List<BookDto>();
