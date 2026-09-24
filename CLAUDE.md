@@ -6,7 +6,7 @@
 
 ## Где что
 
-- `docs/tz.md` — исходное ТЗ. `TODO.md` — открытые задачи. `README.md` — установка, датасет, все команды.
+- `TODO.md` — открытые задачи. `README.md` — установка, датасет, все команды.
 - `config/cleaning.yaml` — пороги очистки. `profiles/*.csv` — оценки пользователя и Леры (`goodreads_work_id`, `rating`).
 - `src/booksengine/data/` — сырые файлы → очищенный Parquet (`prepare`).
 - `src/booksengine/model/` — модели и замеры. Главное сейчас — `layers.py` (толпа + вкус, подбор, проверки),
