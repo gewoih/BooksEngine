@@ -56,10 +56,15 @@ public sealed class ImportTests(TestDb db)
             1,"Dune, Deluxe Edition",Frank Herbert,5,read
             2,"Солярис",Stanisław Lem,0,to-read
             5,Хоббит,Tolkien,4,read
+            777,"Эмма, издание тени",Jane Austen,3,read
             31337,"Unknown, Book",Nobody,3,read
             """, bom: true)).Content.ReadFromJsonAsync<ImportResultDto>();
-        Assert.Equal((2, 0, 1), (r!.Added, r.Updated, r.Skipped));     // 0 — без оценки; издание 2005 → Хоббит
+        Assert.Equal((3, 0, 1), (r!.Added, r.Updated, r.Skipped));     // 0 — без оценки; издание 2005 → Хоббит
         Assert.Equal("Unknown, Book", r.NotFound.Single().Book);
+        Assert.Empty(r.OutsideCore);                                   // издание тени 2777 → главное 1004, в ядре
+        var mine = (await c.GetFromJsonAsync<List<MyRatingDto>>("/api/me/ratings"))!.ToDictionary(x => x.Book.WorkId, x => x.Book);
+        Assert.Equal(3, mine[1004].MyRating);
+        Assert.DoesNotContain(1777L, mine.Keys);
     }
 
     [Fact]

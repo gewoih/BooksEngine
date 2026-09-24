@@ -1,32 +1,18 @@
-# React + TypeScript + Vite
+# Фронт BooksEngine
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React + TypeScript + Vite + Mantine, данные — TanStack Query, адреса — React Router.
+Дизайн — `docs/superpowers/specs/2026-09-24-web-ui-design.md`.
 
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm ci
+npm run dev       # http://localhost:5173, /api проксируется на API :5080
+npm run build     # tsc + vite build — проверка перед коммитом (автотестов фронта нет)
+npm run lint      # oxlint
+npm run gen:api   # src/api/schema.d.ts из OpenAPI запущенного API — после изменения контрактов
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+| путь | что там |
+|---|---|
+| `src/api/` | клиент (`openapi-fetch` по сгенерированной схеме) и хуки запросов |
+| `src/pages/` | библиотека (с панелью «мои оценки»), рекомендации |
+| `src/components/` | строка книги, звёзды и «бросил», карточка книги (`?work=<id>`), импорт, вход |

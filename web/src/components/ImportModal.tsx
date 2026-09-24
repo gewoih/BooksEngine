@@ -1,6 +1,7 @@
 import { Alert, Button, List, Modal, Stack, Text } from "@mantine/core";
 import { Dropzone } from "@mantine/dropzone";
 import { useDisclosure } from "@mantine/hooks";
+import { notifications } from "@mantine/notifications";
 import type { ImportResult } from "../api/client";
 import { useImport } from "../api/hooks";
 
@@ -24,6 +25,7 @@ export default function ImportModal() {
             Оценки книг из файла перезапишут текущие, остальные останутся.
           </Text>
           <Dropzone onDrop={(files) => imp.mutate(files[0])} accept={["text/csv", "application/vnd.ms-excel"]}
+                    onReject={() => notifications.show({ color: "red", message: "Нужен один файл .csv" })}
                     maxFiles={1} loading={imp.isPending}>
             <Text ta="center" py="xl">Перетащите CSV сюда или нажмите, чтобы выбрать</Text>
           </Dropzone>

@@ -25,20 +25,27 @@ public static class ImportEndpoints
             var ids = valid.Where(r => r.ExternalId.Length > 0).Select(r => r.ExternalId).Distinct().ToArray();
 
             await using var c = await ds.OpenConnectionAsync();
-            // Наш формат: тень → главное (work_merges), иначе work. Goodreads: издание → его произведение.
+            // Наш формат: тень → главное (work_merges), иначе work. Goodreads: издание → его произведение, и если
+            // оно тень — главное: издания теней в каталоге остаются при своём произведении (вне ядра)
             var sql = format == CsvFormat.Ours
                 ? """
                   SELECT i.ext, w.id AS work_id, w.in_cf
                   FROM unnest(@ids) AS i(ext)
                   LEFT JOIN work_merges m ON m.shadow_external_id = i.ext
-                  LEFT JOIN external_ids x ON x.entity_type = 'work' AND x.external_id = i.ext
+                  LEFT JOIN external_ids x ON x.source_id = (SELECT id FROM sources WHERE code = 'goodreads')
+                                           AND x.entity_type = 'work' AND x.external_id = i.ext
                   JOIN works w ON w.id = coalesce(m.main_work_id, x.internal_id)
                   """
                 : """
                   SELECT i.ext, w.id AS work_id, w.in_cf
                   FROM unnest(@ids) AS i(ext)
-                  JOIN external_ids x ON x.entity_type = 'edition' AND x.external_id = i.ext
-                  JOIN editions e ON e.id = x.internal_id JOIN works w ON w.id = e.work_id
+                  JOIN external_ids x ON x.source_id = (SELECT id FROM sources WHERE code = 'goodreads')
+                                      AND x.entity_type = 'edition' AND x.external_id = i.ext
+                  JOIN editions e ON e.id = x.internal_id
+                  LEFT JOIN external_ids xw ON xw.source_id = x.source_id AND xw.entity_type = 'work'
+                                            AND xw.internal_id = e.work_id
+                  LEFT JOIN work_merges m ON m.shadow_external_id = xw.external_id
+                  JOIN works w ON w.id = coalesce(m.main_work_id, e.work_id)
                   """;
             var found = (await c.QueryAsync<(string Ext, long WorkId, bool InCf)>(sql, new { ids }))
                 .ToDictionary(f => f.Ext);
