@@ -34,8 +34,19 @@ def personal_pct(scores: np.ndarray, cols: np.ndarray) -> np.ndarray:
     return np.where(np.isfinite(s), (above + 1) / max(len(srt), 1), np.nan)
 
 
+def relative_score(scores: np.ndarray, cols: np.ndarray) -> np.ndarray:
+    """Балл столбцов cols относительно лучшего кандидата строки: 1 — топ-1, 0 — нулевой балл
+    (у смеси — средняя книга), меньше нуля — ниже средней. NaN, если лучший балл ≤ 0 или столбец не кандидат."""
+    top = scores[np.isfinite(scores)].max(initial=-np.inf)
+    s = scores[cols]
+    if top <= 0:
+        return np.full(len(s), np.nan)
+    return np.where(np.isfinite(s), s / top, np.nan)
+
+
 def observations(model, hold: Holdout, batch: int = 500) -> pd.DataFrame:
-    """Скрытая книга → место в рейтинге человека, его 4–5★ во входе (k из n), её оценка."""
+    """Скрытая книга → место в рейтинге человека, балл относительно его топ-1 (п. 34),
+    его 4–5★ во входе (k из n), её оценка."""
     parts = []
     exclude = hold.inputs if hold.exclude is None else hold.exclude
     for s in range(0, len(hold.user_ids), batch):
@@ -50,7 +61,8 @@ def observations(model, hold: Holdout, batch: int = 500) -> pd.DataFrame:
                 continue
             inp = metrics.rounded(X.data[X.indptr[i]:X.indptr[i + 1]])
             parts.append(pd.DataFrame({"user_id": hold.user_ids[u], "bucket": hold.buckets[u],
-                                       "pct": personal_pct(sc[i], h), "k_like": int((inp >= 4).sum()),
+                                       "pct": personal_pct(sc[i], h), "rel": relative_score(sc[i], h),
+                                       "n_cand": int(np.isfinite(sc[i]).sum()), "k_like": int((inp >= 4).sum()),
                                        "n_rated": len(inp), "rating": metrics.rounded(hold.hidden_ratings[u])}))
     d = pd.concat(parts, ignore_index=True)
     return d[d.pct.notna()].reset_index(drop=True)

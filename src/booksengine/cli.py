@@ -74,6 +74,20 @@ def calibrate(model: str = typer.Argument("mix", help="сохранённая м
     print(json.dumps({k: out[k] for k in ("chance", "test", "reliability")}, ensure_ascii=False, indent=1))
 
 
+@app.command("chance-score")
+def chance_score(profile: list[str] = typer.Option(["profiles/my_ratings.csv", "profiles/lera_ratings.csv"],
+                                                   "--profile", help="CSV-профили: разброс шанса в топ-20")) -> None:
+    """Замер п. 34: балл относительно топ-1 как признак шанса → models/eval/chance_score_mix.json (chance.json не меняет)."""
+    from pathlib import Path
+
+    from booksengine.model import chance_score
+    from booksengine.model.evaluate import RATINGS
+    from booksengine.paths import CLEAN_DIR, EVAL_DIR, MODELS_DIR, SPLIT_DIR
+    out = chance_score.run(ratings_path=RATINGS, split_dir=SPLIT_DIR, models_dir=MODELS_DIR, eval_dir=EVAL_DIR,
+                           clean_dir=CLEAN_DIR, profiles=[Path(p) for p in profile])
+    print(chance_score.summary(out))
+
+
 @app.command()
 def recommend(ratings: str = typer.Option(..., "--ratings", help="CSV: goodreads_work_id, rating 1–5, status, title"),
               top: int = typer.Option(20, "--top", help="сколько книг показать")) -> None:

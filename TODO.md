@@ -45,6 +45,14 @@
 проверить, стоит ли ограничивать вклад щедрости в верхней части шкалы (например, компрессия только ниже
 топ-N), и как это скажется на калибровке на тесте.
 
+**Решено (2026-09-24):** компрессию не делаем — она ломает калибровку. Шанс видит только место книги, а не балл
+смеси: пробуем признак r = балл / балл топ-1. Замер — `uv run booksengine chance-score` (временный
+`model/chance_score.py`, `chance.json` не трогает) → `models/eval/chance_score_mix.json`: четыре варианта
+(текущий, «+ балл», «балл вместо места», «+ место × щедрость»), разброс топ-20 у `my_ratings` и `lera_ratings`.
+Принимаем, если log-loss теста ниже, 95%-й интервал бутстрэпа по людям не касается нуля, калибровка в пределах
+2 п.п. и шанс монотонен по баллу. Тогда r переходит в `chance.Chance` и C# (`Recommender.cs`), затем `calibrate mix`
+→ `export-model` → `GoldenTests`; иначе модуль удаляется, итог — в `docs/resheniya.md`.
+
 ## 36. «Alice in Wonderland» не отфильтрована при оценённой «Alice's Adventures in Wonderland & Through the Looking-Glass»
 
 Профиль Леры (2026-09-24): оценена «Alice's Adventures in Wonderland & Through the Looking-Glass» (5★), а на 47-м
