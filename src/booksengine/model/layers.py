@@ -482,3 +482,75 @@ def report_like(res: dict) -> str:
     lines += ["", f"Выбрано: λ = {b['lam']:g}, веса {'/'.join(f'{w:g}' for w in b['weights'])}. Дальше — "
                   "`booksengine layers val` и `layers test` (вес ALS и вкуса подбираются заново под новую толпу)."]
     return "\n".join(lines) + "\n"
+
+
+def profile_check(*, clean_dir: Path, models_dir: Path, profiles_dir: Path) -> str:
+    """Проверка на своих оценках (leave-one-out): каждая книга профиля по очереди прячется, выдача считается по
+    остальным — на каком месте оказалась спрятанная, у нынешней выдачи и у выбранного варианта (models/layers).
+    Хорошо, если пятёрки выше четвёрок, а четвёрки выше низких. Мерит только прочитанное — книги, выбранные самим
+    человеком; оценённые — мало (десятки), поэтому это проверка «нет ли явной ошибки», а не выбор настроек."""
+    from booksengine.model.filters import work_info
+    from booksengine.model.matrix import catalog_works
+    from booksengine.model.series import SeriesIndex, exclusion
+    from booksengine.recommend import read_profile
+    work_ids = catalog_works(clean_dir / "ratings.parquet")
+    layers = Layers.load(models_dir / "layers")
+    info = work_info(clean_dir, work_ids)
+    series = SeriesIndex(info.title.tolist())
+    top = layers.mix.ease.top_cols
+    pos_of = np.full(len(work_ids), -1)
+    pos_of[top] = np.arange(len(top))
+    variants = {"нынешняя": Variant(*REFERENCE), "новая": layers.variant}
+    out = [f"# Проверка на своих оценках: нынешняя выдача и «{layers.variant.label()}»", "",
+           "Каждая оценённая книга по очереди спрятана, выдача посчитана по остальным. Место — среди всех кандидатов "
+           "(около 30 000 книг, без оценённых и продолжений начатых серий); меньше — лучше. Хорошо, когда пятёрки "
+           "выше четвёрок, четвёрки выше низких. Проверяется только прочитанное — книги, которые человек выбрал сам."]
+    for csv in sorted(profiles_dir.glob("*.csv")):
+        prof = read_profile(csv, work_ids, clean_dir)
+        cols = prof.x.indices
+        ok = cols[pos_of[cols] >= 0]
+        if len(ok) == 0:
+            continue
+        # строка на каждую спрятанную книгу: профиль без неё
+        rows, dnf_rows = [], []
+        for c in ok:
+            keep = cols != c
+            rows.append(sp.csr_matrix((prof.x.data[keep], (np.zeros(keep.sum(), int), cols[keep])), shape=prof.x.shape))
+            d = prof.dnf.toarray()[0]
+            d[c] = 0
+            dnf_rows.append(sp.csr_matrix(d[None, :]))
+        X, D = sp.vstack(rows).tocsr(), sp.vstack(dnf_rows).tocsr()
+        excl = exclusion(X, series)[:, top].toarray() != 0
+        taste = layers.taste_z(X)
+        places = {}
+        for name, v in variants.items():
+            sc = layers.combine(layers.crowd(v.crowd, X, D, v.als_weight), taste, excl, v)
+            p = []
+            for i, c in enumerate(ok):
+                s_i = sc[i, pos_of[c]]
+                p.append(np.nan if not np.isfinite(s_i) else int((sc[i] > s_i).sum()) + 1)
+            places[name] = np.array(p, dtype=np.float64)
+        r = metrics.rounded(prof.x.data[np.searchsorted(cols, ok)])
+        n_cand = int(np.isfinite(layers.combine(layers.crowd("mix", X[:1]), taste[:1], excl[:1], Variant())).sum())
+        out += ["", f"## {csv.stem}: {len(ok)} книг из {len(cols)} (остальные вне 30 000 книг EASE — их модель не "
+                    f"советует), кандидатов ~{n_cand}", "",
+                "| оценка | книг | медиана места: нынешняя | новая | в топ-100: нынешняя | новая |", "|---|---|---|---|---|---|"]
+        for lo, hi, lab in ((5, 5, "5★"), (4, 4, "4★"), (1, 3, "1–3★")):
+            m = (r >= lo) & (r <= hi)
+            if not m.any():
+                continue
+            cells = [f"{np.nanmedian(places[n][m]):.0f}" for n in variants]
+            tops = [f"{int(np.nansum(places[n][m] <= 100))}" for n in variants]
+            out.append(f"| {lab} | {int(m.sum())} | {cells[0]} | {cells[1]} | {tops[0]} | {tops[1]} |")
+        for n in variants:
+            g = graded_auc(-np.nan_to_num(places[n], nan=1e9), r)
+            out.append("")
+            out.append(f"Взвешенная точность ({n}): {g:.3f} — доля пар «ценнее / менее ценна», где ценная книга "
+                       f"стоит выше (0.5 — монетка).")
+        out += ["", "| книга | оценка | место: нынешняя | новая |", "|---|---|---|---|"]
+        order = np.lexsort((places["новая"], -r))
+        for i in order:
+            c = ok[i]
+            pl = [("—" if np.isnan(places[n][i]) else f"{places[n][i]:.0f}") for n in variants]
+            out.append(f"| {prof.names.get(int(c), info.title[c])} | {r[i]:.0f} | {pl[0]} | {pl[1]} |")
+    return "\n".join(out) + "\n"

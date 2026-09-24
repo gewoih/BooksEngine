@@ -174,6 +174,17 @@ def ease_like_tune(lam: float = typer.Option(None, help="одна настрой
     print(text)
 
 
+@app.command("profile-check")
+def profile_check() -> None:
+    """Проверка на своих оценках: каждая книга профиля прячется по очереди — на каком месте её поставила бы выдача."""
+    from booksengine.model import layers as ly
+    from booksengine.paths import CLEAN_DIR, MODELS_DIR, PROJECT_ROOT, REPORTS_DIR
+    text = ly.profile_check(clean_dir=CLEAN_DIR, models_dir=MODELS_DIR, profiles_dir=PROJECT_ROOT / "profiles")
+    REPORTS_DIR.mkdir(exist_ok=True)
+    (REPORTS_DIR / "profile_check.md").write_text(text)
+    print(text)
+
+
 @app.command("taste-gap")
 def taste_gap() -> None:
     """Личная точность: ставит ли модель понравившиеся книги выше непонравившихся (п. 37) → reports/taste_gap.md."""

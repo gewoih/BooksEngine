@@ -188,3 +188,15 @@ def test_tune_like_trains_grid_and_saves_best(world):
     res3 = ly.tune_like(clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval", grid=[other],
                         fit_kw={"topk": 20})
     assert [(r["lam"], tuple(r["weights"])) for r in res3["results"]] == [(best["lam"], tuple(best["weights"])), other]
+
+
+def test_profile_check_places_each_hidden_book(world):
+    tp, sd, md = world
+    ly.run("val", clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval")
+    prof = tp / "profiles"
+    prof.mkdir()
+    # вкус «первая половина книг»: 100–104 хорошие, 125, 126 — плохие
+    pd.DataFrame({"goodreads_work_id": [100, 101, 102, 103, 104, 125, 126],
+                  "rating": [5, 5, 4, 5, 4, 1, 2]}).to_csv(prof / "p.csv", index=False)
+    text = ly.profile_check(clean_dir=tp, models_dir=md, profiles_dir=prof)
+    assert "## p: 7 книг из 7" in text and "| 5★ | 3 |" in text and "Взвешенная точность (новая)" in text

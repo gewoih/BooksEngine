@@ -109,6 +109,7 @@ uv run booksengine taste [--factors 64,128 --reg 0.02,0.05]  # модель вк
 uv run booksengine ease-like [--lam 500]              # п. 38: EASE с целью «оценка − 3» → models/ease_like, models/mix_like (~5–10 мин)
 uv run booksengine ease-like-tune                     # п. 38: подбор «ценности» (λ 250/500/1000, веса звёзд) → лучшая в models/ease_like (~40–60 мин)
 uv run booksengine layers val|test|profiles           # шаг 2 п. 37: перебор и выбор → models/layers; тест; топ-20 профилей
+uv run booksengine profile-check                      # проверка на своих оценках: каждая книга profiles/*.csv прячется по очереди → её место
 uv run booksengine taste-gap                          # reports/taste_gap.md — личная точность моделей на валидации (п. 37)
 uv run booksengine recommend --ratings profiles/my_ratings.csv [--top 20]  # рекомендации по CSV
 
