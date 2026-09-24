@@ -105,3 +105,12 @@ def test_run_val_test_and_profiles(world):
     pd.DataFrame({"goodreads_work_id": [100, 101, 102, 125], "rating": [5, 5, 4, 1]}).to_csv(prof / "p.csv", index=False)
     text = ly.profiles(clean_dir=tp, models_dir=md, profiles_dir=prof, top=5)
     assert "## p (4 оценок)" in text and "Совпадает книг" in text
+
+
+def test_allowed_rejects_significant_ndcg_drop_even_if_small():
+    def row(nd_lo, nd_hi, low_lo):
+        return {"groups": {"all": {"ndcg20_diff": {"mean": (nd_lo + nd_hi) / 2, "lo": nd_lo, "hi": nd_hi},
+                                   "low20_diff": {"mean": low_lo, "lo": low_lo, "hi": low_lo + 0.01}}}}
+    assert ly.allowed(row(-0.002, 0.001, -0.02))        # в шуме — допустим
+    assert not ly.allowed(row(-0.006, -0.002, -0.02))   # мало, но значимо хуже (вес 1.5 на валидации)
+    assert not ly.allowed(row(-0.001, 0.001, 0.001))    # Low@20 значимо выше
