@@ -179,18 +179,18 @@ def tune(*, ratings_path: Path, split_dir: Path, models_dir: Path, eval_dir: Pat
 def report(out: dict) -> str:
     s = out["stars"]
     q = s["user_like_share_quartiles"]
+    groups = [b for b in BUCKET_ORDER if any(b in r["personal_auc"] for r in out["results"])]
     lines = ["# Модель вкуса: перебор на валидации (TODO п. 37, шаг 1)", "",
              "Как толпа пользуется шкалой (обучение): " + ", ".join(f"{k}★ — {v:.1%}" for k, v in s["star_share"].items())
              + f". Ни разу не ставили 1★ — {s['users_without_1']:.0%} людей, ни 1★, ни 2★ — "
                f"{s['users_without_1_2']:.0%}. Доля 4–5★ у человека: четверть людей ниже {q[0]:.0%}, "
                f"половина ниже {q[1]:.0%}, три четверти ниже {q[2]:.0%}.", "",
-             "| размер | регуляризация | личная точность, все | " + " | ".join(
-                 k for k in out["results"][0]["personal_auc"] if k != "all") + " | RMSE скрытых | обучение, с |",
-             "|---|---|---|" + "---|" * (len(out["results"][0]["personal_auc"]) - 1) + "---|---|"]
+             "| размер | регуляризация | личная точность, все | " + " | ".join(groups) + " | RMSE скрытых | обучение, с |",
+             "|---|---|---|" + "---|" * len(groups) + "---|---|"]
     for r in out["results"]:
         a = r["personal_auc"]
         lines.append(f"| {r['factors']} | {r['reg']} | {a['all']:.4f} | "
-                     + " | ".join(f"{v:.4f}" for k, v in a.items() if k != "all")
+                     + " | ".join(f"{a[g]:.4f}" if g in a else "—" for g in groups)
                      + f" | {r['rmse_hidden']:.4f} | {r['fit_seconds']:.0f} |")
     lines += ["", "Лучшая по личной точности сохранена в models/taste. Сравнение со смесью и средней оценкой книги — "
                   "`booksengine taste-gap` (шаг 1 пройден, если вкус выше обеих)."]
