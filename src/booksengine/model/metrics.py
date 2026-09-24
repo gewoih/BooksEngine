@@ -1,6 +1,6 @@
-"""Метрики ранжирования (TODO п. 5, спецификация 3a §4).
+"""Метрики ранжирования топ-20 на отложенных людях: NDCG@20/@10, Recall@20, MAP@20, Low@20 и бутстреп-интервалы.
 
-Выигрыш скрытой книги: 5★ → 2, 4★ → 1, остальное — 0 (решение пользователя, вариант B).
+Выигрыш скрытой книги: 5★ → 2, 4★ → 1, остальное — 0 (решение пользователя).
 Дробные оценки (среднее по изданиям) округляются «половина вверх».
 """
 import numpy as np
@@ -64,19 +64,19 @@ def coverage(tops: np.ndarray, n_items: int) -> float:
     return len(u[u >= 0]) / n_items
 
 
+def bootstrap(x: np.ndarray, rng: np.random.Generator, n_boot: int) -> dict:
+    """Среднее по людям и 95% бутстреп-интервал; NaN не входят. Пусто — mean/lo/hi = None."""
+    x = x[~np.isnan(x)]
+    if len(x) == 0:
+        return {"mean": None, "lo": None, "hi": None, "n": 0}
+    b = x[rng.integers(0, len(x), size=(n_boot, len(x)))].mean(axis=1)
+    return {"mean": float(x.mean()), "lo": float(np.quantile(b, 0.025)), "hi": float(np.quantile(b, 0.975)),
+            "n": int(len(x))}
+
+
 def summarize(per_user: pd.DataFrame, n_boot: int = 1000, seed: int = 0) -> dict:
-    """Среднее по пользователям и 95% бутстреп-интервал; NaN (нет скрытых 4–5★ / 1–2★) не входят."""
+    """Метрики по группам активности; NaN (нет скрытых 4–5★ / 1–2★) не входят."""
     rng = np.random.default_rng(seed)
     parts = [("all", per_user)] + [(b, per_user[per_user["bucket"] == b]) for b in BUCKET_ORDER]
-    out: dict = {}
-    for name, part in parts:
-        out[name] = {}
-        for m in METRICS:
-            v = part[m].dropna().to_numpy(dtype=np.float64)
-            if len(v) == 0:
-                out[name][m] = {"mean": None, "lo": None, "hi": None, "n": 0}
-                continue
-            boots = v[rng.integers(0, len(v), size=(n_boot, len(v)))].mean(axis=1)
-            out[name][m] = {"mean": float(v.mean()), "lo": float(np.quantile(boots, 0.025)),
-                            "hi": float(np.quantile(boots, 0.975)), "n": int(len(v))}
-    return out
+    return {name: {m: bootstrap(part[m].to_numpy(dtype=np.float64), rng, n_boot) for m in METRICS}
+            for name, part in parts}

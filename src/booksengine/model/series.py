@@ -11,7 +11,6 @@ from pathlib import Path
 
 import duckdb
 import numpy as np
-import pandas as pd
 import scipy.sparse as sp
 
 from booksengine.model.matrix import Holdout

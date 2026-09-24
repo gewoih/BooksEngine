@@ -1,4 +1,4 @@
-"""Полный проход clean.* + export дважды на синтетическом наборе — проверка детерминизма (TODO п. 16)."""
+"""Полный проход clean.* + export дважды на синтетическом наборе — проверка детерминизма."""
 import duckdb
 
 from booksengine.data import clean, pipeline

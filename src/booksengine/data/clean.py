@@ -94,7 +94,7 @@ def build_catalog(con, log: CleaningLog, patterns: list[str]) -> None:
     """works_valid: произведения с изданиями и названием; флаг is_collection по шаблонам заголовка."""
     works_total = _one(con, "SELECT count(*) FROM works")
     regex = "|".join(f"({p})" for p in patterns)
-    con.execute(f"""
+    con.execute("""
         CREATE OR REPLACE TEMP TABLE _best AS
         SELECT e.work_id, e.book_id, e.title, e.title_without_series, e.language_code, e.description,
                e.publication_year, e.book_id = w.best_book_id AS is_best
@@ -207,7 +207,7 @@ def drop_collections(con, log: CleaningLog, table: str = "ratings_w") -> None:
 
 
 def flag_nonbooks(con, patterns: list[str], exceptions: list[int], table: str = "works_valid") -> int:
-    """is_nonbook: ноты, раскраски, календари, аудиокурсы — по шаблонам названия (TODO п. 14)."""
+    """is_nonbook: ноты, раскраски, календари, аудиокурсы — по шаблонам названия."""
     regex = "|".join(f"({p})" for p in patterns)
     # пустой список исключений нельзя подставлять как NOT IN (NULL): это дало бы NULL у всех
     exc = f"AND work_id NOT IN ({', '.join(str(int(w)) for w in exceptions)})" if exceptions else ""
@@ -268,7 +268,7 @@ def series_no_sql(col: str) -> str:
 def find_duplicates(con, adaptation_patterns: list[str], max_shadow_share: float, table: str = "ratings_w") -> int:
     """dup_map: уверенные «тени» — то же название (без хвостовой скобки и пунктуации, буквы любых алфавитов
     сохраняются) + тот же основной автор + номер в серии не различается, не адаптация и не сборник, оценок
-    меньше max_shadow_share от главного (самого оценённого в группе). TODO п. 17."""
+    меньше max_shadow_share от главного (самого оценённого в группе)."""
     regex = "|".join(f"({p})" for p in adaptation_patterns)
     con.execute(f"""
         CREATE OR REPLACE TEMP TABLE _dup_keys AS
