@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
+from booksengine import journal
 from booksengine.model import explain, metrics
 from booksengine.model.base import fingerprint
 from booksengine.model.chance import Chance, personal_pct
@@ -140,19 +141,8 @@ def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int 
     res = Result(recs, [(f"{info.title[c]} — {info.author[c] or '?'}", WHY_REMOVED[w]) for c, w in removed],
                  prof.skipped, prof.x.nnz)
     if history_dir is not None:
-        save_history(res, ratings_csv.stem, model_fp, history_dir)
+        journal.save(res.recs, ratings_csv.stem, model_fp, history_dir)
     return res
-
-
-def save_history(res: Result, profile: str, model_fp: str, history_dir: Path) -> Path:
-    """Журнал выдачи: что и когда советовалось — потом сравнить с оценками прочитанного (проверка на своих оценках
-    в будущем, а не на отложенной выборке). Одна выдача в день на профиль — повторный запуск перезаписывает."""
-    from datetime import date
-    history_dir.mkdir(parents=True, exist_ok=True)
-    path = history_dir / f"{profile}-{date.today().isoformat()}.csv"
-    pd.DataFrame([{"rank": i, "goodreads_work_id": r.work_id, "title": r.title, "author": r.author,
-                   "chance": r.chance, "model": model_fp} for i, r in enumerate(res.recs, 1)]).to_csv(path, index=False)
-    return path
 
 
 def format_result(res: Result) -> str:

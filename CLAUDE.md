@@ -12,7 +12,8 @@
 - `src/booksengine/model/` — модели и замеры. Главное сейчас — `layers.py` (толпа + вкус, подбор, проверки),
   `ease.py` (`EASE`, `EASELike`), `taste.py` (модель вкуса), `mix.py` (ALS + EASE), `split.py`, `metrics.py`.
   `evaluate.py` — стенд первых моделей (популярность, ALS, kNN, EASE, смесь) по NDCG@20.
-- `src/booksengine/recommend.py` — CLI-выдача по CSV; `export_model.py` — модель в БД для приложения.
+- `src/booksengine/recommend.py` — CLI-выдача по CSV; `journal.py` — журнал выдач и сверка с поставленными
+  позже оценками; `export_model.py` — модель в БД для приложения.
 - `dotnet/` — схема БД (EF Core) и API; `web/` — фронт. Приложение сейчас не в фокусе.
 
 ## Модель
@@ -43,6 +44,7 @@ uv run booksengine profile-check                # каждая книга про
 uv run booksengine why "<книга>"                # почему книга стоит на своём месте
 uv run booksengine calibrate layers             # шанс «понравится» для models/layers
 uv run booksengine recommend --ratings profiles/my_ratings.csv
+uv run booksengine journal                      # что прочитано из советов и как оценено (profiles/history/)
 ```
 
 Остальные команды и порядок сборки моделей — `README.md` («Команды») и `uv run booksengine --help`.

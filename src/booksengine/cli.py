@@ -86,6 +86,18 @@ def recommend(ratings: str = typer.Option(..., "--ratings", help="CSV: goodreads
                                           history_dir=PROJECT_ROOT / "profiles" / "history")))
 
 
+@app.command()
+def journal() -> None:
+    """Журнал выдач (profiles/history/) против оценок, поставленных позже: что прочитано из советов и как оценено
+    → reports/journal.md."""
+    from booksengine import journal as jr
+    from booksengine.paths import CLEAN_DIR, PROJECT_ROOT, REPORTS_DIR
+    text = jr.report(PROJECT_ROOT / "profiles", PROJECT_ROOT / "profiles" / "history", CLEAN_DIR)
+    REPORTS_DIR.mkdir(exist_ok=True)
+    (REPORTS_DIR / "journal.md").write_text(text)
+    print(text)
+
+
 @app.command("ease-size")
 def ease_size() -> None:
     """Что теряется из-за границы EASE (30 000 книг): профили, тест, выдача ALS → reports/ease_size.md."""
