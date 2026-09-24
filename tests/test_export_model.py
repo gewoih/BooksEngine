@@ -98,8 +98,8 @@ def test_build_matches_model_and_recommend(world):
     assert e.meta["chance_coef"] == [-0.9, -0.46, 0.85] and e.meta["als_neg_rule"] == mix.als.neg_rule
     assert e.meta["dnf_input"] == DNF_INPUT
     assert e.merges.to_dict("records") == [{"shadow_gr": 900, "main_gr": 104}]
-    # эталон — ровно выдача `recommend`, книги объяснения — id, а не названия
-    want = rec.recommend(profiles["me"], clean_dir=clean, models_dir=models, top=5)
+    # эталон — ровно выдача `recommend` так, как считает приложение (смесь без правил списка); объяснение — id книг
+    want = rec.recommend(profiles["me"], clean_dir=clean, models_dir=models, top=5, model="mix", rules=False)
     g = e.golden_recs[e.golden_recs.profile == "me"]
     assert len(g) == 5 and g.because.map(len).sum() > 0
     assert list(g.gr_work_id) == [r.work_id for r in want.recs]

@@ -1,7 +1,8 @@
 """`booksengine recommend`: оценки человека из CSV → топ книг с шансом и объяснением; выдача пишется в журнал.
 
 Модель — слои «толпа + вкус» (models/layers), если выбраны, иначе смесь (models/mix); `model="mix"` — смесь явно
-(ею считает приложение).
+(ею считает приложение). Список собирают правила `filters.ListPicker`: без сборников, поздний том неначатой серии —
+первой книгой, не больше одной книги автора на каждые 10 мест.
 
 CSV: `goodreads_work_id`, `rating` 1–5, необязательно `status` (`dnf` без оценки = 1; во входе
 EASE недочитанная книга весит 0 — `mix.DNF_INPUT`) и `title` (так книга
@@ -20,7 +21,7 @@ import scipy.sparse as sp
 from booksengine.model import explain, metrics
 from booksengine.model.base import fingerprint
 from booksengine.model.chance import Chance, personal_pct
-from booksengine.model.filters import RatedFilter, work_info
+from booksengine.model.filters import WHY_REMOVED, ListPicker, RatedFilter, work_info
 from booksengine.model.matrix import catalog_works
 from booksengine.model.mix import Mix
 from booksengine.model.series import SeriesIndex, exclusion
@@ -50,7 +51,7 @@ class Rec:
 @dataclass
 class Result:
     recs: list[Rec]
-    filtered: list[str] = field(default_factory=list)  # убраны фильтром «уже оценено по сути»
+    removed: list[tuple[str, str]] = field(default_factory=list)  # (книга, почему не в списке) — `filters.ListPicker`
     skipped: list[tuple[str, str]] = field(default_factory=list)
     n_used: int = 0
 
@@ -102,7 +103,9 @@ def load_model(models_dir: Path, model: str | None = None):
 
 
 def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int = 20,
-              history_dir: Path | None = None, model: str | None = None) -> Result:
+              history_dir: Path | None = None, model: str | None = None, rules: bool = True) -> Result:
+    """rules=False — без правил списка (сборники, поздние тома, книги автора), только «уже оценено»: так считает
+    приложение, и его эталон строится без них."""
     work_ids = catalog_works(clean_dir / "ratings.parquet")
     prof = read_profile(ratings_csv, work_ids, clean_dir)
     if prof.x.nnz == 0:
@@ -111,18 +114,15 @@ def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int 
     info = work_info(clean_dir, work_ids)
 
     # как при калибровке шанса: вход и начатые серии — не кандидаты
+    series = SeriesIndex(info.title.tolist())
     sc = model.score(prof.x, prof.dnf)[0].astype(np.float64)
-    ex = exclusion(prof.x, SeriesIndex(info.title.tolist()))
+    ex = exclusion(prof.x, series)
     sc[ex.indices] = -np.inf
     order = np.argsort(-sc, kind="stable")
     order = order[np.isfinite(sc[order])]
 
-    rated = RatedFilter(info, prof.x.indices)
-    picked, filtered = [], []
-    for c in order:
-        if len(picked) == top:
-            break
-        (filtered if rated.is_rated_already(c) else picked).append(c)
+    picked, removed = ListPicker(info, series).pick(order, lambda c: sc[c], top, RatedFilter(info, prof.x.indices),
+                                                    rules=rules)
     picked = np.array(picked, dtype=np.int64)
 
     r = metrics.rounded(prof.x.data)
@@ -137,7 +137,8 @@ def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int 
         why = explain.reason(contrib[:, k])
         recs.append(Rec(int(work_ids[c]), info.title[c], info.author[c] or "", int(round(pct[k] * 100)),
                         [names[i] for i in why.because], None if why.despite is None else names[why.despite]))
-    res = Result(recs, [f"{info.title[c]} — {info.author[c]}" for c in filtered], prof.skipped, prof.x.nnz)
+    res = Result(recs, [(f"{info.title[c]} — {info.author[c] or '?'}", WHY_REMOVED[w]) for c, w in removed],
+                 prof.skipped, prof.x.nnz)
     if history_dir is not None:
         save_history(res, ratings_csv.stem, model_fp, history_dir)
     return res
@@ -162,9 +163,8 @@ def format_result(res: Result) -> str:
             why += f"; несмотря на: {r.despite}"
         out.append(f"{i:3}. {r.title} — {r.author}  [{r.chance}%]")
         out.append(f"      {why}")
-    if res.filtered:
-        out += ["", "Убраны как уже оценённые (дубль, сборник или часть оценённого сборника):"]
-        out += [f"  - {t}" for t in res.filtered]
+    if res.removed:
+        out += ["", "Убраны из списка:"] + [f"  - {t}: {w}" for t, w in res.removed]
     if res.skipped:
         out += ["", "Не учтены:"] + [f"  - {n}: {w}" for n, w in res.skipped]
     return "\n".join(out)

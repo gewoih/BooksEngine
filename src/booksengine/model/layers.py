@@ -10,8 +10,9 @@
 Выбор — наибольшая ценность топа: сумма (оценка − 3) скрытых книг в топ-20, 5★ = +2 … 1★ = −2. Цель пользователя —
 средняя оценка рекомендаций; сумма, а не среднее, — иначе выиграл бы топ с одной осторожной угаданной книгой.
 Раньше выбирали по личной точности при страховках NDCG и Low@20 — они остались в отчёте для сведения; рядом —
-выбор при 5★ = +3 (ценность пятёрки — договорённость). Страховки глазами: доля поздних томов (#2 и дальше)
-неначатых серий в топ-20 и сколько книг одного автора в топ-20.
+выбор при 5★ = +3 (ценность пятёрки — договорённость). Топ-20 в замере собирается правилами выдачи
+(`filters.ListPicker`: без сборников, поздний том — первой книгой серии, автор — не больше двух раз): судья видит
+тот же список, что и человек.
 """
 import json
 from dataclasses import asdict, dataclass
@@ -151,20 +152,16 @@ class Layers:
         return s
 
 
-def book_marks(info: pd.DataFrame, top_cols: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """По книгам EASE: поздний том серии (#2 и дальше) и основной автор (−1 — неизвестен)."""
-    sno = pd.to_numeric(info.series_no.iloc[top_cols], errors="coerce").to_numpy()
-    later = np.nan_to_num(sno, nan=0.0) >= 2
-    author = info.author_id.iloc[top_cols].fillna(-1).to_numpy(dtype=np.int64)
-    return later, author
-
-
 def evaluate(layers: Layers, hold, info: pd.DataFrame, variants: list[Variant], batch: int = 500) -> dict:
-    """Метрики по людям для каждого варианта (баллы толпы и вкуса считаются один раз на пачку)."""
+    """Метрики по людям для каждого варианта (баллы толпы и вкуса считаются один раз на пачку). Топ-20 — по правилам
+    выдачи (`filters.ListPicker`), «уже оценено по сути» — по входу человека."""
+    from booksengine.model.filters import ListPicker, RatedFilter, pick_top
+    from booksengine.model.series import SeriesIndex
     top = layers.mix.ease.top_cols
     pos_of = np.full(hold.inputs.shape[1], -1)
     pos_of[top] = np.arange(len(top))
-    later, author = book_marks(info, top)
+    picker = ListPicker(info, SeriesIndex(info.title.tolist()))
+    author = picker.books.author
     exclude = (hold.inputs if hold.exclude is None else hold.exclude).tocsr()
     rows = {v: [] for v in variants}
     for s in range(0, len(hold.user_ids), batch):
@@ -176,24 +173,21 @@ def evaluate(layers: Layers, hold, info: pd.DataFrame, variants: list[Variant], 
                 crowds[("like", w)] = w * za + (1 - w) * ze
         taste = layers.taste_z(X)
         excl = (exclude[s:s + batch][:, top].toarray() != 0)
+        rated = [RatedFilter(picker.books, X.indices[X.indptr[i]:X.indptr[i + 1]]) for i in range(X.shape[0])]
         for v in variants:
             sc = layers.combine(crowds[("like", v.als_weight) if v.crowd == "like" else v.crowd], taste, excl, v)
-            k = min(metrics.K, sc.shape[1])
-            part = np.argpartition(-sc, k - 1, axis=1)[:, :k]
-            vals = np.take_along_axis(sc, part, axis=1)
-            order = np.lexsort((part, -vals), axis=1)
-            tp = np.take_along_axis(part, order, axis=1)
-            ok = np.isfinite(np.take_along_axis(vals, order, axis=1))
+            lists = pick_top(sc, top, pos_of, picker, rated, metrics.K)
             for i in range(sc.shape[0]):
                 u = s + i
-                t = tp[i][ok[i]]
-                m = metrics.user_metrics(np.where(ok[i], top[tp[i]], -1), hold.hidden_cols[u], hold.hidden_ratings[u])
+                t = lists[i]
+                m = metrics.user_metrics(np.pad(t, (0, metrics.K - len(t)), constant_values=-1),
+                                         hold.hidden_cols[u], hold.hidden_ratings[u])
                 hp = pos_of[hold.hidden_cols[u]]
                 keep = hp >= 0
                 a = author[t]
                 a = a[a >= 0]
                 hr = hold.hidden_ratings[u]
-                in_top = np.isin(hold.hidden_cols[u], top[t])
+                in_top = np.isin(hold.hidden_cols[u], t)
                 m.update(auc=personal_auc(sc[i, hp[keep]], hr[keep]), gauc=graded_auc(sc[i, hp[keep]], hr[keep]),
                          gauc3=graded_auc(sc[i, hp[keep]], hr[keep], five=3.0),
                          fives=float((metrics.rounded(hr[in_top]) >= 5).sum()),
@@ -202,7 +196,6 @@ def evaluate(layers: Layers, hold, info: pd.DataFrame, variants: list[Variant], 
                          hits=float(in_top.sum()), hit_stars=float(metrics.rounded(hr[in_top]).sum()),
                          fives_ideal=float(min(metrics.K, int((metrics.rounded(hr) >= 5).sum()))),
                          value_ideal=float(np.clip(np.sort(metrics.rounded(hr) - 3)[::-1][:metrics.K], 0, None).sum()),
-                         later=float(later[t].mean()) if len(t) else np.nan,
                          max_author=float(np.bincount(np.unique(a, return_inverse=True)[1]).max()) if len(a) else 0.0,
                          user_id=hold.user_ids[u], bucket=hold.buckets[u])
                 rows[v].append(m)
@@ -218,7 +211,7 @@ def summarize(per_user: dict[Variant, pd.DataFrame], reference: Variant, n_boot:
         row = {"variant": asdict(v), "label": v.label(), "groups": {}}
         for name, idx in parts:
             g = {}
-            for m in CHECKED + ("hits", "fives_ideal", "value_ideal", "value20_5", "gauc3", "recall20", "later", "max_author", "fives"):
+            for m in CHECKED + ("hits", "fives_ideal", "value_ideal", "value20_5", "gauc3", "recall20", "max_author", "fives"):
                 g[m] = metrics.bootstrap(d.loc[idx, m].to_numpy(dtype=np.float64), np.random.default_rng(0), n_boot)
             for m in CHECKED:
                 diff = (d.loc[idx, m] - ref.loc[idx, m]).to_numpy(dtype=np.float64)
@@ -306,8 +299,8 @@ def report(res: dict) -> str:
              f"NDCG@20 и Low@20 — для сведения («не хуже» — интервал разницы касается нуля или лучше).", "",
              "| вариант | ценность топа | разница | угадано на человека | средняя оценка угаданных | "
              "пятёрок на человека | NDCG@20 | разница | Low@20 | разница | NDCG и Low не хуже | "
-             "взвешенная точность | поздние тома | книг одного автора (макс.) |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+             "взвешенная точность | книг одного автора (макс.) |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in res["summary"]:
         g = r["groups"]["all"]
         mark = " **← выбран**" if chosen and r["variant"] == chosen else ""
@@ -317,7 +310,7 @@ def report(res: dict) -> str:
             f"{g['hits']['mean']:.3f} | {ms} | {g['fives']['mean']:.3f} | "
             f"{_f(g['ndcg20'])} | {_f(g['ndcg20_diff'], True)}{_ci(g['ndcg20_diff'])} | "
             f"{_f(g['low20'], pct=True)} | {_f(g['low20_diff'], True, pct=True)} | {'да' if allowed(r) else 'нет'} | "
-            f"{_f(g['gauc'])} | {_f(g['later'], pct=True)} | {g['max_author']['mean']:.2f} |")
+            f"{_f(g['gauc'])} | {g['max_author']['mean']:.2f} |")
     ref_all = res["summary"][0]["groups"]["all"]
     lines += ["", f"Потолок — топ из лучших скрытых книг человека (больше угадать нельзя: остальное он не читал или "
                   f"не оценил): ценность {ref_all['value_ideal']['mean']:.2f}, пятёрок {ref_all['fives_ideal']['mean']:.2f} "
@@ -340,7 +333,7 @@ def report(res: dict) -> str:
 
 def profiles(*, clean_dir: Path, models_dir: Path, profiles_dir: Path, top: int = 20) -> str:
     """Топ-N каждого профиля profiles/*.csv: нынешняя выдача и выбранный вариант рядом — поиск дефектов глазами."""
-    from booksengine.model.filters import RatedFilter, work_info
+    from booksengine.model.filters import ListPicker, RatedFilter, pick_top, work_info
     from booksengine.model.matrix import catalog_works
     from booksengine.model.series import SeriesIndex, exclusion
     from booksengine.recommend import read_profile
@@ -350,10 +343,13 @@ def profiles(*, clean_dir: Path, models_dir: Path, profiles_dir: Path, top: int 
     chosen = Variant(**json.loads((models_dir / "layers" / "params.json").read_text())["variant"])
     ref = Variant(*REFERENCE)
     top_cols = layers.mix.ease.top_cols
+    pos_of = np.full(len(work_ids), -1)
+    pos_of[top_cols] = np.arange(len(top_cols))
     series = SeriesIndex(info.title.tolist())
-    later, _ = book_marks(info, top_cols)
+    picker = ListPicker(info, series)
     out = [f"# Топ-{top} на профилях: нынешняя выдача и «{chosen.label()}»", "",
-           "★ — поздний том (#2 и дальше) неначатой серии. Без шанса и объяснения."]
+           "Списки собраны правилами выдачи (без сборников, поздний том — первой книгой серии, книг одного автора — "
+           "не больше одной на каждые 10 мест). Без шанса и объяснения."]
     for csv in sorted(profiles_dir.glob("*.csv")):
         prof = read_profile(csv, work_ids, clean_dir)
         if prof.x.nnz == 0:
@@ -361,12 +357,9 @@ def profiles(*, clean_dir: Path, models_dir: Path, profiles_dir: Path, top: int 
         excl = exclusion(prof.x, series)[:, top_cols].toarray() != 0
         crowds = {v: layers.crowd(v.crowd, prof.x, prof.dnf, v.als_weight) for v in (ref, chosen)}
         taste = layers.taste_z(prof.x)
-        rated = RatedFilter(info, prof.x.indices)
-        lists = {}
-        for v in (ref, chosen):
-            sc = layers.combine(crowds[v], taste, excl, v)[0]
-            order = [p for p in np.argsort(-sc, kind="stable") if np.isfinite(sc[p])]
-            lists[v] = [p for p in order if not rated.is_rated_already(int(top_cols[p]))][:top]
+        rated = RatedFilter(picker.books, prof.x.indices)
+        lists = {v: pick_top(layers.combine(crowds[v], taste, excl, v), top_cols, pos_of, picker, [rated], top)[0].tolist()
+                 for v in (ref, chosen)}
         before = set(lists[ref])
         out += ["", f"## {csv.stem} ({prof.x.nnz} оценок)", "",
                 f"| # | нынешняя | {chosen.label()} |", "|---|---|---|"]
@@ -376,10 +369,9 @@ def profiles(*, clean_dir: Path, models_dir: Path, profiles_dir: Path, top: int 
                 if i >= len(lists[v]):
                     cells.append("")
                     continue
-                p = lists[v][i]
-                c = int(top_cols[p])
-                new = " (новая)" if v == chosen and p not in before else ""
-                cells.append(f"{info.title[c]} — {info.author[c] or '?'}{' ★' if later[p] else ''}{new}")
+                c = lists[v][i]
+                new = " (новая)" if v == chosen and c not in before else ""
+                cells.append(f"{info.title[c]} — {info.author[c] or '?'}{new}")
             out.append(f"| {i + 1} | {cells[0]} | {cells[1]} |")
         out.append(f"\nСовпадает книг: {len(before & set(lists[chosen]))} из {top}.")
     return "\n".join(out) + "\n"

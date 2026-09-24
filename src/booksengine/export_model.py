@@ -23,7 +23,7 @@ from booksengine.db import ensure_free_space
 from booksengine.model import explain
 from booksengine.model.base import fingerprint
 from booksengine.model.chance import Chance
-from booksengine.model.filters import RatedFilter, work_info
+from booksengine.model.filters import Books, RatedFilter, work_info
 from booksengine.model.matrix import catalog_works
 from booksengine.model.mix import DNF_INPUT, Mix
 from booksengine.model.series import SeriesIndex
@@ -51,6 +51,7 @@ def exclusion_pairs(info: pd.DataFrame) -> pd.DataFrame:
     Серия важнее «уже оценено»: серия убирает книгу до расчёта шанса, фильтр — только из выдачи."""
     rows = []
     idx = SeriesIndex(info.title.tolist())
+    books = Books.of(info)
     for i in range(len(info)):
         rows += [(i, int(j), SERIES) for j in idx.continuations(np.array([i])).tolist() if j != i]
     for _, group in info.dropna(subset=["author_id"]).groupby("author_id"):
@@ -58,7 +59,7 @@ def exclusion_pairs(info: pd.DataFrame) -> pd.DataFrame:
         if len(cols) < 2:
             continue
         for i in cols:
-            f = RatedFilter(info, np.array([i]))
+            f = RatedFilter(books, np.array([i]))
             rows += [(int(i), int(j), RATED) for j in cols if j != i and f.is_rated_already(int(j))]
     d = pd.DataFrame(rows, columns=["rated", "excluded", "reason"])
     d = d.sort_values("reason", key=lambda s: s.ne(SERIES), kind="stable")
@@ -109,7 +110,8 @@ def golden(profiles: dict[str, Path], *, clean_dir: Path, models_dir: Path, tmp_
                                     "rating": prof.x.data.astype(np.float64),
                                     "dnf": np.isin(prof.x.indices, prof.dnf.indices)}))
         score = mix.score(prof.x, prof.dnf)[0]
-        res = rec.recommend(path, clean_dir=clean_dir, models_dir=models_dir, top=top, model="mix")  # C# — смесь
+        # C# считает смесью и без правил списка (сборники, поздние тома, книги автора) — эталон такой же
+        res = rec.recommend(path, clean_dir=clean_dir, models_dir=models_dir, top=top, model="mix", rules=False)
         for k, r in enumerate(res.recs, 1):
             recs.append({"profile": name, "rank": k, "gr_work_id": r.work_id,
                          "score": float(score[np.searchsorted(work_ids, r.work_id)]), "chance": r.chance,

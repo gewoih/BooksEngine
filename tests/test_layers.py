@@ -96,6 +96,7 @@ def test_run_val_test_and_profiles(world):
     ref = next(r for r in val["summary"] if r["label"] == ly.Variant(*ly.REFERENCE).label())
     assert ref["groups"]["all"]["ndcg20_diff"]["mean"] == 0.0 and ly.allowed(ref)
     assert ref["groups"]["all"]["value20_diff"]["mean"] == 0.0
+    assert all(r["groups"]["all"]["max_author"]["mean"] <= 2 for r in val["summary"])   # топ-20 — по правилам выдачи
     best = max(val["summary"], key=lambda r: r["groups"]["all"]["value20"]["mean"])
     assert val["chosen"] == best["variant"] and set(val["chosen_by_five_value"]) == {"2.0", "3.0"}
     chosen = json.loads((md / "layers" / "params.json").read_text())["variant"]
@@ -269,6 +270,8 @@ def test_recommend_uses_layers_with_chance_and_writes_history(world):
     chance.calibrate("layers", ratings_path=tp / "ratings.parquet", split_dir=sd, models_dir=md, eval_dir=tp / "eval")
     res = rec.recommend(prof, clean_dir=tp, models_dir=md, top=5, history_dir=tp / "history")
     assert len(res.recs) == 5 and all(0 <= r.chance <= 100 for r in res.recs)
+    assert not any("Saga" in r.title for r in res.recs)             # поздние тома без первой книги — не в списке
+    assert len({r.author for r in res.recs}) == 5                    # список из 5 — одна книга на автора
     assert all(set(r.because) <= {"А", "Б", "В", "Г"} for r in res.recs)
     hist = list((tp / "history").glob("p-*.csv"))
     assert len(hist) == 1 and len(pd.read_csv(hist[0])) == 5
