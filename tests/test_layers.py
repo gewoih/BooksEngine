@@ -95,6 +95,9 @@ def test_run_val_test_and_profiles(world):
     assert len(val["summary"]) == len(ly.CROWDS) * len(ly.CUTOFFS) * len(ly.WEIGHTS)
     ref = next(r for r in val["summary"] if r["label"] == ly.Variant(*ly.REFERENCE).label())
     assert ref["groups"]["all"]["ndcg20_diff"]["mean"] == 0.0 and ly.allowed(ref)
+    assert ref["groups"]["all"]["value20_diff"]["mean"] == 0.0
+    best = max(val["summary"], key=lambda r: r["groups"]["all"]["value20"]["mean"])
+    assert val["chosen"] == best["variant"] and set(val["chosen_by_five_value"]) == {"2.0", "3.0"}
     chosen = json.loads((md / "layers" / "params.json").read_text())["variant"]
     assert chosen == val["chosen"]
     assert "← выбран" in ly.report(val)
@@ -134,3 +137,8 @@ def test_saved_layers_score_calibrate_and_refuse_stale_components(world):
     Taste(factors=2, reg=0.07, iterations=1).save(md / "taste")      # вкус переобучен после выбора веса
     with pytest.raises(ValueError, match="layers val"):
         ly.Layers.load(md / "layers")
+
+
+def test_value_of_counts_from_three():
+    np.testing.assert_array_equal(ly.value_of(np.array([5.0, 4.0, 3.0, 2.0, 1.0, 4.5])), [2, 1, 0, -1, -2, 2])
+    np.testing.assert_array_equal(ly.value_of(np.array([5.0, 4.0, 1.0]), five=3.0), [3, 1, -2])
