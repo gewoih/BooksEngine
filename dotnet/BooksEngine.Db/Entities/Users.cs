@@ -1,5 +1,3 @@
-using Pgvector;
-
 namespace BooksEngine.Db.Entities;
 
 /// <summary>Пользователь приложения (не пользователь датасета).</summary>
@@ -37,12 +35,4 @@ public class ShelfEntry
     public required string Status { get; set; }
     public DateTime AddedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
-}
-
-/// <summary>Вектор произведения из обученной модели. Размерность задаёт модель, поэтому колонка без фиксированного N.</summary>
-public class WorkEmbedding
-{
-    public long WorkId { get; set; }
-    public required string ModelVersion { get; set; }
-    public required Vector Embedding { get; set; }
 }

@@ -1,3 +1,5 @@
 <Solution>
+  <Project Path="BooksEngine.Api.Tests/BooksEngine.Api.Tests.csproj" />
+  <Project Path="BooksEngine.Api/BooksEngine.Api.csproj" />
   <Project Path="BooksEngine.Db/BooksEngine.Db.csproj" />
 </Solution>

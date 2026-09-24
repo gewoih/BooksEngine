@@ -35,15 +35,19 @@
 EASE по оценке −2/−1/0/1/2; тест NDCG@20 0.251, Low@20 8.6% (ALS — 0.192 / 9.0%). Шанс «понравится» в процентах —
 `models/mix/chance.json` (п. 29). Объяснение — точный разбор балла смеси на вклады оценённых книг (`model/explain.py`),
 не kNN. Отклонены: гибрид ALS + kNN (п. 23), порог выдачи (п. 25), кластеры вкуса (п. 9), свой поиск для
-сопоставления CSV (п. 19 — сопоставляет нейросеть). Шкала оценок везде 1–5. Следующий этап в ТЗ не описан —
-согласовать с пользователем; открытое — `TODO.md` (отложено и техдолг).
+сопоставления CSV (п. 19 — сопоставляет нейросеть). Шкала оценок везде 1–5. **Веб-интерфейс** (2026-09-24,
+`docs/superpowers/specs/2026-09-24-web-ui-design.md`): библиотека CF-ядра с поиском и быстрой оценкой, панель
+«мои оценки», рекомендации 10/20/50 с шансом и объяснением, карточка книги, импорт CSV (наш формат и экспорт
+Goodreads); выдачу считает C# по модели из `export-model`, топ-20 на эталонном профиле = CLI 20/20.
+Открытое — `TODO.md` (отложено и техдолг).
 
 ## Стек и структура
 
 - **Python 3.12 (uv)** — только офлайн: очистка, обучение, метрики, загрузка каталога и
   векторов в БД. DuckDB + Parquet (zstd): 228M строк обрабатываются вне памяти.
-- **C# / .NET** — онлайн: владелец схемы БД (EF Core-миграции), позже ASP.NET API с выдачей
-  рекомендаций (fold-in по готовым векторам/похожестям из БД).
+- **C# / .NET** — онлайн: владелец схемы БД (EF Core-миграции) и ASP.NET API (`dotnet/BooksEngine.Api`):
+  выдача смеси по модели из БД в памяти — повтор Python, сверяется эталонным тестом (`GoldenTests`).
+- **Фронт** — React + TypeScript + Mantine (`web/`), типы API — из OpenAPI (`npm run gen:api`).
 - **PostgreSQL + pgvector** — основная БД: каталог, пользователи приложения, векторы модели.
   Оценки датасета в БД **не грузятся** — обучение читает Parquet (решение пользователя).
 - Подход — только коллаборативная фильтрация. Текстовые эмбеддинги отложены до появления
@@ -68,7 +72,11 @@ EASE по оценке −2/−1/0/1/2; тест NDCG@20 0.251, Low@20 8.6% (ALS
 | `src/booksengine/model/experiment.py` | `booksengine exp`: сравнение вариантов ядра (правила, пороги) на общем тесте |
 | `src/booksengine/report_3a.py`, `report_exp.py` | отчёты `stage3a_report.md` и `cleanup_experiment.md` из JSON в `models/eval/` |
 | `models/` | gitignored: артефакты моделей и `eval/*.json` |
+| `src/booksengine/export_model.py` | `export-model`: смесь → БД (векторы, соседи EASE, пары исключений, обложки, эталон), перезапись одной транзакцией |
 | `dotnet/BooksEngine.Db/` | EF Core-модель и миграции — владелец схемы БД |
+| `dotnet/BooksEngine.Api/` | ASP.NET API :5080: сессия «войти как», библиотека и поиск, оценки, импорт, выдача (`Recommendations/Recommender.cs`) |
+| `dotnet/BooksEngine.Api.Tests/` | xUnit v3: API на БД `booksengine_api_test`; `GoldenTests` — выдача C# = Python на рабочей БД |
+| `web/` | фронт (Vite, :5173, прокси `/api` → :5080) |
 | `docker-compose.yml` | PostgreSQL 17 + pgvector |
 | `tests/` | pytest на синтетических мини-фикстурах, по тесту на правило |
 | `data/` | gitignored: `staging/`, `clean/`, `model/split/`, `profile.json`; `exp/` — только на время `booksengine exp` |
@@ -91,6 +99,14 @@ uv run booksengine calibrate [model]                  # шанс «понрав�
 # смесь (mix) не обучается: после переобучения als_neg или ease — `evaluate mix --stage val`, затем `calibrate mix`
 uv run booksengine report-3a                          # reports/stage3a_report.md
 uv run booksengine recommend --ratings profiles/my_ratings.csv [--top 20]  # рекомендации по CSV
+
+# веб-интерфейс
+uv run booksengine export-model                     # models/mix → БД для API (перезаписывает модель целиком, ~3 мин)
+dotnet run --project dotnet/BooksEngine.Api         # API на :5080, модель грузится при старте (~16 с)
+(cd dotnet && dotnet test --project BooksEngine.Api.Tests)  # запускать из dotnet/ (global.json: MTP); GoldenTests — C# = Python
+(cd web && npm run dev)                             # фронт на :5173
+(cd web && npm run gen:api)                         # типы TS из OpenAPI после изменения контрактов (API запущен)
+# после переобучения смеси или load-db: export-model → POST /api/admin/reload-model (или перезапуск API) → dotnet test
 
 # сравнить вариант очистки с текущим: сохранить ядро, поменять config, prepare --force, затем
 uv run booksengine exp save <имя>   # data/clean → data/exp/<имя>/ (до пересборки)

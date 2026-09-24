@@ -30,6 +30,13 @@ public class BooksDbContext(DbContextOptions<BooksDbContext> options) : DbContex
     public DbSet<Rating> Ratings => Set<Rating>();
     public DbSet<ShelfEntry> Shelves => Set<ShelfEntry>();
     public DbSet<WorkEmbedding> WorkEmbeddings => Set<WorkEmbedding>();
+    public DbSet<ModelMeta> ModelMeta => Set<ModelMeta>();
+    public DbSet<EaseWeight> EaseWeights => Set<EaseWeight>();
+    public DbSet<WorkExclusion> WorkExclusions => Set<WorkExclusion>();
+    public DbSet<WorkMerge> WorkMerges => Set<WorkMerge>();
+    public DbSet<WorkCover> WorkCovers => Set<WorkCover>();
+    public DbSet<GoldenInput> GoldenInputs => Set<GoldenInput>();
+    public DbSet<GoldenRecommendation> GoldenRecommendations => Set<GoldenRecommendation>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -131,11 +138,52 @@ public class BooksDbContext(DbContextOptions<BooksDbContext> options) : DbContex
             e.HasOne<Work>().WithMany().HasForeignKey(x => x.WorkId).OnDelete(DeleteBehavior.Restrict);
         });
 
+        // Модель: FK на каталог с Cascade — модель перевыгружается целиком, терять в ней нечего.
+        b.Entity<ModelMeta>(e =>
+        {
+            e.ToTable("model_meta", t => t.HasCheckConstraint("ck_model_meta_single", "id = 1"));
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.Params).HasColumnType("jsonb");
+            e.Property(x => x.ExportedAt).HasDefaultValueSql("now()");
+        });
+
         b.Entity<WorkEmbedding>(e =>
         {
-            e.HasKey(x => new { x.WorkId, x.ModelVersion });
+            e.HasKey(x => x.WorkId);
+            e.Property(x => x.WorkId).ValueGeneratedNever();
+            e.HasIndex(x => x.Col).IsUnique();
+            e.HasIndex(x => x.EasePos).IsUnique();
             e.Property(x => x.Embedding).HasColumnType("vector");
             e.HasOne<Work>().WithMany().HasForeignKey(x => x.WorkId).OnDelete(DeleteBehavior.Cascade);
         });
+
+        b.Entity<EaseWeight>(e => e.HasKey(x => new { x.FromPos, x.ToPos }));
+
+        b.Entity<WorkExclusion>(e =>
+        {
+            e.HasKey(x => new { x.RatedWorkId, x.ExcludedWorkId });
+            e.HasIndex(x => x.ExcludedWorkId);
+            e.HasOne<Work>().WithMany().HasForeignKey(x => x.RatedWorkId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Work>().WithMany().HasForeignKey(x => x.ExcludedWorkId).OnDelete(DeleteBehavior.Cascade);
+            e.ToTable(t => t.HasCheckConstraint("ck_work_exclusions_reason",
+                $"reason IN ({string.Join(", ", ExclusionReason.All.Select(s => $"'{s}'"))})"));
+        });
+
+        b.Entity<WorkMerge>(e =>
+        {
+            e.HasKey(x => x.ShadowExternalId);
+            e.HasIndex(x => x.MainWorkId);
+            e.HasOne<Work>().WithMany().HasForeignKey(x => x.MainWorkId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<WorkCover>(e =>
+        {
+            e.HasKey(x => x.WorkId);
+            e.Property(x => x.WorkId).ValueGeneratedNever();
+            e.HasOne<Work>().WithMany().HasForeignKey(x => x.WorkId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<GoldenInput>(e => e.HasKey(x => new { x.Profile, x.WorkId }));
+        b.Entity<GoldenRecommendation>(e => e.HasKey(x => new { x.Profile, x.Rank }));
     }
 }

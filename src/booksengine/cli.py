@@ -85,6 +85,16 @@ def recommend(ratings: str = typer.Option(..., "--ratings", help="CSV: goodreads
     print(rec.format_result(rec.recommend(Path(ratings), clean_dir=CLEAN_DIR, models_dir=MODELS_DIR, top=top)))
 
 
+@app.command("export-model")
+def export_model() -> None:
+    """Смесь models/mix → PostgreSQL для C# API: перезаписывает модель целиком (веб-интерфейс)."""
+    from booksengine import export_model as ex
+    from booksengine.db_load import pg_dsn
+    from booksengine.paths import CLEAN_DIR, MODELS_DIR, PROJECT_ROOT, TMP_DIR
+    ex.run(clean_dir=CLEAN_DIR, models_dir=MODELS_DIR, profiles_dir=PROJECT_ROOT / "profiles",
+           tmp_dir=TMP_DIR / "export", dsn=pg_dsn())
+
+
 @app.command("report-3a")
 def report_3a() -> None:
     """Отчёт этапа 3a (reports/stage3a_report.md) из models/eval/*.json."""

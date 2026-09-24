@@ -12,3 +12,7 @@ __pycache__/
 # .NET
 bin/
 obj/
+
+# фронт
+web/node_modules/
+web/dist/
