@@ -48,3 +48,20 @@ def test_save_requires_truncation(tmp_path):
     m.configure(topk=None)
     with pytest.raises(ValueError):
         m.save(tmp_path / "ease")
+
+
+def test_fit_in_place_is_bitwise_equal_to_copying_version():
+    # прежний fit: inv на построчной G (scipy копирует её) и деление с новой матрицей — эталон без копий нынешнего
+    import scipy.linalg
+    d = data(seed=3)
+    m = EASE(lam=7.0, n_top=10, block=4)
+    m.fit(d)
+    Xb = d.X[:, m.top_cols].tocsc()
+    Xb.data[:] = 1.0
+    G = (Xb.T @ Xb).toarray().astype(np.float32)
+    G[np.diag_indices(10)] += 7.0
+    P = scipy.linalg.inv(G, overwrite_a=True, check_finite=False)
+    B = P / (-np.diag(P))[None, :]
+    np.fill_diagonal(B, 0.0)
+    assert m.B_full.dtype == np.float32
+    assert np.array_equal(m.B_full, B)
