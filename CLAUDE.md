@@ -72,6 +72,7 @@ Goodreads); выдачу считает C# по модели из `export-model`
 | `src/booksengine/model/series.py` | серии из названий; продолжения начатых серий — вне выдачи и вне проверки |
 | `src/booksengine/model/ease_size.py` | `booksengine ease-size`: книги профилей и теста за границей EASE (30K) по диапазонам мест, память и время — повторять для новых профилей (п. 32) |
 | `src/booksengine/model/taste.py` | модель вкуса (п. 37): прогноз оценки 1–5 со сдвигами книги и человека, fold-in по отклонениям от обычной оценки книги; `booksengine taste` — перебор по личной точности |
+| `src/booksengine/model/ease.py` (`EASELike`) | п. 38: толпа, которая целится в оценку — вход звёзды с весами, цель «оценка − 3», B блоками с урезанием |
 | `src/booksengine/model/layers.py` | шаг 2 п. 37: z(толпа) + g·z(вкус), толпа «по оценкам» или «прочитал», отсечение первыми N толпы; выбор по личной точности при NDCG и Low@20 не хуже; топ-20 профилей рядом |
 | `src/booksengine/model/taste_gap.py` | `booksengine taste-gap`: личная точность — ставит ли модель понравившиеся скрытые книги выше непонравившихся (п. 37, шаг 0) |
 | `src/booksengine/model/experiment.py` | `booksengine exp`: сравнение вариантов ядра (правила, пороги) на общем тесте |
@@ -105,6 +106,7 @@ uv run booksengine calibrate [model]                  # шанс «понрав�
 uv run booksengine report-3a                          # reports/stage3a_report.md
 uv run booksengine ease-size                          # reports/ease_size.md — стоит ли расширять EASE (новые профили)
 uv run booksengine taste [--factors 64,128 --reg 0.02,0.05]  # модель вкуса: перебор на валидации → models/taste (дописывает прежний)
+uv run booksengine ease-like [--lam 500]              # п. 38: EASE с целью «оценка − 3» → models/ease_like, models/mix_like (~5–10 мин)
 uv run booksengine layers val|test|profiles           # шаг 2 п. 37: перебор и выбор → models/layers; тест; топ-20 профилей
 uv run booksengine taste-gap                          # reports/taste_gap.md — личная точность моделей на валидации (п. 37)
 uv run booksengine recommend --ratings profiles/my_ratings.csv [--top 20]  # рекомендации по CSV

@@ -134,6 +134,27 @@ def layers(stage: str = typer.Argument(..., help="val | test | profiles"),
     print(text)
 
 
+@app.command("ease-like")
+def ease_like(lam: float = typer.Option(500.0, help="регуляризация λ, как у EASE смеси")) -> None:
+    """П. 38: EASE с целью «оценка − 3» → models/ease_like и смесь с ALS models/mix_like; дальше `layers val`."""
+    import time
+
+    from booksengine.model.ease import EASELike
+    from booksengine.model.evaluate import RATINGS
+    from booksengine.model.matrix import load_train
+    from booksengine.model.mix import Mix
+    from booksengine.paths import MODELS_DIR, SPLIT_DIR
+    train = load_train(RATINGS, SPLIT_DIR / "holdout_users.parquet")
+    t0 = time.perf_counter()
+    m = EASELike(lam=lam)
+    m.fit(train)
+    m.save(MODELS_DIR / "ease_like")
+    mix = Mix(MODELS_DIR / "als_neg", MODELS_DIR / "ease_like")
+    mix.fit(train)
+    mix.save(MODELS_DIR / "mix_like")
+    print(f"EASE «ценность» λ = {lam}: обучение {time.perf_counter() - t0:.0f} с → models/ease_like, models/mix_like")
+
+
 @app.command("taste-gap")
 def taste_gap() -> None:
     """Личная точность: ставит ли модель понравившиеся книги выше непонравившихся (п. 37) → reports/taste_gap.md."""

@@ -46,7 +46,8 @@ class Variant:
     cutoff: int | None = None
 
     def label(self) -> str:
-        c = "толпа по оценкам" if self.crowd == "mix" else "толпа «прочитал»"
+        c = {"mix": "толпа по оценкам", "read": "толпа «прочитал»", "like": "толпа «ценность» + ALS",
+             "like_only": "толпа «ценность» без ALS"}[self.crowd]
         return f"{c}, вкус {self.taste_weight:g}" + (f", из первых {self.cutoff}" if self.cutoff else "")
 
 
@@ -57,18 +58,27 @@ class Layers:
     смеси и вкуса: если компонент переобучен, загрузка падает — иначе вес вкуса и шанс молча стали бы чужими."""
     name = "layers"
 
-    def __init__(self, mix: Mix, taste: Taste, variant: Variant | None = None):
-        self.mix, self.taste = mix, taste
+    def __init__(self, mix: Mix, taste: Taste, variant: Variant | None = None, like_mix: Mix | None = None):
+        self.mix, self.taste, self.like_mix = mix, taste, like_mix
         self.variant = variant or Variant(*REFERENCE)
         self._mix_cfg = (mix.als_weight, mix.ease_input, mix.als.neg_rule, mix.als.neg_weight)
+        if like_mix is not None and not np.array_equal(like_mix.ease.top_cols, mix.ease.top_cols):
+            raise ValueError("EASE «ценность» обучен на других 30 000 книгах, чем EASE смеси")
 
     @classmethod
     def from_models(cls, models_dir: Path) -> "Layers":
-        return cls(Mix.load(models_dir / "mix"), Taste.load(models_dir / "taste"))
+        like = models_dir / "mix_like"
+        return cls(Mix.load(models_dir / "mix"), Taste.load(models_dir / "taste"),
+                   like_mix=Mix.load(like) if (like / "params.json").exists() else None)
+
+    def crowds(self) -> tuple[str, ...]:
+        """Толпы для перебора: нынешняя и, если обучена (TODO п. 38), «ценность» со смесью ALS и без."""
+        return CROWDS + (("like", "like_only") if self.like_mix is not None else ())
 
     @staticmethod
     def component_fingerprints(models_dir: Path) -> dict[str, str]:
-        return {n: fingerprint(models_dir / n) for n in ("mix", "taste")}
+        names = ("mix", "taste") + (("mix_like",) if (models_dir / "mix_like" / "params.json").exists() else ())
+        return {n: fingerprint(models_dir / n) for n in names}
 
     @classmethod
     def load(cls, path: Path) -> "Layers":
@@ -100,6 +110,14 @@ class Layers:
 
     def crowd(self, kind: str, inputs: sp.csr_matrix, dnf: sp.csr_matrix | None = None) -> np.ndarray:
         """z-балл толпы по книгам EASE (строки × 30 000)."""
+        if kind in ("like", "like_only"):
+            m = self.like_mix
+            w0 = m.als_weight
+            m.configure(als_weight=0.5 if kind == "like" else 0.0, ease_input=m.ease_input)
+            try:
+                return m.score(inputs, dnf)[:, m.ease.top_cols].astype(np.float64)
+            finally:
+                m.configure(als_weight=w0, ease_input=m.ease_input)
         w, ein, rule, beta = self._mix_cfg
         if kind == "read":
             self.mix.configure(als_weight=w, ease_input=(1.0,) * 5)
@@ -243,7 +261,7 @@ def run(stage: str, *, clean_dir: Path, split_dir: Path, models_dir: Path, eval_
     hold = _hold(ratings_path, split_dir, stage, work_ids)
     ref = Variant(*REFERENCE)
     if stage == "val":
-        variants = [Variant(c, w, n) for c in CROWDS for n in CUTOFFS for w in WEIGHTS]
+        variants = [Variant(c, w, n) for c in layers.crowds() for n in CUTOFFS for w in WEIGHTS]
     else:
         chosen = Variant(**json.loads((models_dir / "layers" / "params.json").read_text())["variant"])
         variants = list(dict.fromkeys([ref, chosen]))

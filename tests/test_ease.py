@@ -65,3 +65,27 @@ def test_fit_in_place_is_bitwise_equal_to_copying_version():
     np.fill_diagonal(B, 0.0)
     assert m.B_full.dtype == np.float32
     assert np.array_equal(m.B_full, B)
+
+
+def test_ease_like_matches_direct_ridge_per_column(tmp_path):
+    from booksengine.model.ease import EASELike
+    rng = np.random.default_rng(5)
+    U, N, lam = 120, 12, 3.0
+    R = np.where(rng.random((U, N)) < 0.4, rng.integers(1, 6, (U, N)), 0).astype(np.float32)
+    train = RatingMatrix(sp.csr_matrix(R), np.arange(U), np.arange(100, 100 + N))
+    m = EASELike(lam=lam, n_top=N, block=5, topk=N)
+    m.fit(train)
+    W = np.array([0, -2, -1, 0, 1, 2], float)
+    Xw, Y = W[R.astype(int)], np.where(R > 0, R - 3, 0.0)
+    B = np.zeros((N, N))
+    for j in range(N):
+        keep = np.arange(N) != j
+        Xj = Xw[:, keep]
+        B[keep, j] = np.linalg.solve(Xj.T @ Xj + lam * np.eye(N - 1), Xj.T @ Y[:, j])
+    np.testing.assert_allclose(m._B.toarray(), B, atol=1e-4)
+    m.save(tmp_path)
+    loaded = EASE.load(tmp_path)                      # смесь читает его как обычный EASE
+    np.testing.assert_allclose(loaded._B.toarray(), m._B.toarray())
+    small = EASELike(lam=lam, n_top=N, block=5, topk=3)
+    small.fit(train)
+    assert (small._B.getnnz(axis=0) <= 3).all()

@@ -142,3 +142,24 @@ def test_saved_layers_score_calibrate_and_refuse_stale_components(world):
 def test_value_of_counts_from_three():
     np.testing.assert_array_equal(ly.value_of(np.array([5.0, 4.0, 3.0, 2.0, 1.0, 4.5])), [2, 1, 0, -1, -2, 2])
     np.testing.assert_array_equal(ly.value_of(np.array([5.0, 4.0, 1.0]), five=3.0), [3, 1, -2])
+
+
+def test_val_includes_value_crowd_when_trained(world):
+    from booksengine.model.ease import EASELike
+    tp, sd, md = world
+    train = load_train(tp / "ratings.parquet", sd / "holdout_users.parquet")
+    like = EASELike(lam=10.0, topk=20)
+    like.fit(train)
+    like.save(md / "ease_like")
+    mix = Mix(md / "als_neg", md / "ease_like")
+    mix.fit(train)
+    mix.save(md / "mix_like")
+    L = ly.Layers.from_models(md)
+    assert L.crowds() == ("mix", "like", "like_only")
+    x = train.X[:3]
+    w0 = L.like_mix.als_weight
+    assert not np.allclose(L.crowd("like", x), L.crowd("like_only", x)) and L.like_mix.als_weight == w0
+    val = ly.run("val", clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval")
+    assert len(val["summary"]) == 3 * len(ly.WEIGHTS)
+    assert "mix_like" in json.loads((md / "layers" / "params.json").read_text())["components"]
+    assert ly.Layers.load(md / "layers").like_mix is not None
