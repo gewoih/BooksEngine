@@ -200,3 +200,13 @@ def test_profile_check_places_each_hidden_book(world):
                   "rating": [5, 5, 4, 5, 4, 1, 2]}).to_csv(prof / "p.csv", index=False)
     text = ly.profile_check(clean_dir=tp, models_dir=md, profiles_dir=prof)
     assert "## p: 7 книг из 7" in text and "| 5★ | 3 |" in text and "Взвешенная точность (новая)" in text
+
+
+def test_tune_like_force_saves_requested_setting(world):
+    from booksengine.model.base import read_params
+    tp, sd, md = world
+    kw = dict(clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval", fit_kw={"topk": 20})
+    ly.tune_like(grid=[(10.0, ly.W0)], **kw)
+    ly.tune_like(grid=[(7.0, (-2, -1, 0.5, 1, 2))], force=True, **kw)
+    saved = read_params(md / "ease_like")
+    assert saved["lam"] == 7.0 and saved["weights"] == [-2.0, -1.0, 0.5, 1.0, 2.0]

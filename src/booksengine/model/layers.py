@@ -404,9 +404,10 @@ LIKE_JUDGED = (Variant("like", 0.1, None, 0.25), Variant("like", 0.0, None, 0.25
 
 
 def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: Path, grid=LIKE_GRID,
-              fit_kw: dict | None = None) -> dict:
+              fit_kw: dict | None = None, force: bool = False) -> dict:
     """Обучает толпу «ценность» с каждой настройкой, меряет на валидации вариантами LIKE_JUDGED по ценности топа;
-    лучшая настройка (по «ценность, ALS 0.25, вкус 0.1») записывается в models/ease_like и models/mix_like.
+    лучшая настройка (по «ценность, ALS 0.25, вкус 0.1») записывается в models/ease_like и models/mix_like;
+    force — записать последнюю настройку сетки, даже если по ценности она в пределах шума хуже (решение пользователя).
     После — `layers val` и `layers test` заново (отпечатки компонентов меняются)."""
     import time
 
@@ -450,7 +451,8 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
         v = row["variants"][LIKE_JUDGED[0].label()]["value20"]["mean"]
         print(f"«ценность» λ = {lam:g}, веса {weights}: ценность топа {v:.3f}, обучение {fit_s} с", flush=True)
         (eval_dir / "ease_like_tune.json").write_text(json.dumps({"results": results}, ensure_ascii=False, indent=1))
-        if best is None or v > best:
+        last = (lam, weights) == grid[-1]
+        if (force and last) or (not force and (best is None or v > best)):
             best, best_model = v, (lam, weights, ease)
         else:
             del ease
