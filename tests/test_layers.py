@@ -80,7 +80,7 @@ def world(tmp_path):
 
 def test_crowd_read_restores_mix_settings(world):
     _, _, md = world
-    L = ly.Layers.load(md)
+    L = ly.Layers.from_models(md)
     before = (L.mix.als_weight, L.mix.ease_input, L.mix.als.neg_rule)
     x = load_train(world[0] / "ratings.parquet", world[1] / "holdout_users.parquet").X[:3]
     a = L.crowd("read", x)
@@ -114,3 +114,23 @@ def test_allowed_rejects_significant_ndcg_drop_even_if_small():
     assert ly.allowed(row(-0.002, 0.001, -0.02))        # в шуме — допустим
     assert not ly.allowed(row(-0.006, -0.002, -0.02))   # мало, но значимо хуже (вес 1.5 на валидации)
     assert not ly.allowed(row(-0.001, 0.001, 0.001))    # Low@20 значимо выше
+
+
+def test_saved_layers_score_calibrate_and_refuse_stale_components(world):
+    from booksengine.model import chance
+    tp, sd, md = world
+    ed = tp / "eval"
+    ly.run("val", clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=ed)
+    L = ly.Layers.load(md / "layers")
+    x = load_train(tp / "ratings.parquet", sd / "holdout_users.parquet").X[:4]
+    top = L.mix.ease.top_cols
+    expect = L.combine(L.crowd(L.variant.crowd, x), L.taste_z(x), np.zeros((4, len(top)), bool), L.variant)
+    got = L.score(x)
+    np.testing.assert_allclose(got[:, top], expect, rtol=1e-5)
+    assert np.isneginf(np.delete(got, top, axis=1)).all()
+    out = chance.calibrate("layers", ratings_path=tp / "ratings.parquet", split_dir=sd, models_dir=md, eval_dir=ed)
+    assert any("прогноз вкуса" in k for k in out["test"]) and len(out["chance"]["coef"]) == 3
+    assert "auc_within_person" in out["test"]["место + щедрость"]
+    Taste(factors=2, reg=0.07, iterations=1).save(md / "taste")      # вкус переобучен после выбора веса
+    with pytest.raises(ValueError, match="layers val"):
+        ly.Layers.load(md / "layers")

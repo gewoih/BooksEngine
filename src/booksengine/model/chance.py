@@ -41,6 +41,7 @@ def observations(model, hold: Holdout, batch: int = 500) -> pd.DataFrame:
     for s in range(0, len(hold.user_ids), batch):
         X = hold.inputs[s:s + batch]
         sc = model.score(X).astype(np.float64)
+        tp = model.taste_prediction(X) if hasattr(model, "taste_prediction") else None
         ex = exclude[s:s + batch].tocoo()
         sc[ex.row, ex.col] = -np.inf
         for i in range(X.shape[0]):
@@ -49,9 +50,12 @@ def observations(model, hold: Holdout, batch: int = 500) -> pd.DataFrame:
             if len(h) == 0:
                 continue
             inp = metrics.rounded(X.data[X.indptr[i]:X.indptr[i + 1]])
-            parts.append(pd.DataFrame({"user_id": hold.user_ids[u], "bucket": hold.buckets[u],
-                                       "pct": personal_pct(sc[i], h), "k_like": int((inp >= 4).sum()),
-                                       "n_rated": len(inp), "rating": metrics.rounded(hold.hidden_ratings[u])}))
+            d = pd.DataFrame({"user_id": hold.user_ids[u], "bucket": hold.buckets[u],
+                              "pct": personal_pct(sc[i], h), "k_like": int((inp >= 4).sum()),
+                              "n_rated": len(inp), "rating": metrics.rounded(hold.hidden_ratings[u])})
+            if tp is not None:
+                d["taste"] = tp[i, h]
+            parts.append(d)
     d = pd.concat(parts, ignore_index=True)
     return d[d.pct.notna()].reset_index(drop=True)
 
@@ -147,13 +151,39 @@ def reliability(y: np.ndarray, p: np.ndarray, bins=(0, .3, .4, .5, .6, .7, .8, .
             for i, r in t.iterrows()]
 
 
+def with_taste(obs_fit: pd.DataFrame, obs: pd.DataFrame, prior: float, p0: float) -> np.ndarray:
+    """Сравнение (только замер): место + щедрость + прогноз оценки модели вкуса. В шанс не входит — книга ниже
+    в списке могла бы получить больший процент (docs/resheniya.md, «шанс», «какой моделью»)."""
+    def X(d):
+        own = (d.k_like.to_numpy() + prior * p0) / (d.n_rated.to_numpy() + prior)
+        return np.column_stack([np.ones(len(d)), np.log10(d.pct.to_numpy()), _logit(own), d.taste.to_numpy() - 3.0])
+    w = _logistic(X(obs_fit), (obs_fit.rating >= 4).to_numpy(dtype=np.float64))
+    return 1 / (1 + np.exp(-X(obs) @ w))
+
+
+def within_person_auc(obs: pd.DataFrame, p: np.ndarray) -> float:
+    """Среднее по людям: понравившаяся скрытая книга получила обещание выше непонравившейся (0.5 — монетка)."""
+    d = obs.assign(p=p, y=obs.rating >= 4)
+    vals = [_auc(g.p[g.y].to_numpy(), g.p[~g.y].to_numpy()) for _, g in d.groupby("user_id") if 0 < g.y.sum() < len(g)]
+    return float(np.mean(vals)) if vals else float("nan")
+
+
+def model_class(name: str):
+    """Класс сохранённой модели по имени папки: модели стенда и слои п. 37."""
+    if name == "layers":
+        from booksengine.model.layers import Layers
+        return Layers
+    from booksengine.model.evaluate import MODELS
+    return MODELS[name][0]
+
+
 def calibrate(name: str, *, ratings_path: Path, split_dir: Path, models_dir: Path, eval_dir: Path) -> dict:
     """Учим шанс на валидации для сохранённой модели models_dir/<name>, проверяем на тесте.
     Пишет models_dir/<name>/chance.json и eval_dir/chance_<name>.json."""
-    from booksengine.model.evaluate import MODELS, load_eval_holdout
+    from booksengine.model.evaluate import load_eval_holdout
     from booksengine.model.matrix import catalog_works
     model_dir = models_dir / name
-    model = MODELS[name][0].load(model_dir)
+    model = model_class(name).load(model_dir)
     work_ids = catalog_works(ratings_path)
     val = observations(model, load_eval_holdout(ratings_path, split_dir, "val", work_ids))
     test = observations(model, load_eval_holdout(ratings_path, split_dir, "test", work_ids))
@@ -168,10 +198,13 @@ def calibrate(name: str, *, ratings_path: Path, split_dir: Path, models_dir: Pat
                 "только место в рейтинге": rank_only(val, test),
                 "только щедрость человека": person_only(val, test, c.prior, p0),
                 "место + щедрость": p}
+    if "taste" in val.columns:
+        variants["место + щедрость + прогноз вкуса (только замер)"] = with_taste(val, test, c.prior, p0)
     out = {"model": name, "chance": asdict(c), "prior_log_loss_val": {str(k): v for k, v in losses.items()},
            "n_val": len(val), "n_test": len(test), "test_like_share": float(y.mean()),
            "test": {k: {"log_loss": log_loss(y, v), "brier": float(((v - y) ** 2).mean()),
-                        "auc": _auc(v[y == 1], v[y == 0])} for k, v in variants.items()},
+                        "auc": _auc(v[y == 1], v[y == 0]), "auc_within_person": within_person_auc(test, v)}
+                    for k, v in variants.items()},
            "reliability": reliability(y, p),
            "by_bucket": {b: reliability(y[test.bucket == b], p[test.bucket == b]) for b in sorted(test.bucket.unique())}}
     eval_dir.mkdir(parents=True, exist_ok=True)

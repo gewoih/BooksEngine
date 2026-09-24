@@ -20,6 +20,7 @@ import pandas as pd
 import scipy.sparse as sp
 
 from booksengine.model import metrics
+from booksengine.model.base import fingerprint, read_params
 from booksengine.model.mix import Mix, _z
 from booksengine.model.split import BUCKET_ORDER
 from booksengine.model.taste import Taste
@@ -46,15 +47,52 @@ class Variant:
 
 
 class Layers:
-    """Толпа (готовая смесь) + вкус (готовая модель вкуса); своего обучения нет."""
+    """Толпа (готовая смесь) + вкус (готовая модель вкуса); своего обучения нет.
 
-    def __init__(self, mix: Mix, taste: Taste):
+    Как модель выдачи (`load` из models/layers, `score`) — выбранный вариант из params.json. Там же отпечатки
+    смеси и вкуса: если компонент переобучен, загрузка падает — иначе вес вкуса и шанс молча стали бы чужими."""
+    name = "layers"
+
+    def __init__(self, mix: Mix, taste: Taste, variant: Variant | None = None):
         self.mix, self.taste = mix, taste
+        self.variant = variant or Variant(*REFERENCE)
         self._mix_cfg = (mix.als_weight, mix.ease_input, mix.als.neg_rule, mix.als.neg_weight)
 
     @classmethod
-    def load(cls, models_dir: Path) -> "Layers":
+    def from_models(cls, models_dir: Path) -> "Layers":
         return cls(Mix.load(models_dir / "mix"), Taste.load(models_dir / "taste"))
+
+    @staticmethod
+    def component_fingerprints(models_dir: Path) -> dict[str, str]:
+        return {n: fingerprint(models_dir / n) for n in ("mix", "taste")}
+
+    @classmethod
+    def load(cls, path: Path) -> "Layers":
+        """models/layers → выбранный вариант; смесь и вкус — из соседних папок."""
+        p = read_params(path)
+        if p.get("components") != cls.component_fingerprints(path.parent):
+            raise ValueError(f"{path}: смесь или вкус переобучены после выбора веса — пересоберите "
+                             "`booksengine layers val` и `booksengine calibrate layers`")
+        m = cls.from_models(path.parent)
+        m.variant = Variant(**p["variant"])
+        return m
+
+    def configure(self, **score_params) -> None:
+        if score_params:
+            raise ValueError(f"у слоёв нет настроек выдачи: {score_params}")
+
+    def score(self, inputs: sp.csr_matrix, dnf: sp.csr_matrix | None = None) -> np.ndarray:
+        """Балл выбранного варианта по всем книгам ядра; вне EASE — −∞ (как у смеси). Без исключения входа."""
+        top = self.mix.ease.top_cols
+        excl = np.zeros((inputs.shape[0], len(top)), dtype=bool)
+        s = self.combine(self.crowd(self.variant.crowd, inputs, dnf), self.taste_z(inputs), excl, self.variant)
+        out = np.full(inputs.shape, -np.inf, dtype=np.float32)
+        out[:, top] = s
+        return out
+
+    def taste_prediction(self, inputs: sp.csr_matrix) -> np.ndarray:
+        """Прогноз оценки 1–5 модели вкуса по всем книгам ядра — признак шанса «понравится»."""
+        return self.taste.score(inputs)
 
     def crowd(self, kind: str, inputs: sp.csr_matrix, dnf: sp.csr_matrix | None = None) -> np.ndarray:
         """z-балл толпы по книгам EASE (строки × 30 000)."""
@@ -179,7 +217,7 @@ def run(stage: str, *, clean_dir: Path, split_dir: Path, models_dir: Path, eval_
     from booksengine.model.matrix import catalog_works
     ratings_path = clean_dir / "ratings.parquet"
     work_ids = catalog_works(ratings_path)
-    layers = Layers.load(models_dir)
+    layers = Layers.from_models(models_dir)
     info = work_info(clean_dir, work_ids)
     hold = _hold(ratings_path, split_dir, stage, work_ids)
     ref = Variant(*REFERENCE)
@@ -195,7 +233,8 @@ def run(stage: str, *, clean_dir: Path, split_dir: Path, models_dir: Path, eval_
         res["chosen"] = best["variant"]
         (models_dir / "layers").mkdir(parents=True, exist_ok=True)
         (models_dir / "layers" / "params.json").write_text(json.dumps(
-            {"variant": best["variant"], "label": best["label"]}, ensure_ascii=False, indent=1))
+            {"variant": best["variant"], "label": best["label"],
+             "components": Layers.component_fingerprints(models_dir)}, ensure_ascii=False, indent=1))
     eval_dir.mkdir(parents=True, exist_ok=True)
     (eval_dir / f"layers_{stage}.json").write_text(json.dumps(res, ensure_ascii=False, indent=1))
     return res
@@ -250,7 +289,7 @@ def profiles(*, clean_dir: Path, models_dir: Path, profiles_dir: Path, top: int 
     from booksengine.model.series import SeriesIndex, exclusion
     from booksengine.recommend import read_profile
     work_ids = catalog_works(clean_dir / "ratings.parquet")
-    layers = Layers.load(models_dir)
+    layers = Layers.from_models(models_dir)
     info = work_info(clean_dir, work_ids)
     chosen = Variant(**json.loads((models_dir / "layers" / "params.json").read_text())["variant"])
     ref = Variant(*REFERENCE)
