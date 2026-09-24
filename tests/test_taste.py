@@ -92,3 +92,23 @@ def test_tune_end_to_end(tmp_path):
     assert "| 2 | 0.1 |" in taste_report(out)
     res = taste_gap.run(ratings_path=rp, split_dir=sd, models_dir=md, eval_dir=ed, names=("taste",))
     assert res["reference"] == "taste" and "diff_book_mean" in res["summary"]["taste"]["all"]
+
+
+def test_tune_extends_previous_run_and_keeps_better_model(tmp_path):
+    rp = tmp_path / "ratings.parquet"
+    r = synthetic_ratings(n_users=60)
+    r.to_parquet(rp, index=False)
+    _write_works(r, tmp_path)
+    up = tmp_path / "users.parquet"
+    synthetic_users(r.user_id.unique()).to_parquet(up, index=False)
+    sd, ed, md = tmp_path / "split", tmp_path / "eval", tmp_path / "models"
+    split.build(rp, up, sd, "fp", **_QUOTA, seed=11, share=0.2)
+    tune(ratings_path=rp, split_dir=sd, models_dir=md, eval_dir=ed, grid=[(2, 0.1)], iterations=2)
+    saved = json.loads((md / "taste" / "params.json").read_text())
+    # притворяемся, что прежний вариант был недосягаемо хорош: новый не должен затереть модель
+    val = json.loads((ed / "taste_val.json").read_text())
+    val["results"][0]["personal_auc"]["all"] = 2.0
+    (ed / "taste_val.json").write_text(json.dumps(val))
+    out = tune(ratings_path=rp, split_dir=sd, models_dir=md, eval_dir=ed, grid=[(2, 0.1), (3, 0.1)], iterations=2)
+    assert [(x["factors"], x["reg"]) for x in out["results"]] == [(2, 0.1), (3, 0.1)]   # 2/0.1 не пересчитан
+    assert json.loads((md / "taste" / "params.json").read_text()) == saved

@@ -18,7 +18,7 @@ import scipy.sparse as sp
 from booksengine.model import metrics
 from booksengine.model.base import read_params, write_params
 from booksengine.model.matrix import RatingMatrix, load_train
-from booksengine.model.split import SEED
+from booksengine.model.split import BUCKET_ORDER, SEED
 
 GRID = [(32, 0.05), (32, 0.15), (64, 0.05), (64, 0.15)]   # (factors, reg)
 
@@ -134,7 +134,10 @@ def _rmse(model, hold) -> float:
 
 def tune(*, ratings_path: Path, split_dir: Path, models_dir: Path, eval_dir: Path, grid=GRID,
          iterations: int = 10) -> dict:
-    """Перебор на валидации по личной точности (TODO п. 37: вкус судится ею, не NDCG); лучшая → models_dir/taste."""
+    """Перебор на валидации по личной точности (TODO п. 37: вкус судится ею, не NDCG); лучшая → models_dir/taste.
+
+    Дополняет прежний перебор (eval_dir/taste_val.json): уже посчитанные варианты не повторяются, а сохранённая
+    модель заменяется, только если новый вариант лучше всех прежних."""
     from booksengine.model import taste_gap
     from booksengine.model.evaluate import load_eval_holdout
     train = load_train(ratings_path, split_dir / "holdout_users.parquet")
@@ -144,22 +147,29 @@ def tune(*, ratings_path: Path, split_dir: Path, models_dir: Path, eval_dir: Pat
     if ease_cols.exists():  # как в taste-gap: сравнение на книгах EASE
         allowed[:] = False
         allowed[np.load(ease_cols)] = True
-    out = {"stars": star_stats(train.X), "results": []}
+    path = eval_dir / "taste_val.json"
+    prev = json.loads(path.read_text())["results"] if path.exists() and (models_dir / "taste").exists() else []
+    out = {"stars": star_stats(train.X), "results": prev}
     eval_dir.mkdir(parents=True, exist_ok=True)
-    best = -1.0
+    best = max((r["personal_auc"]["all"] for r in prev), default=-1.0)
+    done = {(r["factors"], r["reg"], r["iterations"]) for r in prev}
     for factors, reg in grid:
+        if (factors, reg, iterations) in done:
+            print(f"вкус {factors}/{reg}: уже посчитан, пропуск", flush=True)
+            continue
         m = Taste(factors, reg, iterations)
         t0 = time.perf_counter()
         m.fit(train)
         fit_s = round(time.perf_counter() - t0, 1)
         d = taste_gap.measure(m, hold, allowed)
-        auc = {"all": float(d.auc.mean())} | {b: float(d.auc[d.bucket == b].mean()) for b in sorted(d.bucket.unique())}
+        auc = {"all": float(d.auc.mean())} | {b: float(d.auc[d.bucket == b].mean())
+                                              for b in BUCKET_ORDER if (d.bucket == b).any()}
         res = {"factors": factors, "reg": reg, "iterations": iterations, "fit_seconds": fit_s,
                "personal_auc": auc, "rmse_hidden": _rmse(m, hold)}
         out["results"].append(res)
         print(f"вкус {factors}/{reg}: личная точность {auc['all']:.4f}, RMSE скрытых {res['rmse_hidden']:.4f}, "
               f"обучение {fit_s} с", flush=True)
-        (eval_dir / "taste_val.json").write_text(json.dumps(out, ensure_ascii=False, indent=1))
+        path.write_text(json.dumps(out, ensure_ascii=False, indent=1))
         if auc["all"] > best:
             best = auc["all"]
             m.save(models_dir / "taste")

@@ -97,12 +97,20 @@ def ease_size() -> None:
 
 
 @app.command()
-def taste() -> None:
-    """Модель вкуса (п. 37, шаг 1): перебор на валидации по личной точности → models/taste, reports/taste_val.md."""
+def taste(factors: str = typer.Option(None, help="размеры через запятую, например 64,128"),
+          reg: str = typer.Option(None, help="регуляризации через запятую, например 0.02,0.05")) -> None:
+    """Модель вкуса (п. 37, шаг 1): перебор на валидации по личной точности → models/taste, reports/taste_val.md.
+    Без параметров — стандартная сетка; с ними — все сочетания, дописываются к прежнему перебору."""
     from booksengine.model import taste as tm
     from booksengine.model.evaluate import RATINGS
     from booksengine.paths import EVAL_DIR, MODELS_DIR, REPORTS_DIR, SPLIT_DIR
-    text = tm.report(tm.tune(ratings_path=RATINGS, split_dir=SPLIT_DIR, models_dir=MODELS_DIR, eval_dir=EVAL_DIR))
+    grid = tm.GRID
+    if factors or reg:
+        fs = [int(v) for v in (factors or "64").split(",")]
+        rs = [float(v) for v in (reg or "0.05").split(",")]
+        grid = [(f, r) for f in fs for r in rs]
+    text = tm.report(tm.tune(ratings_path=RATINGS, split_dir=SPLIT_DIR, models_dir=MODELS_DIR, eval_dir=EVAL_DIR,
+                             grid=grid))
     REPORTS_DIR.mkdir(exist_ok=True)
     (REPORTS_DIR / "taste_val.md").write_text(text)
     print(text)

@@ -103,7 +103,7 @@ uv run booksengine calibrate [model]                  # шанс «понрав�
 # смесь (mix) не обучается: после переобучения als_neg или ease — `evaluate mix --stage val`, затем `calibrate mix`
 uv run booksengine report-3a                          # reports/stage3a_report.md
 uv run booksengine ease-size                          # reports/ease_size.md — стоит ли расширять EASE (новые профили)
-uv run booksengine taste                              # модель вкуса: перебор на валидации → models/taste, reports/taste_val.md (~1–1.5 ч)
+uv run booksengine taste [--factors 64,128 --reg 0.02,0.05]  # модель вкуса: перебор на валидации → models/taste (дописывает прежний)
 uv run booksengine taste-gap                          # reports/taste_gap.md — личная точность моделей на валидации (п. 37)
 uv run booksengine recommend --ratings profiles/my_ratings.csv [--top 20]  # рекомендации по CSV
 
