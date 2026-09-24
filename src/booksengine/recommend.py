@@ -84,9 +84,16 @@ def read_profile(path: Path, work_ids: np.ndarray, clean_dir: Path) -> Profile:
     return Profile(x, d, dict(zip(cols.tolist(), g.name)), skipped)
 
 
-def ranked(prof: Profile, mix: Mix, info: pd.DataFrame, top: int) -> tuple[np.ndarray, np.ndarray, list[int]]:
-    """Баллы смеси (вход и начатые серии — −∞) и первые top кандидатов после фильтра «уже оценено»;
-    filtered — столбцы, убранные фильтром по пути."""
+def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int = 20) -> Result:
+    work_ids = catalog_works(clean_dir / "ratings.parquet")
+    prof = read_profile(ratings_csv, work_ids, clean_dir)
+    if prof.x.nnz == 0:
+        return Result([], skipped=prof.skipped)
+    mix_dir = models_dir / "mix"
+    mix = Mix.load(mix_dir)
+    chance = Chance.load(mix_dir / "chance.json", model_fp=fingerprint(mix_dir))
+    info = work_info(clean_dir, work_ids)
+
     # как при калибровке шанса: вход и начатые серии — не кандидаты
     sc = mix.score(prof.x, prof.dnf)[0].astype(np.float64)
     ex = exclusion(prof.x, SeriesIndex(info.title.tolist()))
@@ -100,19 +107,7 @@ def ranked(prof: Profile, mix: Mix, info: pd.DataFrame, top: int) -> tuple[np.nd
         if len(picked) == top:
             break
         (filtered if rated.is_rated_already(c) else picked).append(c)
-    return sc, np.array(picked, dtype=np.int64), filtered
-
-
-def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int = 20) -> Result:
-    work_ids = catalog_works(clean_dir / "ratings.parquet")
-    prof = read_profile(ratings_csv, work_ids, clean_dir)
-    if prof.x.nnz == 0:
-        return Result([], skipped=prof.skipped)
-    mix_dir = models_dir / "mix"
-    mix = Mix.load(mix_dir)
-    chance = Chance.load(mix_dir / "chance.json", model_fp=fingerprint(mix_dir))
-    info = work_info(clean_dir, work_ids)
-    sc, picked, filtered = ranked(prof, mix, info, top)
+    picked = np.array(picked, dtype=np.int64)
 
     r = metrics.rounded(prof.x.data)
     pct = chance.predict(personal_pct(sc, picked), int((r >= 4).sum()), prof.x.nnz)
