@@ -38,7 +38,10 @@ api.MapWorks();
 api.MapAdmin();
 api.MapImport();
 
-await app.Services.GetRequiredService<ModelStore>().ReloadAsync(CancellationToken.None);
+// Модель не читается (например, load-db каскадом удалил её строки) — API всё равно стартует: библиотека и оценки
+// работают, выдача отвечает 503 до export-model и reload
+try { await app.Services.GetRequiredService<ModelStore>().ReloadAsync(CancellationToken.None); }
+catch (Exception e) { app.Logger.LogError(e, "Модель не загружена: uv run booksengine export-model, затем reload-model"); }
 await app.RunAsync();
 
 public partial class Program;   // для WebApplicationFactory в тестах

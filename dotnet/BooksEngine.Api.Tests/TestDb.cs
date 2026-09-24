@@ -44,7 +44,8 @@ public sealed class TestDb : IAsyncLifetime
     }
 
     // Внутренние id = Goodreads-id + 1000, чтобы тесты ловили путаницу id.
-    // 1001 Dune, 1002 Dune Messiah (серия), 1003 Solaris, 1004 Emma, 1005 Rare (вне ядра), 1006 Hobbit.
+    // 1001 Dune, 1002 Dune Messiah (серия), 1003 Solaris, 1004 Emma, 1005 Rare (вне ядра), 1006 Hobbit,
+    // 1777 — тень Emma (вне ядра, слита в 1004 через work_merges; её издание 2777 — в каталоге).
     public Task SeedCatalogAsync() => ExecAsync("""
         INSERT INTO authors (id, name) VALUES (1, 'Frank Herbert'), (2, 'Stanisław Lem'), (3, 'Jane Austen'), (4, 'J.R.R. Tolkien');
         INSERT INTO works (id, title, publication_year, is_collection, in_cf, cf_ratings, description) VALUES
@@ -53,11 +54,12 @@ public sealed class TestDb : IAsyncLifetime
           (1003, 'Solaris', 1961, false, true, 800, NULL),
           (1004, 'Emma', 1815, false, true, 4000, NULL),
           (1005, 'Rare Book', 2001, false, false, 3, NULL),
-          (1006, 'The Hobbit', 1937, false, true, 9000, NULL);
+          (1006, 'The Hobbit', 1937, false, true, 9000, NULL),
+          (1777, 'Emma', 1815, false, false, 2, NULL);
         INSERT INTO editions (id, work_id, title) VALUES
-          (2001, 1001, 'Dune'), (2002, 1003, 'Солярис'), (2003, 1004, 'Emma'), (2004, 1005, 'Rare Book'), (2005, 1006, 'Хоббит');
+          (2001, 1001, 'Dune'), (2002, 1003, 'Солярис'), (2003, 1004, 'Emma'), (2004, 1005, 'Rare Book'), (2005, 1006, 'Хоббит'), (2777, 1777, 'Эмма');
         INSERT INTO work_authors (work_id, author_id, role, position) VALUES
-          (1001, 1, NULL, 0), (1002, 1, NULL, 0), (1003, 2, NULL, 0), (1004, 3, NULL, 0), (1005, 3, NULL, 0), (1006, 4, NULL, 0);
+          (1001, 1, NULL, 0), (1002, 1, NULL, 0), (1003, 2, NULL, 0), (1004, 3, NULL, 0), (1005, 3, NULL, 0), (1006, 4, NULL, 0), (1777, 3, NULL, 0);
         INSERT INTO external_ids (source_id, entity_type, external_id, internal_id)
           SELECT 1, 'work', (id - 1000)::text, id FROM works
           UNION ALL SELECT 1, 'edition', (id - 2000)::text, id FROM editions;
