@@ -14,14 +14,30 @@ from booksengine.model.taste import Taste
 from tests.test_split import synthetic_users
 
 
-def test_combine_excludes_input_and_cuts_to_crowd_top():
+def test_combine_excludes_input_and_orders_cutoff_without_ties():
     crowd = np.array([[5.0, 4.0, 3.0, 2.0, 1.0]])
     taste = np.array([[0.0, 0.0, 0.0, 0.0, 10.0]])
     excl = np.array([[True, False, False, False, False]])
     s = ly.Layers.combine(crowd, taste, excl, ly.Variant("mix", 1.0, None))
     assert s[0, 0] == -np.inf and np.argmax(s[0]) == 4           # вкус поднял последнюю книгу толпы
     s = ly.Layers.combine(crowd, taste, excl, ly.Variant("mix", 1.0, 2))
-    assert np.isfinite(s[0]).tolist() == [False, True, True, False, False]  # первые 2 толпы без входа
+    # вне первых 2 толпы вкус книгу не поднимает; эти книги — сразу после первых, в порядке толпы, без ничьих
+    assert s[0, 0] == -np.inf and np.isfinite(s[0, 1:]).all() and np.argsort(-s[0])[:4].tolist() == [1, 2, 3, 4]
+    s = ly.Layers.combine(crowd, np.array([[0.0, 0.0, 10.0, 0.0, 0.0]]), excl, ly.Variant("mix", 1.0, 2))
+    assert np.argsort(-s[0])[:4].tolist() == [2, 1, 3, 4]        # внутри первых 2 порядок решает вкус
+
+
+def test_read_first_takes_top_third_and_choose_keeps_hits():
+    scores = np.array([0.9, 0.1, 0.8, 0.3, 0.7, 0.2, -np.inf, 0.5, 0.4, 0.6])
+    ratings = np.array([5, 3, 5, 4, 4, 2, 5, 3, 4, 3], dtype=float)
+    np.testing.assert_array_equal(ly.read_first(scores, ratings), [5, 5, 4])   # 9 кандидатов → первые 3 по баллу
+    assert len(ly.read_first(scores[:2], ratings[:2])) == 0                    # меньше трёх — не судим
+    assert len(ly.read_first(np.arange(60.0), np.full(60, 4.0))) == ly.TOP_MAX  # треть, но не больше 10
+
+    def row(label, quality, hits):
+        return {"label": label, "groups": {"all": {"quality": {"mean": quality}, "hits": {"mean": hits}}}}
+    now, sharp, niche = row("нынешняя", 0.40, 2.0), row("лучше", 0.50, 1.9), row("редкие книги", 0.70, 1.0)
+    assert ly.choose([now, sharp, niche], now)["label"] == "лучше"             # «редкие» угадывают меньше 90%
 
 
 def _data(tmp_path, n_users=90, n_works=40, seed=3):
@@ -92,32 +108,26 @@ def test_run_val_test_and_profiles(world):
     tp, sd, md = world
     ed = tp / "eval"
     val = ly.run("val", clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=ed)
-    assert len(val["summary"]) == len(ly.CROWDS) * len(ly.CUTOFFS) * len(ly.WEIGHTS)
-    ref = next(r for r in val["summary"] if r["label"] == ly.Variant(*ly.REFERENCE).label())
-    assert ref["groups"]["all"]["ndcg20_diff"]["mean"] == 0.0 and ly.allowed(ref)
-    assert ref["groups"]["all"]["value20_diff"]["mean"] == 0.0
+    assert len(val["summary"]) == len(ly.grid(ly.Layers.from_models(md)))   # без params.json нынешняя — прежняя смесь
+    cur = val["summary"][0]
+    assert cur["label"] == ly.Variant(*ly.REFERENCE).label() and cur["groups"]["all"]["quality_diff"]["mean"] == 0.0
+    g = cur["groups"]["all"]
+    assert g["quality"]["n"] > 0 and g["fives_top"]["n"] > 0
+    assert abs(g["quality"]["mean"] - (g["five_share"]["mean"] - g["low_share"]["mean"])) < 1e-9
     assert all(r["groups"]["all"]["max_author"]["mean"] <= 2 for r in val["summary"])   # топ-20 — по правилам выдачи
-    best = max(val["summary"], key=lambda r: r["groups"]["all"]["value20"]["mean"])
-    assert val["chosen"] == best["variant"] and set(val["chosen_by_five_value"]) == {"2.0", "3.0"}
-    chosen = json.loads((md / "layers" / "params.json").read_text())["variant"]
-    assert chosen == val["chosen"]
-    assert "← выбран" in ly.report(val)
+    assert val["chosen"] == ly.choose(val["summary"], cur)["variant"]
+    saved = json.loads((md / "layers" / "params.json").read_text())
+    assert saved["variant"] == val["chosen"] and saved["baseline"] == val["current"]
+    text = ly.report(val)
+    assert "← выбран" in text and "Качество списка" in text and "Прежний судья" in text
     test = ly.run("test", clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=ed)
-    assert 1 <= len(test["summary"]) <= 2 and (ed / "layers_test.json").exists()
+    assert 1 <= len(test["summary"]) <= 3 and test["current"] == val["current"] and (ed / "layers_test.json").exists()
+    assert "Качество списка" in ly.report(test)
     prof = tp / "profiles"
     prof.mkdir()
     pd.DataFrame({"goodreads_work_id": [100, 101, 102, 125], "rating": [5, 5, 4, 1]}).to_csv(prof / "p.csv", index=False)
     text = ly.profiles(clean_dir=tp, models_dir=md, profiles_dir=prof, top=5)
     assert "## p (4 оценок)" in text and "Совпадает книг" in text
-
-
-def test_allowed_rejects_significant_ndcg_drop_even_if_small():
-    def row(nd_lo, nd_hi, low_lo):
-        return {"groups": {"all": {"ndcg20_diff": {"mean": (nd_lo + nd_hi) / 2, "lo": nd_lo, "hi": nd_hi},
-                                   "low20_diff": {"mean": low_lo, "lo": low_lo, "hi": low_lo + 0.01}}}}
-    assert ly.allowed(row(-0.002, 0.001, -0.02))        # в шуме — допустим
-    assert not ly.allowed(row(-0.006, -0.002, -0.02))   # мало, но значимо хуже (вес 1.5 на валидации)
-    assert not ly.allowed(row(-0.001, 0.001, 0.001))    # Low@20 значимо выше
 
 
 def test_saved_layers_score_calibrate_and_refuse_stale_components(world):
@@ -140,11 +150,6 @@ def test_saved_layers_score_calibrate_and_refuse_stale_components(world):
         ly.Layers.load(md / "layers")
 
 
-def test_value_of_counts_from_three():
-    np.testing.assert_array_equal(ly.value_of(np.array([5.0, 4.0, 3.0, 2.0, 1.0, 4.5])), [2, 1, 0, -1, -2, 2])
-    np.testing.assert_array_equal(ly.value_of(np.array([5.0, 4.0, 1.0]), five=3.0), [3, 1, -2])
-
-
 def test_val_includes_value_crowd_when_trained(world):
     from booksengine.model.ease import EASELike
     tp, sd, md = world
@@ -162,9 +167,10 @@ def test_val_includes_value_crowd_when_trained(world):
     np.testing.assert_allclose(L.crowd("like", x, als_weight=0.5), L.like_mix.score(x)[:, top], rtol=1e-5, atol=1e-5)
     assert not np.allclose(L.crowd("like", x, als_weight=0.0), L.crowd("like", x, als_weight=0.5))
     val = ly.run("val", clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval")
-    assert len(val["summary"]) == (1 + len(ly.LIKE_ALS)) * len(ly.WEIGHTS)
+    assert len(val["summary"]) == 1 + len(ly.grid(L))            # прежняя смесь + перебор толпы «ценность»
+    assert all(v.crowd == "like" for v in ly.grid(L)) and any(v.cutoff for v in ly.grid(L))
     g = val["summary"][0]["groups"]["all"]
-    assert g["fives_ideal"]["mean"] >= g["fives"]["mean"] and g["value_ideal"]["mean"] >= g["value20"]["mean"]
+    assert g["hits"]["mean"] > 0 and -1 <= g["quality"]["mean"] <= 1 and 0 <= g["five_base"]["mean"] <= 1
     assert "mix_like" in json.loads((md / "layers" / "params.json").read_text())["components"]
     assert ly.Layers.load(md / "layers").like_mix is not None
 
