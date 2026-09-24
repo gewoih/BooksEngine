@@ -95,6 +95,17 @@ class EASE:
         return m
 
 
+def normalize_weights(weights) -> tuple[float, ...]:
+    """Веса звёзд к масштабу «наибольший по модулю — 2», как у −2/−1/0/1/2. При фиксированном λ масштаб важен:
+    веса ×c — то же, что λ / c². 1/2/4/8/16 при λ = 500 дали плохо обусловленную матрицу (rcond ~ 6·10⁻⁸,
+    предел float32) — считались бы с ошибкой и без регуляризации. Отношения весов сохраняются."""
+    w = np.asarray(weights, dtype=np.float64)
+    m = np.abs(w).max()
+    if m == 0:
+        raise ValueError("веса звёзд не могут быть все нулевые")
+    return tuple(float(v) for v in np.round(w * (2.0 / m), 6))
+
+
 class EASELike(EASE):
     """Толпа, которая целится в оценку (TODO п. 38): вход — звёзды с весами, как при выдаче (1★ −2 … 5★ +2),
     цель — «оценка − 3» у прочитанных, 0 у непрочитанных, то есть ровно «ценность топа», по которой выбирается
@@ -110,7 +121,7 @@ class EASELike(EASE):
     def __init__(self, lam: float = 500.0, n_top: int = 30_000, block: int = 2_000, topk: int = 500,
                  weights=(-2.0, -1.0, 0.0, 1.0, 2.0)):
         super().__init__(lam, n_top, block)
-        self.topk_target, self.weights = int(topk), tuple(float(w) for w in weights)
+        self.topk_target, self.weights = int(topk), normalize_weights(weights)
 
     def fit(self, train: RatingMatrix) -> None:
         from booksengine.model.metrics import rounded

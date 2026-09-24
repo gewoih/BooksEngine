@@ -89,3 +89,12 @@ def test_ease_like_matches_direct_ridge_per_column(tmp_path):
     small = EASELike(lam=lam, n_top=N, block=5, topk=3)
     small.fit(train)
     assert (small._B.getnnz(axis=0) <= 3).all()
+
+
+def test_star_weights_are_normalized_to_scale_two():
+    from booksengine.model.ease import EASELike, normalize_weights
+    assert normalize_weights((1, 2, 4, 8, 16)) == (0.125, 0.25, 0.5, 1.0, 2.0)
+    assert normalize_weights((-2, -1, 0, 1, 2)) == (-2.0, -1.0, 0.0, 1.0, 2.0)
+    assert EASELike(weights=(2, 4, 8, 16, 32)).weights == (0.125, 0.25, 0.5, 1.0, 2.0)
+    with pytest.raises(ValueError):
+        normalize_weights((0, 0, 0, 0, 0))
