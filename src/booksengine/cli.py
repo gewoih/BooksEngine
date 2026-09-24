@@ -64,7 +64,7 @@ def evaluate(model: str = typer.Argument(..., help="popularity | als | als_neg |
 
 @app.command()
 def calibrate(model: str = typer.Argument("mix", help="сохранённая модель в models/")) -> None:
-    """Шанс «понравится» (п. 29): учится на валидации, проверяется на тесте → models/<model>/chance.json."""
+    """Шанс «понравится»: учится на валидации, проверяется на тесте → models/<model>/chance.json."""
     import json
 
     from booksengine.model import chance
@@ -77,7 +77,7 @@ def calibrate(model: str = typer.Argument("mix", help="сохранённая м
 @app.command()
 def recommend(ratings: str = typer.Option(..., "--ratings", help="CSV: goodreads_work_id, rating 1–5, status, title"),
               top: int = typer.Option(20, "--top", help="сколько книг показать")) -> None:
-    """Оценки из CSV → рекомендации смеси с шансом «понравится» и объяснением (п. 11)."""
+    """Оценки из CSV → рекомендации смеси (models/mix) с шансом «понравится» и объяснением."""
     from pathlib import Path
 
     from booksengine import recommend as rec
@@ -99,7 +99,7 @@ def ease_size() -> None:
 @app.command()
 def taste(factors: str = typer.Option(None, help="размеры через запятую, например 64,128"),
           reg: str = typer.Option(None, help="регуляризации через запятую, например 0.02,0.05")) -> None:
-    """Модель вкуса (п. 37, шаг 1): перебор на валидации по личной точности → models/taste, reports/taste_val.md.
+    """Модель вкуса: перебор на валидации по личной точности → models/taste, reports/taste_val.md.
     Без параметров — стандартная сетка; с ними — все сочетания, дописываются к прежнему перебору."""
     from booksengine.model import taste as tm
     from booksengine.model.evaluate import RATINGS
@@ -119,7 +119,8 @@ def taste(factors: str = typer.Option(None, help="размеры через за
 @app.command()
 def layers(stage: str = typer.Argument(..., help="val | test | profiles"),
            top: int = typer.Option(20, "--top", help="сколько книг показать в profiles")) -> None:
-    """Толпа + вкус (п. 37, шаг 2): val — перебор и выбор, test — один замер, profiles — топ-20 рядом с нынешним."""
+    """Толпа + вкус → models/layers: val — перебор и выбор, test — один замер, profiles — топ-N рядом с нынешней
+    выдачей (смесь)."""
     from booksengine.model import layers as ly
     from booksengine.paths import CLEAN_DIR, EVAL_DIR, MODELS_DIR, PROJECT_ROOT, REPORTS_DIR, SPLIT_DIR
     if stage in ("val", "test"):
@@ -134,35 +135,15 @@ def layers(stage: str = typer.Argument(..., help="val | test | profiles"),
     print(text)
 
 
-@app.command("ease-like")
-def ease_like(lam: float = typer.Option(500.0, help="регуляризация λ, как у EASE смеси")) -> None:
-    """П. 38: EASE с целью «оценка − 3» → models/ease_like и смесь с ALS models/mix_like; дальше `layers val`."""
-    import time
-
-    from booksengine.model.ease import EASELike
-    from booksengine.model.evaluate import RATINGS
-    from booksengine.model.matrix import load_train
-    from booksengine.model.mix import Mix
-    from booksengine.paths import MODELS_DIR, SPLIT_DIR
-    train = load_train(RATINGS, SPLIT_DIR / "holdout_users.parquet")
-    t0 = time.perf_counter()
-    m = EASELike(lam=lam)
-    m.fit(train)
-    m.save(MODELS_DIR / "ease_like")
-    mix = Mix(MODELS_DIR / "als_neg", MODELS_DIR / "ease_like")
-    mix.fit(train)
-    mix.save(MODELS_DIR / "mix_like")
-    print(f"EASE «ценность» λ = {lam}: обучение {time.perf_counter() - t0:.0f} с → models/ease_like, models/mix_like")
-
-
 @app.command("ease-like-tune")
 def ease_like_tune(lam: float = typer.Option(None, help="одна настройка вместо сетки: λ"),
                    weights: str = typer.Option(None, help="одна настройка: веса 1★…5★ через запятую, например 2,4,8,16,32"),
                    force: bool = typer.Option(False, "--force", help="записать эту настройку, даже если она не лучшая"),
                    min_user: int = typer.Option(20, "--min-user", help="обучать только на людях с ≥ N оценок")
                    ) -> None:
-    """П. 38: подбор толпы «ценность» (λ, веса звёзд) на валидации → лучшая в models/ease_like; сетка ~50–70 мин.
-    Сохранённая толпа всегда в сравнении; --lam / --weights — проверить одну настройку против неё."""
+    """Подбор толпы «ценность» (λ, веса звёзд) на валидации → лучшая в models/ease_like и models/mix_like;
+    сетка ~50–70 мин. Сохранённая толпа всегда в сравнении; --lam / --weights — проверить одну настройку против неё
+    (без --weights берутся −2/−1/0/1/2). После — `layers val` и `layers test`."""
     from booksengine.model import layers as ly
     from booksengine.paths import CLEAN_DIR, EVAL_DIR, MODELS_DIR, REPORTS_DIR, SPLIT_DIR
     grid = ly.LIKE_GRID
@@ -191,7 +172,7 @@ def profile_check() -> None:
 @app.command()
 def why(profile: str = typer.Option("my_ratings", help="профиль из profiles/ без .csv"),
         book: str = typer.Argument(..., help="goodreads_work_id или часть названия")) -> None:
-    """Почему книга стоит там, где стоит (п. 39): место по частям модели и вклады книг профиля."""
+    """Почему книга стоит там, где стоит (models/layers): место по частям модели и вклады книг профиля."""
     from booksengine.model import layers as ly
     from booksengine.paths import CLEAN_DIR, MODELS_DIR, PROJECT_ROOT
     print(ly.why(clean_dir=CLEAN_DIR, models_dir=MODELS_DIR, profile_csv=PROJECT_ROOT / "profiles" / f"{profile}.csv",
@@ -200,7 +181,7 @@ def why(profile: str = typer.Option("my_ratings", help="профиль из prof
 
 @app.command("taste-gap")
 def taste_gap() -> None:
-    """Личная точность: ставит ли модель понравившиеся книги выше непонравившихся (п. 37) → reports/taste_gap.md."""
+    """Личная точность: ставит ли модель понравившиеся книги выше непонравившихся → reports/taste_gap.md."""
     from booksengine.model import taste_gap as tg
     from booksengine.model.evaluate import RATINGS
     from booksengine.paths import EVAL_DIR, MODELS_DIR, REPORTS_DIR, SPLIT_DIR
@@ -222,7 +203,7 @@ def export_model() -> None:
 
 @app.command("report-3a")
 def report_3a() -> None:
-    """Отчёт этапа 3a (reports/stage3a_report.md) из models/eval/*.json."""
+    """Сравнение моделей стенда `evaluate` на тесте → reports/stage3a_report.md (из models/eval/*.json)."""
     from booksengine import report_3a as r
     print(r.write())
 
@@ -264,7 +245,7 @@ def exp_split() -> None:
 
 @exp_app.command("run")
 def exp_run(core: str = typer.Option(None, help="одно ядро; по умолчанию все")) -> None:
-    """Популярность, ALS, kNN с настройками 3a на общем тесте (models/eval/exp/<core>.json).
+    """Популярность, ALS, kNN с настройками `experiment.FIXED` на общем тесте (models/eval/exp/<core>.json).
     Модель ядра, уже лежащая в models/exp/<core>/, загружается, а не обучается заново."""
     from booksengine.model import experiment as ex
     from booksengine.paths import EXP_DIR, EXP_EVAL_DIR, EXP_MODELS_DIR, PROJECT_ROOT, SPLIT_DIR

@@ -57,7 +57,6 @@ def render(p: dict, m: dict) -> str:
     wq = p["works_quality"][0]
     uq = p["user_quantiles"][0]
     wqq = p["work_quantiles"][0]
-    me = p["multi_edition"][0]
     aq = p["authors_quality"][0]
     ex = m["extra"]
     final = log["kcore"]
@@ -227,7 +226,7 @@ goodreads_interactions.csv (user_id_csv, book_id_csv, is_read, rating 0–5, is_
     w("\nСборник дублирует входящие в него произведения, но оценка сборника — настоящий сигнал вкуса "
       "(«The Lord of the Rings #1-3» у многих и есть «Властелин колец»). Поэтому оценки остаются в матрице, "
       "а флаг будет использоваться при выдаче: не рекомендовать сборник тому, кто уже оценил его части. "
-      f"Если удалять — `collections.drop_from_ratings: true` в конфиге.\n")
+      "Если удалять — `collections.drop_from_ratings: true` в конфиге.\n")
     w("### 4.4 Аномальные пользователи\n")
     w(f"- **Нулевой разброс: sd < {uc['low_variance_max_sd']} при ≥ {uc['low_variance_min_ratings']} оценках — "
       f"−{_n(lv['users_before'] - lv['users_after'])} пользователей, −{_n(lv['rows_removed'])} оценок.** "
@@ -264,9 +263,9 @@ goodreads_interactions.csv (user_id_csv, book_id_csv, is_read, rating 0–5, is_
             ["min оценок у польз.", "min оценок у произв.", "оценок", "пользователей", "произведений",
              "доля оценок", "плотность", "итераций"]))
     w(f"\nВыбрано **({kc['min_user_ratings']}, {kc['min_work_ratings']})**:\n")
-    w(f"- **≥ {kc['min_user_ratings']} у пользователя**: на этапе 3 в отложенную выборку уходит 20% оценок, "
-      "и при 10 оценках у пользователя остаётся 8 для профиля и 2 для проверки; при 5 оценок пришлось бы "
-      "проверять по одной.")
+    w(f"- **≥ {kc['min_user_ratings']} у пользователя**: люди с меньшим числом оценок — не аудитория приложения и "
+      "слабый сигнал; их удаление не изменило NDCG@20 на общем тесте (`booksengine exp`, решение 2026-09-23, "
+      "было 10).")
     opt = {(o["min_user"], o["min_work"]): o for o in ex["kcore_options"]}
     ku = kc["min_user_ratings"]
     alts = "; ".join(f"({ku}, {kw}) — {_n(opt[(ku, kw)]['works'])} произведений, {opt[(ku, kw)]['kept_share']:.1%} оценок"
@@ -292,20 +291,7 @@ goodreads_interactions.csv (user_id_csv, book_id_csv, is_read, rating 0–5, is_
 """)
     w("### Валидация\n")
     w(table([{"проверка": k, "нарушений": v} for k, v in m["validation"].items()]))
-    vb = next(r for r in p["user_variance"] if r["sd_bucket"].startswith("c)"))
-    w("\n## 6. Вопросы к решению перед этапом 2\n")
-    w("1. **Сборники**: оставить оценки в матрице и фильтровать сборники только при выдаче (сейчас так), "
-      "или удалить?\n"
-      f"2. **Порог сверхактивных** {uc['max_ratings']}: ок, или мягче/жёстче? Альтернатива — не удалять, "
-      "а понижать вес таких пользователей в модели.\n"
-      f"3. **Порог разброса** {uc['low_variance_max_sd']}: в корзине sd [0.2; 0.3) "
-      f"{_n(vb['all_fives_users'])} из {_n(vb['users'])} пользователей тоже ставят почти одни пятёрки "
-      f"({_n(vb['ratings'])} оценок). Поднять порог до 0.3 или оставить: единичные четвёрки у них всё же "
-      "несут немного информации?\n"
-      f"4. **k-core ({kc['min_user_ratings']}, {kc['min_work_ratings']})**: ок?\n"
-      "5. **Язык**: русских изданий мало (переводы классики есть, но как английские произведения). "
-      "Рекомендации будут в основном по англоязычному каталогу — это приемлемо на текущем этапе?\n")
-    w("## Воспроизведение\n")
+    w("\n## Воспроизведение\n")
     w("```bash\ncp .env.example .env   # RAW_DIR — папка с файлами датасета\nuv run booksengine prepare"
       "            # --force — пересобрать с нуля\nuv run pytest\n```\n")
     w(f"Пороги — в `config/cleaning.yaml`. Полный прогон с нуля — около {round(m['seconds'] / 60) + 1} мин "

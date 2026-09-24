@@ -29,7 +29,7 @@ from booksengine.model.mix import DNF_INPUT, Mix
 from booksengine.model.series import SeriesIndex
 
 SERIES, RATED = "series", "rated"
-# эталонные пользователи датасета: по одному из целевых групп (CLAUDE.md, «целевые пользователи»)
+# эталонные пользователи датасета: по одному из целевых групп — 50–199 и 200+ оценок
 DATASET_GROUPS = {"goodreads_50_199": (50, 199), "goodreads_200plus": (200, 3000)}
 
 

@@ -1,4 +1,4 @@
-"""Модель вкуса (TODO п. 37, шаг 1): предсказывает саму оценку 1–5, а не факт «прочитал».
+"""Модель вкуса: предсказывает саму оценку 1–5, а не факт «прочитал». Слой вкуса в `layers.py`.
 
 Оценка ≈ μ + b_книги + b_человека + x_человека·y_книги (разложение матрицы оценок со сдвигами, Koren, Bell,
 Volinsky 2009). Учится только на поставленных оценках — «не читал» не значит «плохо». Обучение — чередующиеся
@@ -134,7 +134,7 @@ def _rmse(model, hold) -> float:
 
 def tune(*, ratings_path: Path, split_dir: Path, models_dir: Path, eval_dir: Path, grid=GRID,
          iterations: int = 10) -> dict:
-    """Перебор на валидации по личной точности (TODO п. 37: вкус судится ею, не NDCG); лучшая → models_dir/taste.
+    """Перебор на валидации по личной точности (вкус судится ею, а не NDCG); лучшая → models_dir/taste.
 
     Дополняет прежний перебор (eval_dir/taste_val.json): уже посчитанные варианты не повторяются, а сохранённая
     модель заменяется, только если новый вариант лучше всех прежних."""
@@ -180,7 +180,7 @@ def report(out: dict) -> str:
     s = out["stars"]
     q = s["user_like_share_quartiles"]
     groups = [b for b in BUCKET_ORDER if any(b in r["personal_auc"] for r in out["results"])]
-    lines = ["# Модель вкуса: перебор на валидации (TODO п. 37, шаг 1)", "",
+    lines = ["# Модель вкуса: перебор на валидации", "",
              "Как толпа пользуется шкалой (обучение): " + ", ".join(f"{k}★ — {v:.1%}" for k, v in s["star_share"].items())
              + f". Ни разу не ставили 1★ — {s['users_without_1']:.0%} людей, ни 1★, ни 2★ — "
                f"{s['users_without_1_2']:.0%}. Доля 4–5★ у человека: четверть людей ниже {q[0]:.0%}, "
@@ -193,5 +193,5 @@ def report(out: dict) -> str:
                      + " | ".join(f"{a[g]:.4f}" if g in a else "—" for g in groups)
                      + f" | {r['rmse_hidden']:.4f} | {r['fit_seconds']:.0f} |")
     lines += ["", "Лучшая по личной точности сохранена в models/taste. Сравнение со смесью и средней оценкой книги — "
-                  "`booksengine taste-gap` (шаг 1 пройден, если вкус выше обеих)."]
+                  "`booksengine taste-gap`."]
     return "\n".join(lines) + "\n"

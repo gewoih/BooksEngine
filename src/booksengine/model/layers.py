@@ -1,16 +1,17 @@
-"""Шаг 2 п. 37: толпа выбирает, вкус упорядочивает.
+"""Слои «толпа + вкус» (models/layers): толпа выбирает, вкус упорядочивает. Лучшая по замерам модель выдачи.
 
-Балл = z(толпа) + g·z(вкус) по 30 000 книг EASE; z — нормировка по книгам человека, как в смеси. Толпа —
-нынешняя смесь (`mix`: вход EASE по оценке, ALS с негативом «≤ 2») или «только прочитал» (`read`: вход EASE 1
-у любой оценки, ALS без негатива) — тогда звёзды толкует один слой вкуса. `cutoff` — книги только из первых N
-толпы (вкус лишь переставляет их), None — вкус может поднять любую книгу EASE.
+Балл = z(толпа) + g·z(вкус) по 30 000 книг EASE; z — нормировка по книгам человека, как в смеси. Толпы:
+- `mix` — нынешняя смесь (вход EASE по оценке, ALS с негативом «≤ 2»); с весом вкуса 0 — точка сравнения;
+- `like` — толпа «ценность» (models/mix_like): ALS + EASE с целью «оценка − 3» (`ease.EASELike`), вес ALS —
+  `Variant.als_weight`;
+- `read` — «только прочитал» (вход EASE 1 у любой оценки, ALS без негатива): звёзды толкует один слой вкуса.
+`cutoff` — книги только из первых N толпы (вкус лишь переставляет их), None — вкус может поднять любую книгу EASE.
 
-Выбор (журнал решений, «ценность топа»): наибольшая ценность топа — сумма (оценка − 3) скрытых книг в топ-20,
-5★ = +2 … 1★ = −2. Пользователь: цель — средняя оценка рекомендаций; сумма, а не среднее, — иначе выиграл бы
-топ с одной осторожной угаданной книгой. Раньше выбирали по личной точности при страховках NDCG и Low@20 —
-они остались в отчёте для сведения; рядом — выбор при 5★ = +3 (ценность пятёрки — договорённость).
-Рядом — страховки глазами из урока п. 23 и серий: доля поздних томов (#2 и дальше) неначатых серий в топ-20
-и сколько книг одного автора в топ-20.
+Выбор — наибольшая ценность топа: сумма (оценка − 3) скрытых книг в топ-20, 5★ = +2 … 1★ = −2. Цель пользователя —
+средняя оценка рекомендаций; сумма, а не среднее, — иначе выиграл бы топ с одной осторожной угаданной книгой.
+Раньше выбирали по личной точности при страховках NDCG и Low@20 — они остались в отчёте для сведения; рядом —
+выбор при 5★ = +3 (ценность пятёрки — договорённость). Страховки глазами: доля поздних томов (#2 и дальше)
+неначатых серий в топ-20 и сколько книг одного автора в топ-20.
 """
 import json
 from dataclasses import asdict, dataclass
@@ -76,7 +77,7 @@ class Layers:
                    like_mix=Mix.load(like) if (like / "params.json").exists() else None)
 
     def crowds(self) -> tuple[str, ...]:
-        """Толпы для перебора: нынешняя и, если обучена (TODO п. 38), «ценность» со смесью ALS и без."""
+        """Толпы для перебора: нынешняя и, если обучена (models/mix_like), «ценность» с разным весом ALS."""
         return CROWDS + (("like",) if self.like_mix is not None else ())
 
     @staticmethod
@@ -208,15 +209,6 @@ def evaluate(layers: Layers, hold, info: pd.DataFrame, variants: list[Variant], 
     return {v: pd.DataFrame(r) for v, r in rows.items()}
 
 
-def _boot(x: np.ndarray, rng, n_boot: int) -> dict:
-    x = x[~np.isnan(x)]
-    if len(x) == 0:
-        return {"mean": None, "lo": None, "hi": None, "n": 0}
-    b = x[rng.integers(0, len(x), size=(n_boot, len(x)))].mean(axis=1)
-    return {"mean": float(x.mean()), "lo": float(np.quantile(b, 0.025)), "hi": float(np.quantile(b, 0.975)),
-            "n": int(len(x))}
-
-
 def summarize(per_user: dict[Variant, pd.DataFrame], reference: Variant, n_boot: int = 1000) -> list[dict]:
     ref = per_user[reference].set_index("user_id")
     out = []
@@ -227,10 +219,10 @@ def summarize(per_user: dict[Variant, pd.DataFrame], reference: Variant, n_boot:
         for name, idx in parts:
             g = {}
             for m in CHECKED + ("hits", "fives_ideal", "value_ideal", "value20_5", "gauc3", "recall20", "later", "max_author", "fives"):
-                g[m] = _boot(d.loc[idx, m].to_numpy(dtype=np.float64), np.random.default_rng(0), n_boot)
+                g[m] = metrics.bootstrap(d.loc[idx, m].to_numpy(dtype=np.float64), np.random.default_rng(0), n_boot)
             for m in CHECKED:
                 diff = (d.loc[idx, m] - ref.loc[idx, m]).to_numpy(dtype=np.float64)
-                g[f"{m}_diff"] = _boot(diff, np.random.default_rng(0), n_boot)
+                g[f"{m}_diff"] = metrics.bootstrap(diff, np.random.default_rng(0), n_boot)
             hits = float(d.loc[idx, "hits"].sum())
             g["mean_hit_stars"] = float(d.loc[idx, "hit_stars"].sum() / hits) if hits else None
             row["groups"][name] = g
@@ -246,7 +238,7 @@ def value_of(ratings: np.ndarray, five: float = 2.0) -> np.ndarray:
 
 def allowed(row: dict) -> bool:
     """NDCG@20 не значимо хуже нынешнего и Low@20 не значимо выше: 95% интервал парной разницы касается нуля
-    или лежит на лучшей стороне (журнал решений, «слой вкуса»)."""
+    или лежит на лучшей стороне. Прежнее правило выбора — теперь только колонка отчёта."""
     g = row["groups"]["all"]
     return g["ndcg20_diff"]["hi"] >= 0 and g["low20_diff"]["lo"] <= 0
 
@@ -307,7 +299,7 @@ def _ci(x: dict) -> str:
 
 def report(res: dict) -> str:
     chosen = res.get("chosen")
-    lines = [f"# Слои «толпа + вкус» ({'валидация' if res['stage'] == 'val' else 'тест'}, TODO п. 37, шаг 2)", "",
+    lines = [f"# Слои «толпа + вкус» ({'валидация' if res['stage'] == 'val' else 'тест'})", "",
              f"{res['n_users']} человек. **Ценность топа** — сумма (оценка − 3) скрытых книг, попавших в топ-20: "
              f"5★ = +2, 4★ = +1, 3★ = 0, 2★ = −1, 1★ = −2; выбирается наибольшая. "
              f"Разницы — с нынешней выдачей («толпа по оценкам, вкус 0») на тех же людях, в скобках 95% интервал. "
@@ -347,7 +339,7 @@ def report(res: dict) -> str:
 
 
 def profiles(*, clean_dir: Path, models_dir: Path, profiles_dir: Path, top: int = 20) -> str:
-    """Топ-20 каждого профиля profiles/*.csv: нынешняя выдача и выбранный вариант рядом (правило CLAUDE.md)."""
+    """Топ-N каждого профиля profiles/*.csv: нынешняя выдача и выбранный вариант рядом — поиск дефектов глазами."""
     from booksengine.model.filters import RatedFilter, work_info
     from booksengine.model.matrix import catalog_works
     from booksengine.model.series import SeriesIndex, exclusion
@@ -360,8 +352,8 @@ def profiles(*, clean_dir: Path, models_dir: Path, profiles_dir: Path, top: int 
     top_cols = layers.mix.ease.top_cols
     series = SeriesIndex(info.title.tolist())
     later, _ = book_marks(info, top_cols)
-    out = [f"# Топ-{top} на профилях: нынешняя выдача и «{chosen.label()}» (TODO п. 37, шаг 2)", "",
-           "★ — поздний том (#2 и дальше) неначатой серии. Без шанса и объяснения — они будут на шаге 3."]
+    out = [f"# Топ-{top} на профилях: нынешняя выдача и «{chosen.label()}»", "",
+           "★ — поздний том (#2 и дальше) неначатой серии. Без шанса и объяснения."]
     for csv in sorted(profiles_dir.glob("*.csv")):
         prof = read_profile(csv, work_ids, clean_dir)
         if prof.x.nnz == 0:
@@ -393,14 +385,15 @@ def profiles(*, clean_dir: Path, models_dir: Path, profiles_dir: Path, top: int 
     return "\n".join(out) + "\n"
 
 
-# TODO п. 38, идея 1: подбор толпы «ценность» — регуляризация λ и веса звёзд на входе (1★ … 5★).
+# Подбор толпы «ценность» (`tune_like`): регуляризация λ и веса звёзд на входе (1★ … 5★).
 # Сохранённый models/ease_like всегда в сравнении и не переобучается. W1: 3★ — слабый плюс «прочитал»; W2: пятёрка
-# весит больше; W3 (предложение пользователя): всё положительно и удваивается — пятёрка в 16 раз весомее единицы,
-# сигнала «не понравилось» на входе нет. Веса приводятся к масштабу «максимум 2» (`ease.normalize_weights`).
+# весит больше; W3 (предложение пользователя, принято): всё положительно и удваивается — пятёрка в 16 раз весомее
+# единицы, сигнала «не понравилось» на входе нет. Веса приводятся к масштабу «максимум 2» (`ease.normalize_weights`).
 W0, W1, W2 = (-2.0, -1.0, 0.0, 1.0, 2.0), (-2.0, -1.0, 0.5, 1.0, 2.0), (-2.0, -1.0, 0.0, 1.0, 3.0)
-W3 = (0.125, 0.25, 0.5, 1.0, 2.0)   # 2/4/8/16/32 после приведения масштаба (normalize_weights)
+W3 = (0.125, 0.25, 0.5, 1.0, 2.0)   # 1/2/4/8/16 после приведения масштаба (normalize_weights)
 LIKE_GRID = [(500.0, W0), (250.0, W0), (1000.0, W0), (500.0, W1), (500.0, W2), (500.0, W3)]
-LIKE_JUDGED = (Variant("like", 0.1, None, 0.25), Variant("like", 0.0, None, 0.25))   # выбранный вариант и без вкуса
+# Судья настройки — первый вариант (ALS 0.25, вкус 0.1); второй — то же без вкуса, только в отчёте.
+LIKE_JUDGED = (Variant("like", 0.1, None, 0.25), Variant("like", 0.0, None, 0.25))
 
 
 def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: Path, grid=LIKE_GRID,
@@ -412,7 +405,7 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
     После — `layers val` и `layers test` заново (отпечатки компонентов меняются)."""
     import time
 
-    from booksengine.model.ease import EASE, EASELike
+    from booksengine.model.ease import EASE, EASELike, normalize_weights
     from booksengine.model.filters import work_info
     from booksengine.model.matrix import load_train
     ratings_path = clean_dir / "ratings.parquet"
@@ -421,7 +414,6 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
     hold = _hold(ratings_path, split_dir, "val", train.work_ids)
     base = Layers.from_models(models_dir)
     ref = Variant(*REFERENCE)
-    from booksengine.model.ease import normalize_weights
     grid = [(float(lam), normalize_weights(w), int(min_user)) for lam, w in grid]
     saved = read_params(models_dir / "ease_like") if (models_dir / "ease_like" / "params.json").exists() else {}
     if saved:  # сохранённая толпа — всегда точка сравнения: без неё прогон из одной настройки записал бы худшую
@@ -472,7 +464,7 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
 
 def report_like(res: dict) -> str:
     labels = [v.label() for v in LIKE_JUDGED]
-    lines = ["# Подбор толпы «ценность» (валидация, TODO п. 38)", "",
+    lines = ["# Подбор толпы «ценность» (валидация)", "",
              "Разницы — с нынешней выдачей («толпа по оценкам, вкус 0»), в скобках 95% интервал. Веса звёзд — "
              "вход 1★ … 5★. Лучшая по ценности топа (первый вариант) записана в models/ease_like и models/mix_like.", "",
              "| λ | веса звёзд | обучение: людей с ≥ N оценок | вариант | ценность топа | разница | угадано | пятёрок | "
@@ -572,7 +564,7 @@ def profile_check(*, clean_dir: Path, models_dir: Path, profiles_dir: Path) -> s
 
 
 def why(*, clean_dir: Path, models_dir: Path, profile_csv: Path, query: str, top: int = 8) -> str:
-    """TODO п. 39: почему книга стоит там, где стоит, у выбранного варианта (models/layers). Книга ищется по
+    """Почему книга стоит там, где стоит, у выбранного варианта (models/layers). Книга ищется по
     goodreads_work_id или части названия (сначала среди оценённых); оценённая — прячется, как в profile-check.
     Разбор: место по каждой части (ALS, EASE «ценность», вкус) и вклады книг входа в балл толпы — точно, `explain`."""
     from booksengine.model import explain
@@ -584,7 +576,7 @@ def why(*, clean_dir: Path, models_dir: Path, profile_csv: Path, query: str, top
     layers = Layers.load(models_dir / "layers")
     v = layers.variant
     if v.crowd != "like":
-        raise ValueError("разбор сделан для толпы «ценность» (п. 38): выбранный вариант другой")
+        raise ValueError("разбор сделан для толпы «ценность»: выбранный вариант другой")
     info = work_info(clean_dir, work_ids)
     prof = read_profile(profile_csv, work_ids, clean_dir)
     if query.isdigit() and int(query) in set(work_ids.tolist()):

@@ -126,13 +126,6 @@ QUERIES = {
         FROM interactions i JOIN book_id_map m ON m.book_id_csv = i.book_id JOIN editions e ON e.book_id = m.book_id
         WHERE i.rating > 0 GROUP BY 1 ORDER BY 2 DESC LIMIT 12
     """,
-    "multi_edition": """
-        SELECT count(*) AS user_work_pairs, count(*) FILTER (n > 1) AS with_multiple_editions,
-               count(*) FILTER (n > 1 AND mn <> mx) AS conflicting, count(*) FILTER (mx - mn >= 2) AS conflict_ge2
-        FROM (SELECT i.user_id, e.work_id, count(*) AS n, min(i.rating) AS mn, max(i.rating) AS mx
-              FROM interactions i JOIN book_id_map m ON m.book_id_csv = i.book_id
-              JOIN editions e ON e.book_id = m.book_id WHERE i.rating > 0 AND e.work_id IS NOT NULL GROUP BY ALL)
-    """,
     "user_activity": f"""
         SELECT {_bucket_sql('n', BUCKETS_USERS)} AS explicit_ratings_per_user, count(*) AS users,
                sum(n) AS ratings, round(median(sd), 2) AS median_sd, round(median(mean), 2) AS median_mean,

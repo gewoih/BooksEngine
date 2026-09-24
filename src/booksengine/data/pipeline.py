@@ -81,14 +81,14 @@ def export(con) -> dict:
                   WHERE e.work_id IN (SELECT work_id FROM works_valid) AND g.votes > 0
                   GROUP BY e.work_id, g.genre)
             ORDER BY work_id, votes DESC, genre""", "work_genres"),
-        "users": _export(con, f"""
+        "users": _export(con, """
             SELECT r.user_id, m.user_id AS external_id, count(*) AS n_ratings, round(avg(r.rating), 6) AS mean_rating,
                    round(coalesce(stddev_pop(r.rating), 0), 6) AS sd_rating
             FROM ratings_w r JOIN user_id_map m ON m.user_id_csv = r.user_id GROUP BY ALL ORDER BY r.user_id""",
             "users"),
         "ratings": _export(con, "SELECT user_id, work_id, rating, n_editions FROM ratings_w ORDER BY user_id, work_id",
                            "ratings"),
-        # тень → главное: тени остаются в каталоге вне ядра, оценки по ним — у главного (TODO п. 17)
+        # тень → главное: тени остаются в каталоге вне ядра, оценки по ним — у главного
         "work_merges": _export(con, "SELECT shadow_work_id, main_work_id FROM dup_map ORDER BY 1", "work_merges"),
     }
     for t in ("_author_src", "_work_authors", "_cf_works"):
@@ -114,7 +114,7 @@ def collection_totals(con) -> dict:
             "works_flagged": con.execute("SELECT count(*) FROM works_valid WHERE is_collection").fetchone()[0]}
 
 
-def prepare(force: bool = False, skip_profile: bool = False) -> dict:
+def prepare(force: bool = False) -> dict:
     t0 = time.time()
     cfg_text = CONFIG_PATH.read_text()
     cfg = yaml.safe_load(cfg_text)
@@ -137,8 +137,6 @@ def prepare(force: bool = False, skip_profile: bool = False) -> dict:
     if profile_path.exists() and not force and json.loads(profile_path.read_text()).get("raw") == raw_fp:
         prof = json.loads(profile_path.read_text())["metrics"]
         print("[profile] из кэша")
-    elif skip_profile:
-        prof = {}
     else:
         prof = profile.run(con)
         profile_path.write_text(json.dumps({"raw": raw_fp, "metrics": prof}, ensure_ascii=False, indent=1,

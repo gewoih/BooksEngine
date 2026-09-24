@@ -70,7 +70,7 @@ def test_assign_groups_disjoint_and_order_independent():
 
 
 def test_assign_groups_membership_stable_when_pool_shrinks():
-    """Кто-то выпал из ядра (другая очистка) — оставшиеся не меняют группу (TODO п. 26)."""
+    """Кто-то выпал из ядра (другая очистка) — оставшиеся не меняют группу."""
     ids = np.array([f"ext-{i}" for i in range(3000)])
     bucket = np.full(len(ids), "20-49")
     kw = dict(seed=7, test_per_bucket={"20-49": 300}, val_per_bucket={"20-49": 150})

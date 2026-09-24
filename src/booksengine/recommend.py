@@ -1,4 +1,4 @@
-"""`booksengine recommend` (TODO п. 11): оценки человека из CSV → топ книг смеси с шансом и объяснением.
+"""`booksengine recommend`: оценки человека из CSV → топ книг смеси (models/mix) с шансом и объяснением.
 
 CSV: `goodreads_work_id`, `rating` 1–5, необязательно `status` (`dnf` без оценки = 1; во входе
 EASE недочитанная книга весит 0 — `mix.DNF_INPUT`) и `title` (так книга

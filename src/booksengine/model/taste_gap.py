@@ -1,4 +1,4 @@
-"""`booksengine taste-gap`: понимает ли модель, что понравится именно этому человеку (TODO п. 37, шаг 0).
+"""`booksengine taste-gap`: понимает ли модель, что понравится именно этому человеку.
 
 NDCG@20 в основном мерит «угадал, что человек прочтёт». Здесь — только «понравится ли»: у человека валидации
 берутся скрытые книги (их он точно прочёл), и считается **личная точность** — доля пар «понравившаяся (4–5★) и
@@ -26,7 +26,7 @@ from booksengine.model.matrix import Holdout, load_train
 from booksengine.model.split import BUCKET_ORDER
 
 MODEL_NAMES = ("mix", "taste", "ease", "als_neg", "knn")
-LABELS = {"mix": "смесь (основная)", "taste": "модель вкуса (п. 37)", "ease": "EASE (вход «прочитал»)",
+LABELS = {"mix": "смесь (основная)", "taste": "модель вкуса", "ease": "EASE (вход «прочитал»)",
           "als_neg": "ALS", "knn": "item-kNN",
           "book_mean": "средняя оценка книги у толпы", "book_count": "число оценок книги (популярность)"}
 
@@ -107,15 +107,6 @@ def measure(model, hold: Holdout, allowed: np.ndarray, batch: int = 500) -> pd.D
     return pd.DataFrame(rows)
 
 
-def _boot(v: np.ndarray, rng, n_boot: int) -> dict:
-    v = v[~np.isnan(v)]
-    if len(v) == 0:
-        return {"mean": None, "lo": None, "hi": None, "n": 0}
-    b = v[rng.integers(0, len(v), size=(n_boot, len(v)))].mean(axis=1)
-    return {"mean": float(v.mean()), "lo": float(np.quantile(b, 0.025)), "hi": float(np.quantile(b, 0.975)),
-            "n": int(len(v))}
-
-
 def summarize(per_user: dict[str, pd.DataFrame], reference: str, n_boot: int = 1000, seed: int = 0) -> dict:
     """Личная точность с 95% бутстреп-интервалом, парная разница с reference (те же люди), угаданные в топ-20."""
     out = {}
@@ -131,13 +122,12 @@ def summarize(per_user: dict[str, pd.DataFrame], reference: str, n_boot: int = 1
         out[name] = {}
         for part, idx in parts:
             rng = np.random.default_rng(seed)  # одни и те же выборки людей у всех моделей
+
+            def boot(s: pd.Series) -> dict:
+                return metrics.bootstrap(s.loc[idx].to_numpy(dtype=np.float64), rng, n_boot)
             hits = int(d.loc[idx, "hits"].sum())
-            out[name][part] = {"auc": _boot(d.loc[idx, "auc"].to_numpy(dtype=np.float64), rng, n_boot),
-                               "diff": _boot(diff.loc[idx].to_numpy(dtype=np.float64), rng, n_boot),
-                               "diff_book_mean": _boot(diff_mean.loc[idx].to_numpy(dtype=np.float64), rng, n_boot),
-                               "gauc": _boot(d.loc[idx, "gauc"].to_numpy(dtype=np.float64), rng, n_boot),
-                               "gdiff": _boot(gdiff.loc[idx].to_numpy(dtype=np.float64), rng, n_boot),
-                               "gdiff_book_mean": _boot(gdiff_mean.loc[idx].to_numpy(dtype=np.float64), rng, n_boot),
+            out[name][part] = {"auc": boot(d.auc), "diff": boot(diff), "diff_book_mean": boot(diff_mean),
+                               "gauc": boot(d.gauc), "gdiff": boot(gdiff), "gdiff_book_mean": boot(gdiff_mean),
                                "hits_per_user": hits / max(len(idx), 1),
                                "liked_share_of_hits": d.loc[idx, "liked_hits"].sum() / hits if hits else None,
                                "liked_share_of_hidden": float(d.loc[idx, "liked_hidden"].sum()
@@ -155,7 +145,7 @@ def _fmt(x: dict, signed: bool = False) -> str:
 def report(res: dict) -> str:
     s, ref = res["summary"], res["reference"]
     groups = ["all"] + [b for b in BUCKET_ORDER if b in s[ref]]
-    lines = ["# Личная точность: понимает ли модель, что понравится (TODO п. 37)", "",
+    lines = ["# Личная точность: понимает ли модель, что понравится", "",
              f"Валидация, {res['n_users']} человек, скрытые книги в EASE без продолжений начатых серий. "
              f"Личная точность — доля пар «понравилась (4–5★) / нет (1–3★)» среди скрытых книг человека, где "
              f"понравившаяся стоит выше; 0.5 — монетка. В скобках — 95% интервал; разница — с «{label(ref)}» "
@@ -186,11 +176,9 @@ def report(res: dict) -> str:
         a = v["all"]
         share = "—" if a["liked_share_of_hits"] is None else f"{a['liked_share_of_hits']:.0%}"
         lines.append(f"| {label(name)} | {a['hits_per_user']:.2f} | {share} |")
-    lines += ["", "Как читать (план шага 0): если «средняя оценка книги у толпы» не хуже смеси по личной точности — "
-                  "у системы нет слоя вкуса, "
-                  "переходим к шагу 1. Шаг 1 пройден, если модель вкуса выше и смеси, и средней (обе разницы в её "
-                  "строке больше нуля, интервалы нуля не касаются). Если смесь заметно "
-                  "лучше средней — разрыв меньше, чем предполагалось, план пересматривается."]
+    lines += ["", "Как читать: если «средняя оценка книги у толпы» не хуже модели по личной точности — модель не "
+                  "видит вкуса человека, только общее мнение о книге. Модель вкуса полезна, если она выше и смеси, "
+                  "и средней (обе разницы в её строке больше нуля, интервалы нуля не касаются)."]
     return "\n".join(lines) + "\n"
 
 

@@ -1,7 +1,7 @@
 # Пороги очистки. Обоснование каждого значения — в reports/stage1_report.md.
 
 signal:
-  explicit_min: 1          # оценки 1..5 — явный сигнал; 0 = «без оценки» (уходит в shelf_events)
+  explicit_min: 1          # оценки 1..5 — явный сигнал; 0 = «без оценки» (на полке) — отбрасывается
   explicit_max: 5
 
 users:
@@ -23,7 +23,7 @@ collections:
   drop_from_ratings: false
 
 nonbooks:
-  # Не книги: ноты, раскраски, календари, аудиокурсы (TODO п. 14). Шаблоны — по названию произведения
+  # Не книги: ноты, раскраски, календари, аудиокурсы. Шаблоны — по названию произведения
   # и лучшего издания, не по полкам и не по всем изданиям (замер 2026-09-23: там шум).
   title_patterns:
     - 'sheet music|piano[ /-]vocal|vocal selections|\bfor (soprano|flute|clarinet|violin|trumpet|piano solo)\b'
@@ -38,8 +38,8 @@ nonbooks:
     - 42901328   # The Coloring Book: A Comedian Solves Race Relations in America — мемуары
 
 duplicates:
-  # Уверенные «теневые» произведения той же книги сливаются в главное (TODO п. 17, решение 2026-09-23).
-  # Адаптации и пересказы не сливаются — их отсекает фильтр выдачи (3c).
+  # Уверенные «теневые» произведения той же книги сливаются в главное (решение 2026-09-23).
+  # Адаптации и пересказы не сливаются — их отсекает фильтр выдачи (`model/filters.py`).
   max_shadow_share: 0.1
   adaptation_patterns:
     - 'graphic novel|\bmanga\b|\bcomic\b|no fear|sparknotes|cliffsnotes|study guide'
@@ -50,7 +50,7 @@ duplicates:
 
 kcore:
   # 20 (было 10) — решение 2026-09-23: люди с 10-19 оценками не аудитория приложения и слабый сигнал
-  # (TODO п. 26, проверка reports/cleanup_experiment.md).
+  # (проверка — reports/cleanup_experiment.md: NDCG@20 не изменился).
   min_user_ratings: 20
   # 100 (было 20, затем 50) — решение 2026-09-23: редкие книги для пользователя шум; проверка — reports/cleanup_experiment.md
   min_work_ratings: 100
