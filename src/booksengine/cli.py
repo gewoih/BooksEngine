@@ -117,7 +117,8 @@ def taste(factors: str = typer.Option(None, help="размеры через за
 
 
 @app.command()
-def layers(stage: str = typer.Argument(..., help="val | test | profiles")) -> None:
+def layers(stage: str = typer.Argument(..., help="val | test | profiles"),
+           top: int = typer.Option(20, "--top", help="сколько книг показать в profiles")) -> None:
     """Толпа + вкус (п. 37, шаг 2): val — перебор и выбор, test — один замер, profiles — топ-20 рядом с нынешним."""
     from booksengine.model import layers as ly
     from booksengine.paths import CLEAN_DIR, EVAL_DIR, MODELS_DIR, PROJECT_ROOT, REPORTS_DIR, SPLIT_DIR
@@ -125,7 +126,7 @@ def layers(stage: str = typer.Argument(..., help="val | test | profiles")) -> No
         text = ly.report(ly.run(stage, clean_dir=CLEAN_DIR, split_dir=SPLIT_DIR, models_dir=MODELS_DIR,
                                 eval_dir=EVAL_DIR))
     elif stage == "profiles":
-        text = ly.profiles(clean_dir=CLEAN_DIR, models_dir=MODELS_DIR, profiles_dir=PROJECT_ROOT / "profiles")
+        text = ly.profiles(clean_dir=CLEAN_DIR, models_dir=MODELS_DIR, profiles_dir=PROJECT_ROOT / "profiles", top=top)
     else:
         raise typer.BadParameter("stage: val | test | profiles")
     REPORTS_DIR.mkdir(exist_ok=True)
