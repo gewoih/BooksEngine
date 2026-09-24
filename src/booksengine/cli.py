@@ -158,7 +158,8 @@ def ease_like(lam: float = typer.Option(500.0, help="регуляризация 
 @app.command("ease-like-tune")
 def ease_like_tune(lam: float = typer.Option(None, help="одна настройка вместо сетки: λ"),
                    weights: str = typer.Option(None, help="одна настройка: веса 1★…5★ через запятую, например 2,4,8,16,32"),
-                   force: bool = typer.Option(False, "--force", help="записать эту настройку, даже если она не лучшая")
+                   force: bool = typer.Option(False, "--force", help="записать эту настройку, даже если она не лучшая"),
+                   min_user: int = typer.Option(20, "--min-user", help="обучать только на людях с ≥ N оценок")
                    ) -> None:
     """П. 38: подбор толпы «ценность» (λ, веса звёзд) на валидации → лучшая в models/ease_like; сетка ~50–70 мин.
     Сохранённая толпа всегда в сравнении; --lam / --weights — проверить одну настройку против неё."""
@@ -169,7 +170,8 @@ def ease_like_tune(lam: float = typer.Option(None, help="одна настрой
         grid = [(lam if lam is not None else 500.0,
                  tuple(float(w) for w in weights.split(",")) if weights else ly.W0)]
     text = ly.report_like(ly.tune_like(clean_dir=CLEAN_DIR, split_dir=SPLIT_DIR, models_dir=MODELS_DIR,
-                                       eval_dir=EVAL_DIR, grid=grid, force=force and (lam is not None or bool(weights))))
+                                       eval_dir=EVAL_DIR, grid=grid, force=force and (lam is not None or bool(weights)),
+                                       min_user=min_user))
     REPORTS_DIR.mkdir(exist_ok=True)
     (REPORTS_DIR / "ease_like_tune.md").write_text(text)
     print(text)

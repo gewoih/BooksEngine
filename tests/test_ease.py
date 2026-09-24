@@ -73,7 +73,7 @@ def test_ease_like_matches_direct_ridge_per_column(tmp_path):
     U, N, lam = 120, 12, 3.0
     R = np.where(rng.random((U, N)) < 0.4, rng.integers(1, 6, (U, N)), 0).astype(np.float32)
     train = RatingMatrix(sp.csr_matrix(R), np.arange(U), np.arange(100, 100 + N))
-    m = EASELike(lam=lam, n_top=N, block=5, topk=N)
+    m = EASELike(lam=lam, n_top=N, block=5, topk=N, min_user=0)
     m.fit(train)
     W = np.array([0, -2, -1, 0, 1, 2], float)
     Xw, Y = W[R.astype(int)], np.where(R > 0, R - 3, 0.0)
@@ -86,7 +86,7 @@ def test_ease_like_matches_direct_ridge_per_column(tmp_path):
     m.save(tmp_path)
     loaded = EASE.load(tmp_path)                      # смесь читает его как обычный EASE
     np.testing.assert_allclose(loaded._B.toarray(), m._B.toarray())
-    small = EASELike(lam=lam, n_top=N, block=5, topk=3)
+    small = EASELike(lam=lam, n_top=N, block=5, topk=3, min_user=0)
     small.fit(train)
     assert (small._B.getnnz(axis=0) <= 3).all()
 
@@ -98,3 +98,18 @@ def test_star_weights_are_normalized_to_scale_two():
     assert EASELike(weights=(2, 4, 8, 16, 32)).weights == (0.125, 0.25, 0.5, 1.0, 2.0)
     with pytest.raises(ValueError):
         normalize_weights((0, 0, 0, 0, 0))
+
+
+def test_ease_like_min_user_trains_only_on_readers_but_keeps_books():
+    from booksengine.model.ease import EASELike
+    rng = np.random.default_rng(2)
+    R = np.where(rng.random((80, 10)) < 0.5, rng.integers(1, 6, (80, 10)), 0).astype(np.float32)
+    R[:40, 5:] = 0                                       # первые 40 человек читают мало
+    train = RatingMatrix(sp.csr_matrix(R), np.arange(80), np.arange(10))
+    heavy = np.flatnonzero((R > 0).sum(axis=1) >= 6)
+    a = EASELike(lam=2.0, n_top=10, block=4, topk=10, min_user=6)
+    a.fit(train)
+    b = EASELike(lam=2.0, n_top=10, block=4, topk=10, min_user=0)
+    b.fit(RatingMatrix(sp.csr_matrix(R[heavy]), heavy, np.arange(10)))
+    np.testing.assert_allclose(a._B.toarray(), b._B.toarray(), atol=1e-5)
+    np.testing.assert_array_equal(a.top_cols, np.arange(10))

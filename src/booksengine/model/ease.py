@@ -119,17 +119,21 @@ class EASELike(EASE):
     name = "ease_like"
 
     def __init__(self, lam: float = 500.0, n_top: int = 30_000, block: int = 2_000, topk: int = 500,
-                 weights=(-2.0, -1.0, 0.0, 1.0, 2.0)):
+                 weights=(-2.0, -1.0, 0.0, 1.0, 2.0), min_user: int = 20):
         super().__init__(lam, n_top, block)
         self.topk_target, self.weights = int(topk), normalize_weights(weights)
+        self.min_user = int(min_user)
 
     def fit(self, train: RatingMatrix) -> None:
+        """min_user — учиться только на людях с ≥ min_user оценок (гипотеза пользователя: читающие последовательнее).
+        30 000 книг выбираются по всем людям — те же, что у EASE смеси, иначе толпы несравнимы."""
         from booksengine.model.metrics import rounded
         counts = train.X.getnnz(axis=0)
         n = min(self.n_top, len(counts))
         self.top_cols = np.sort(np.argsort(-counts, kind="stable")[:n])
         self.n_items = train.X.shape[1]
-        X = train.X[:, self.top_cols].tocsc()
+        rows = np.flatnonzero(train.X.getnnz(axis=1) >= self.min_user)
+        X = train.X[rows][:, self.top_cols].tocsc()
         r = rounded(X.data).astype(int)
         Xw = X.copy()
         Xw.data = np.asarray(self.weights, dtype=np.float32)[r - 1]
@@ -172,4 +176,4 @@ class EASELike(EASE):
     def save(self, path: Path) -> None:
         super().save(path)
         p = read_params(path)
-        write_params(path, p | {"target": "rating-3", "weights": list(self.weights)})
+        write_params(path, p | {"target": "rating-3", "weights": list(self.weights), "min_user": self.min_user})
