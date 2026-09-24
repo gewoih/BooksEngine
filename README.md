@@ -7,7 +7,8 @@
 Готово: изучение и очистка датасета (этап 1), каталог книг в PostgreSQL + pgvector (этап 2),
 модель — смесь ALS + EASE с шансом «понравится» и объяснением, CLI-демо `recommend` (этап 3),
 веб-интерфейс: библиотека с поиском и оценками, рекомендации, карточка книги, импорт CSV.
-Открытые задачи — `TODO.md`.
+Лучшая по замерам модель — слои «толпа + вкус» (`booksengine layers`), к `recommend` и приложению ещё не подключена.
+Открытые задачи — `TODO.md`, исходное ТЗ — `docs/tz.md`.
 
 ## Требования
 
@@ -66,19 +67,35 @@ uv run booksengine load-db                                  # каталог и�
 
 ## Команды
 
+Все — `uv run booksengine <команда>`, справка по каждой — `--help`.
+
 | команда | что делает |
 |---|---|
-| `booksengine prepare [--force]` | staging → профиль → очистка → валидация → отчёт |
-| `booksengine validate` | проверить инварианты готовых данных |
-| `booksengine report` | пересобрать отчёт без пересчёта |
-| `booksengine load-db [--force]` | загрузить каталог в PostgreSQL, сверить с `manifest.json` |
-| `booksengine split [--force]` | отложенная выборка: 5K пользователей для настройки, 20K для теста |
-| `booksengine evaluate <model> --stage val\|test` | перебор настроек / замер модели на тесте |
-| `booksengine report-3a` | `reports/stage3a_report.md` — сравнение моделей |
-| `booksengine exp save\|split\|run\|report` | сравнить варианты очистки на общем тесте |
-| `booksengine calibrate [model]` | шанс «понравится» → `models/<model>/chance.json` |
-| `booksengine recommend --ratings <csv> [--top 20]` | рекомендации по CSV (`goodreads_work_id`, `rating` 1–5, `status`) |
-| `booksengine export-model` | модель → БД для веб-интерфейса (перезаписывает целиком) |
+| **данные** | |
+| `prepare [--force]` | staging → профиль → очистка → валидация → `reports/stage1_report.md` |
+| `validate` | проверить инварианты готовых данных |
+| `report` | пересобрать отчёт очистки без пересчёта |
+| `load-db [--force]` | загрузить каталог в PostgreSQL, сверить с `manifest.json` |
+| `split [--force]` | отложенная выборка: 3 000 человек для настройки, 6 000 для теста (поровну из групп 20–49, 50–199, 200+ оценок) |
+| **модели и замеры** | |
+| `evaluate <model> --stage val\|test` | стенд `popularity`, `als`, `als_neg`, `knn`, `ease`, `mix`: перебор по NDCG@20 → `models/<model>` / замер на тесте |
+| `report-3a` | `reports/stage3a_report.md` — сравнение моделей стенда |
+| `calibrate [model]` | шанс «понравится» → `models/<model>/chance.json` |
+| `taste [--factors … --reg …]` | модель вкуса → `models/taste` |
+| `ease-like-tune [--lam … --weights … --force --min-user N]` | подбор толпы «ценность» → `models/ease_like`, `models/mix_like` |
+| `layers val\|test\|profiles [--top N]` | слои «толпа + вкус»: выбор → `models/layers`, замер на тесте, топ профилей рядом со смесью |
+| `profile-check` | каждая книга `profiles/*.csv` по очереди прячется — на каком месте её поставит выдача |
+| `why [--profile имя] "<книга>"` | почему книга стоит на своём месте: части модели и вклады книг профиля |
+| `taste-gap` | личная точность моделей: понравившиеся скрытые книги выше непонравившихся? |
+| `ease-size` | книги профилей и теста за границей EASE (30 000) — стоит ли её расширять |
+| `exp save\|split\|run\|report` | сравнить варианты очистки на общем тесте |
+| **выдача** | |
+| `recommend --ratings <csv> [--top 20]` | рекомендации смеси по CSV (`goodreads_work_id`, `rating` 1–5, `status`, `title`) |
+| `export-model` | смесь → БД для веб-интерфейса (перезаписывает целиком) |
+
+Порядок сборки моделей: `split` → `evaluate als_neg` и `evaluate ease` (val, затем test) → `evaluate mix` →
+`calibrate mix` → `taste` → `ease-like-tune` → `layers val` → `layers test`. Переобученный компонент ломает загрузку
+смеси и слоёв с подсказкой, что пересобрать.
 
 ### Веб-интерфейс
 
@@ -88,6 +105,10 @@ dotnet run --project dotnet/BooksEngine.Api         # API на :5080, модел
 (cd web && npm ci && npm run dev)                   # фронт на http://localhost:5173
 (cd dotnet && dotnet test --project BooksEngine.Api.Tests)  # в т. ч. GoldenTests: выдача C# = Python
 ```
+
+Python — только офлайн: `export-model` кладёт в БД всё для выдачи (векторы ALS, соседей EASE, параметры смеси
+и шанса, пары «оценил X → не советовать Y», эталонную выдачу), а C# API считает по ним выдачу смеси — повтор
+Python (`Recommendations/Recommender.cs`), расхождение ловит `GoldenTests`.
 
 Вход без пароля («войти как», приложение локальное). Импорт — CSV в нашем формате или экспорт
 Goodreads (My Books → Export); оценки книг из файла перезаписываются, остальные остаются.

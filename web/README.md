@@ -1,7 +1,8 @@
 # Фронт BooksEngine
 
 React + TypeScript + Vite + Mantine, данные — TanStack Query, адреса — React Router.
-Дизайн — `docs/superpowers/specs/2026-09-24-web-ui-design.md`.
+Выдачу считает C# API (`dotnet/BooksEngine.Api`) по модели, выгруженной `booksengine export-model`; запуск всего
+приложения — корневой `README.md`, «Веб-интерфейс».
 
 ```bash
 npm ci
