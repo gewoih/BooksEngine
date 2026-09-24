@@ -93,3 +93,87 @@ class EASE:
         m.top_cols = np.load(path / "top_cols.npy")
         m._B = sp.load_npz(path / "B.npz").tocsc()
         return m
+
+
+def normalize_weights(weights) -> tuple[float, ...]:
+    """Веса звёзд к масштабу «наибольший по модулю — 2», как у −2/−1/0/1/2. При фиксированном λ масштаб важен:
+    веса ×c — то же, что λ / c². 1/2/4/8/16 при λ = 500 дали плохо обусловленную матрицу (rcond ~ 6·10⁻⁸,
+    предел float32) — считались бы с ошибкой и без регуляризации. Отношения весов сохраняются."""
+    w = np.asarray(weights, dtype=np.float64)
+    m = np.abs(w).max()
+    if m == 0:
+        raise ValueError("веса звёзд не могут быть все нулевые")
+    return tuple(float(v) for v in np.round(w * (2.0 / m), 6))
+
+
+class EASELike(EASE):
+    """Толпа, которая целится в оценку (TODO п. 38): вход — звёзды с весами, как при выдаче (1★ −2 … 5★ +2),
+    цель — «оценка − 3» у прочитанных, 0 у непрочитанных, то есть ровно «ценность топа», по которой выбирается
+    выдача. EASE учился «прочтёт ли»; этот — «сколько ценности даст».
+
+    B = argmin |Y − Xw·B|² + λ|B|², diag B = 0: B = P·XwᵀY − P·diag(μ), P = (XwᵀXw + λI)⁻¹,
+    μ_j = (P·XwᵀY)_jj / P_jj (формула сверена с прямым решением по столбцам, tests/test_ease.py).
+    Столбцы B считаются блоками и сразу урезаются до topk соседей: вторая плотная матрица n × n не нужна.
+    Формат на диске — как у EASE: смесь (`Mix`) подаёт в него те же взвешенные звёзды.
+    """
+    name = "ease_like"
+
+    def __init__(self, lam: float = 500.0, n_top: int = 30_000, block: int = 2_000, topk: int = 500,
+                 weights=(-2.0, -1.0, 0.0, 1.0, 2.0), min_user: int = 20):
+        super().__init__(lam, n_top, block)
+        self.topk_target, self.weights = int(topk), normalize_weights(weights)
+        self.min_user = int(min_user)
+
+    def fit(self, train: RatingMatrix) -> None:
+        """min_user — учиться только на людях с ≥ min_user оценок (гипотеза пользователя: читающие последовательнее).
+        30 000 книг выбираются по всем людям — те же, что у EASE смеси, иначе толпы несравнимы."""
+        from booksengine.model.metrics import rounded
+        counts = train.X.getnnz(axis=0)
+        n = min(self.n_top, len(counts))
+        self.top_cols = np.sort(np.argsort(-counts, kind="stable")[:n])
+        self.n_items = train.X.shape[1]
+        rows = np.flatnonzero(train.X.getnnz(axis=1) >= self.min_user)
+        X = train.X[rows][:, self.top_cols].tocsc()
+        r = rounded(X.data).astype(int)
+        Xw = X.copy()
+        Xw.data = np.asarray(self.weights, dtype=np.float32)[r - 1]
+        Xw.eliminate_zeros()
+        Y = X.copy()
+        Y.data = (r - 3).astype(np.float32)
+        Y.eliminate_zeros()
+        del X
+        XwT = Xw.T.tocsr()
+        G = np.empty((n, n), dtype=np.float32)
+        for a in range(0, n, self.block):
+            b = min(a + self.block, n)
+            G[:, a:b] = (XwT @ Xw[:, a:b]).toarray()
+        G[np.diag_indices(n)] += self.lam
+        P = scipy.linalg.inv(G.T, overwrite_a=True, check_finite=False)  # G симметрична точно — см. EASE.fit
+        if not np.shares_memory(P, G):
+            raise MemoryError("EASELike: обращение не на месте — вторая копия матрицы n × n")
+        del G, Xw
+        diag = np.diag(P).copy()
+        k = min(self.topk_target, n)
+        rows, cols, vals = [], [], []
+        for a in range(0, n, self.block):
+            b = min(a + self.block, n)
+            D = P @ (XwT @ Y[:, a:b]).toarray()
+            idx = np.arange(b - a)
+            D -= P[:, a:b] * (D[a + idx, idx] / diag[a:b])[None, :]
+            D[a + idx, idx] = 0.0
+            part = np.argpartition(-np.abs(D), k - 1, axis=0)[:k]
+            rows.append(part.ravel(order="F"))
+            cols.append(np.repeat(np.arange(a, b), k))
+            vals.append(np.take_along_axis(D, part, axis=0).ravel(order="F"))
+        self._B = sp.csc_matrix((np.concatenate(vals), (np.concatenate(rows), np.concatenate(cols))), shape=(n, n))
+        self._B.eliminate_zeros()
+        self.topk, self.B_full = k, None
+
+    def configure(self, topk: int | None = None) -> None:
+        if topk is not None and topk != self.topk:
+            raise ValueError("EASELike урезается при обучении: другой topk — переобучить")
+
+    def save(self, path: Path) -> None:
+        super().save(path)
+        p = read_params(path)
+        write_params(path, p | {"target": "rating-3", "weights": list(self.weights), "min_user": self.min_user})

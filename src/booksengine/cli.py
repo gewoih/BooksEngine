@@ -77,12 +77,13 @@ def calibrate(model: str = typer.Argument("mix", help="сохранённая м
 @app.command()
 def recommend(ratings: str = typer.Option(..., "--ratings", help="CSV: goodreads_work_id, rating 1–5, status, title"),
               top: int = typer.Option(20, "--top", help="сколько книг показать")) -> None:
-    """Оценки из CSV → рекомендации смеси с шансом «понравится» и объяснением (п. 11)."""
+    """Оценки из CSV → рекомендации с шансом «понравится» и объяснением; выдача пишется в profiles/history/."""
     from pathlib import Path
 
     from booksengine import recommend as rec
-    from booksengine.paths import CLEAN_DIR, MODELS_DIR
-    print(rec.format_result(rec.recommend(Path(ratings), clean_dir=CLEAN_DIR, models_dir=MODELS_DIR, top=top)))
+    from booksengine.paths import CLEAN_DIR, MODELS_DIR, PROJECT_ROOT
+    print(rec.format_result(rec.recommend(Path(ratings), clean_dir=CLEAN_DIR, models_dir=MODELS_DIR, top=top,
+                                          history_dir=PROJECT_ROOT / "profiles" / "history")))
 
 
 @app.command("ease-size")
@@ -93,6 +94,120 @@ def ease_size() -> None:
     text = es.run(clean_dir=CLEAN_DIR, split_dir=SPLIT_DIR, models_dir=MODELS_DIR, profiles_dir=PROJECT_ROOT / "profiles")
     REPORTS_DIR.mkdir(exist_ok=True)
     (REPORTS_DIR / "ease_size.md").write_text(text)
+    print(text)
+
+
+@app.command()
+def taste(factors: str = typer.Option(None, help="размеры через запятую, например 64,128"),
+          reg: str = typer.Option(None, help="регуляризации через запятую, например 0.02,0.05")) -> None:
+    """Модель вкуса (п. 37, шаг 1): перебор на валидации по личной точности → models/taste, reports/taste_val.md.
+    Без параметров — стандартная сетка; с ними — все сочетания, дописываются к прежнему перебору."""
+    from booksengine.model import taste as tm
+    from booksengine.model.evaluate import RATINGS
+    from booksengine.paths import EVAL_DIR, MODELS_DIR, REPORTS_DIR, SPLIT_DIR
+    grid = tm.GRID
+    if factors or reg:
+        fs = [int(v) for v in (factors or "64").split(",")]
+        rs = [float(v) for v in (reg or "0.05").split(",")]
+        grid = [(f, r) for f in fs for r in rs]
+    text = tm.report(tm.tune(ratings_path=RATINGS, split_dir=SPLIT_DIR, models_dir=MODELS_DIR, eval_dir=EVAL_DIR,
+                             grid=grid))
+    REPORTS_DIR.mkdir(exist_ok=True)
+    (REPORTS_DIR / "taste_val.md").write_text(text)
+    print(text)
+
+
+@app.command()
+def layers(stage: str = typer.Argument(..., help="val | test | profiles"),
+           top: int = typer.Option(20, "--top", help="сколько книг показать в profiles")) -> None:
+    """Толпа + вкус (п. 37, шаг 2): val — перебор и выбор, test — один замер, profiles — топ-20 рядом с нынешним."""
+    from booksengine.model import layers as ly
+    from booksengine.paths import CLEAN_DIR, EVAL_DIR, MODELS_DIR, PROJECT_ROOT, REPORTS_DIR, SPLIT_DIR
+    if stage in ("val", "test"):
+        text = ly.report(ly.run(stage, clean_dir=CLEAN_DIR, split_dir=SPLIT_DIR, models_dir=MODELS_DIR,
+                                eval_dir=EVAL_DIR))
+    elif stage == "profiles":
+        text = ly.profiles(clean_dir=CLEAN_DIR, models_dir=MODELS_DIR, profiles_dir=PROJECT_ROOT / "profiles", top=top)
+    else:
+        raise typer.BadParameter("stage: val | test | profiles")
+    REPORTS_DIR.mkdir(exist_ok=True)
+    (REPORTS_DIR / f"layers_{stage}.md").write_text(text)
+    print(text)
+
+
+@app.command("ease-like")
+def ease_like(lam: float = typer.Option(500.0, help="регуляризация λ, как у EASE смеси")) -> None:
+    """П. 38: EASE с целью «оценка − 3» → models/ease_like и смесь с ALS models/mix_like; дальше `layers val`."""
+    import time
+
+    from booksengine.model.ease import EASELike
+    from booksengine.model.evaluate import RATINGS
+    from booksengine.model.matrix import load_train
+    from booksengine.model.mix import Mix
+    from booksengine.paths import MODELS_DIR, SPLIT_DIR
+    train = load_train(RATINGS, SPLIT_DIR / "holdout_users.parquet")
+    t0 = time.perf_counter()
+    m = EASELike(lam=lam)
+    m.fit(train)
+    m.save(MODELS_DIR / "ease_like")
+    mix = Mix(MODELS_DIR / "als_neg", MODELS_DIR / "ease_like")
+    mix.fit(train)
+    mix.save(MODELS_DIR / "mix_like")
+    print(f"EASE «ценность» λ = {lam}: обучение {time.perf_counter() - t0:.0f} с → models/ease_like, models/mix_like")
+
+
+@app.command("ease-like-tune")
+def ease_like_tune(lam: float = typer.Option(None, help="одна настройка вместо сетки: λ"),
+                   weights: str = typer.Option(None, help="одна настройка: веса 1★…5★ через запятую, например 2,4,8,16,32"),
+                   force: bool = typer.Option(False, "--force", help="записать эту настройку, даже если она не лучшая"),
+                   min_user: int = typer.Option(20, "--min-user", help="обучать только на людях с ≥ N оценок")
+                   ) -> None:
+    """П. 38: подбор толпы «ценность» (λ, веса звёзд) на валидации → лучшая в models/ease_like; сетка ~50–70 мин.
+    Сохранённая толпа всегда в сравнении; --lam / --weights — проверить одну настройку против неё."""
+    from booksengine.model import layers as ly
+    from booksengine.paths import CLEAN_DIR, EVAL_DIR, MODELS_DIR, REPORTS_DIR, SPLIT_DIR
+    grid = ly.LIKE_GRID
+    if lam is not None or weights:
+        grid = [(lam if lam is not None else 500.0,
+                 tuple(float(w) for w in weights.split(",")) if weights else ly.W0)]
+    text = ly.report_like(ly.tune_like(clean_dir=CLEAN_DIR, split_dir=SPLIT_DIR, models_dir=MODELS_DIR,
+                                       eval_dir=EVAL_DIR, grid=grid, force=force and (lam is not None or bool(weights)),
+                                       min_user=min_user))
+    REPORTS_DIR.mkdir(exist_ok=True)
+    (REPORTS_DIR / "ease_like_tune.md").write_text(text)
+    print(text)
+
+
+@app.command("profile-check")
+def profile_check() -> None:
+    """Проверка на своих оценках: каждая книга профиля прячется по очереди — на каком месте её поставила бы выдача."""
+    from booksengine.model import layers as ly
+    from booksengine.paths import CLEAN_DIR, MODELS_DIR, PROJECT_ROOT, REPORTS_DIR
+    text = ly.profile_check(clean_dir=CLEAN_DIR, models_dir=MODELS_DIR, profiles_dir=PROJECT_ROOT / "profiles")
+    REPORTS_DIR.mkdir(exist_ok=True)
+    (REPORTS_DIR / "profile_check.md").write_text(text)
+    print(text)
+
+
+@app.command()
+def why(profile: str = typer.Option("my_ratings", help="профиль из profiles/ без .csv"),
+        book: str = typer.Argument(..., help="goodreads_work_id или часть названия")) -> None:
+    """Почему книга стоит там, где стоит (п. 39): место по частям модели и вклады книг профиля."""
+    from booksengine.model import layers as ly
+    from booksengine.paths import CLEAN_DIR, MODELS_DIR, PROJECT_ROOT
+    print(ly.why(clean_dir=CLEAN_DIR, models_dir=MODELS_DIR, profile_csv=PROJECT_ROOT / "profiles" / f"{profile}.csv",
+                 query=book))
+
+
+@app.command("taste-gap")
+def taste_gap() -> None:
+    """Личная точность: ставит ли модель понравившиеся книги выше непонравившихся (п. 37) → reports/taste_gap.md."""
+    from booksengine.model import taste_gap as tg
+    from booksengine.model.evaluate import RATINGS
+    from booksengine.paths import EVAL_DIR, MODELS_DIR, REPORTS_DIR, SPLIT_DIR
+    text = tg.report(tg.run(ratings_path=RATINGS, split_dir=SPLIT_DIR, models_dir=MODELS_DIR, eval_dir=EVAL_DIR))
+    REPORTS_DIR.mkdir(exist_ok=True)
+    (REPORTS_DIR / "taste_gap.md").write_text(text)
     print(text)
 
 

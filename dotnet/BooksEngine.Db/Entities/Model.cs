@@ -3,7 +3,7 @@ using Pgvector;
 namespace BooksEngine.Db.Entities;
 
 // Таблицы онлайн-модели. Наполняет Python (`booksengine export-model`) одной транзакцией, перезаписывая
-// всё: версий нет (docs/resheniya.md, «веб-интерфейс»). Читает API (`ModelLoader`).
+// всё: версий нет. Читает API (`ModelLoader`).
 
 /// <summary>Параметры выгруженной модели — одна строка (Id = 1): смесь, шанс, пороги объяснения (JSON).</summary>
 public class ModelMeta

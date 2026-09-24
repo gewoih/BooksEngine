@@ -3,7 +3,7 @@
 Всё «умное» считается здесь и попадает в БД данными, а не переписанным кодом: векторы ALS, соседи EASE,
 параметры смеси и шанса, пары «оценил X → не советовать Y» (серии — `series.py`, дубли и сборники —
 `filters.py`), обложки, слияния теней и эталонная выдача `recommend`, по которой C# проверяет себя.
-Экспорт перезаписывает модель целиком одной транзакцией (docs/resheniya.md, «веб-интерфейс»).
+Экспорт перезаписывает модель целиком одной транзакцией.
 """
 import io
 import json
@@ -109,7 +109,7 @@ def golden(profiles: dict[str, Path], *, clean_dir: Path, models_dir: Path, tmp_
                                     "rating": prof.x.data.astype(np.float64),
                                     "dnf": np.isin(prof.x.indices, prof.dnf.indices)}))
         score = mix.score(prof.x, prof.dnf)[0]
-        res = rec.recommend(path, clean_dir=clean_dir, models_dir=models_dir, top=top)
+        res = rec.recommend(path, clean_dir=clean_dir, models_dir=models_dir, top=top, model="mix")  # C# — смесь
         for k, r in enumerate(res.recs, 1):
             recs.append({"profile": name, "rank": k, "gr_work_id": r.work_id,
                          "score": float(score[np.searchsorted(work_ids, r.work_id)]), "chance": r.chance,
