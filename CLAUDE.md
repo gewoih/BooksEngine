@@ -44,6 +44,7 @@ uv run booksengine profile-check                # каждая книга про
 uv run booksengine why "<книга>"                # почему книга стоит на своём месте
 uv run booksengine calibrate layers             # шанс «понравится» для models/layers
 uv run booksengine recommend --ratings profiles/my_ratings.csv
+scripts/night.sh                                # на ночь: весь подбор, тест, шанс, списки → reports/
 uv run booksengine journal                      # что прочитано из советов и как оценено (profiles/history/)
 ```
 
