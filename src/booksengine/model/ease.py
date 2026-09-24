@@ -16,7 +16,7 @@ from booksengine.model.matrix import RatingMatrix
 class EASE:
     name = "ease"
 
-    def __init__(self, lam: float = 500.0, n_top: int = 20_000, block: int = 2_000):
+    def __init__(self, lam: float = 500.0, n_top: int = 30_000, block: int = 2_000):
         self.lam, self.n_top, self.block = float(lam), int(n_top), int(block)
         self.topk: int | None = None
         self.top_cols: np.ndarray | None = None
@@ -36,12 +36,18 @@ class EASE:
         for a in range(0, n, self.block):  # XᵀX блоками: целиком разреженный результат не влезает в память
             b = min(a + self.block, n)
             G[:, a:b] = (XbT @ Xb[:, a:b]).toarray()
+        del Xb, XbT
         G[np.diag_indices(n)] += self.lam
-        P = scipy.linalg.inv(G, overwrite_a=True, check_finite=False)
+        # Одна плотная копия n × n на всё обучение (TODO п. 32): LAPACK обращает на месте только матрицу, лежащую
+        # по столбцам, а построчную G scipy молча копирует. G симметрична точно (целые счётчики во float32),
+        # поэтому G.T — та же матрица по столбцам: результат побитово тот же, что inv(G), без копии.
+        P = scipy.linalg.inv(G.T, overwrite_a=True, check_finite=False)
+        if not np.shares_memory(P, G):
+            raise MemoryError("EASE: обращение не на месте — вторая копия матрицы n × n")
         del G
-        B = P / (-np.diag(P))[None, :]
-        np.fill_diagonal(B, 0.0)
-        self.B_full = B.astype(np.float32, copy=False)
+        P /= -np.diag(P)[None, :]            # B = I − P·diag(1/diag P) вне диагонали, деление на месте
+        np.fill_diagonal(P, 0.0)
+        self.B_full = P
         self.configure(topk=None)
 
     def configure(self, topk: int | None = None) -> None:

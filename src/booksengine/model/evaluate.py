@@ -35,7 +35,8 @@ MODELS: dict[str, tuple[type, list[tuple[dict, list[dict]]]]] = {
     # п. 24: смесь готовых als_neg и ease (вход EASE по оценке −2/−1/0/1/2); 0 — чистый EASE, 1 — чистый ALS
     "mix": (Mix, [({"als_dir": str(MODELS_DIR / "als_neg"), "ease_dir": str(MODELS_DIR / "ease")},
                    [{"als_weight": w} for w in (0.0, 0.5, 0.6, 0.65, 0.7, 0.75, 0.8, 1.0)])]),
-    "ease": (EASE, [({"lam": lam, "n_top": 20_000}, [{"topk": t} for t in (None, 100, 500)])
+    # п. 32: 30 000 книг вместо 20 000 — все книги профилей из 20–50K лежат до 30K (`booksengine ease-size`)
+    "ease": (EASE, [({"lam": lam, "n_top": 30_000}, [{"topk": t} for t in (None, 100, 500)])
                     for lam in (100.0, 500.0, 2000.0)]),
 }
 

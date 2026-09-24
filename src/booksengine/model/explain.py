@@ -3,7 +3,7 @@
 Смесь линейна по входу, поэтому разбор точный, а не приближение:
 - ALS: x = A⁻¹·Σ w_i·y_i (`ALS.fold_in_system`), балл книги j — Σ w_i·(A⁻¹y_i)·y_j (Hu, Koren, Volinsky 2008);
 - EASE: балл j — Σ v_i·B[i, j], v_i — вес оценки (1★ −2 … 5★ +2);
-- z-нормировка — сдвиг на среднее по 20 000 книг EASE и деление на разброс: вклад i тоже сдвигается
+- z-нормировка — сдвиг на среднее по 30 000 книг EASE и деление на разброс: вклад i тоже сдвигается
   на своё среднее по этим книгам. Сумма вкладов по i равна баллу `Mix.score` (проверяется тестом).
 """
 from dataclasses import dataclass
@@ -37,7 +37,7 @@ def contributions(mix: Mix, x: sp.csr_matrix, cols: np.ndarray,
     Y = mix.als.item_factors.astype(np.float64)
     c_als = G @ Y[cols].T - (G @ Y[top].mean(axis=0))[:, None]
 
-    v = mix.ease_inputs(x, dnf)                                   # 1 × 20 000, вес оценки у книг EASE
+    v = mix.ease_inputs(x, dnf)                                   # 1 × 30 000, вес оценки у книг EASE
     rows = sp.csr_matrix((v.data, (np.searchsorted(in_cols, top[v.indices]), v.indices)),
                          shape=(len(in_cols), len(top)))       # вход × книги EASE
     c_ease_all = rows @ mix.ease._B

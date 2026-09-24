@@ -32,8 +32,8 @@
 **Текущий статус (2026-09-24):** этапы 1, 2, 3 и веб-интерфейс закрыты. Очистка ужесточена
 (не-книги, дубли, однообразные оценщики, k-core (20, 100) — `docs/resheniya.md`, «очистка», «порог по пользователю»).
 Основная метрика — вне начатых серий. **Основная модель — смесь ALS + EASE 50/50** (`models/mix`, `docs/resheniya.md`,
-«смесь ALS и EASE»): ALS 128 координат, «≤ 2» (`models/als_neg`) + EASE λ = 500, 500 соседей (`models/ease`), вход
-EASE по оценке −2/−1/0/1/2; тест NDCG@20 0.251, Low@20 8.6% (ALS — 0.192 / 9.0%). Шанс «понравится» в процентах —
+«смесь ALS и EASE»): ALS 128 координат, «≤ 2» (`models/als_neg`) + EASE λ = 500, 500 соседей, 30 000 книг (`models/ease`,
+п. 32), вход EASE по оценке −2/−1/0/1/2; тест NDCG@20 0.256, Low@20 8.6% (ALS — 0.192 / 9.0%). Шанс «понравится» в процентах —
 `models/mix/chance.json` (п. 29). Объяснение — точный разбор балла смеси на вклады оценённых книг (`model/explain.py`),
 не kNN. Отклонены: гибрид ALS + kNN (п. 23), порог выдачи (п. 25), кластеры вкуса (п. 9), свой поиск для
 сопоставления CSV (п. 19 — сопоставляет нейросеть). Шкала оценок везде 1–5. **Веб-интерфейс** (2026-09-24,
@@ -70,6 +70,7 @@ Goodreads); выдачу считает C# по модели из `export-model`
 | `src/booksengine/model/filters.py` | фильтр выдачи «уже оценено по сути»: дубли, сборники с оценёнными книгами, части оценённых сборников |
 | `src/booksengine/recommend.py` | `recommend`: CSV (`goodreads_work_id`, `rating` 1–5) → топ смеси с шансом и объяснением |
 | `src/booksengine/model/series.py` | серии из названий; продолжения начатых серий — вне выдачи и вне проверки |
+| `src/booksengine/model/ease_size.py` | `booksengine ease-size`: книги профилей и теста за границей EASE (30K) по диапазонам мест, память и время — повторять для новых профилей (п. 32) |
 | `src/booksengine/model/experiment.py` | `booksengine exp`: сравнение вариантов ядра (правила, пороги) на общем тесте |
 | `src/booksengine/report_3a.py`, `report_exp.py` | отчёты `stage3a_report.md` и `cleanup_experiment.md` из JSON в `models/eval/` |
 | `models/` | gitignored: артефакты моделей и `eval/*.json` |
@@ -99,6 +100,7 @@ uv run booksengine evaluate <model> --stage val|test  # перебор наст�
 uv run booksengine calibrate [model]                  # шанс «понравится» (по умолчанию mix) → models/<model>/chance.json
 # смесь (mix) не обучается: после переобучения als_neg или ease — `evaluate mix --stage val`, затем `calibrate mix`
 uv run booksengine report-3a                          # reports/stage3a_report.md
+uv run booksengine ease-size                          # reports/ease_size.md — стоит ли расширять EASE (новые профили)
 uv run booksengine recommend --ratings profiles/my_ratings.csv [--top 20]  # рекомендации по CSV
 
 # веб-интерфейс

@@ -1,6 +1,6 @@
 """Смесь ALS и EASE^R — основная модель (TODO п. 24, docs/resheniya.md, «смесь ALS и EASE»).
 
-Балл книги = w·z(ALS) + (1 − w)·z(EASE), z — нормировка баллов человека по 20 000 книг EASE (среднее 0,
+Балл книги = w·z(ALS) + (1 − w)·z(EASE), z — нормировка баллов человека по 30 000 книг EASE (среднее 0,
 разброс 1); остальные книги ядра — −∞: EASE их не знает, а ALS почти не советует (0.2% рекомендаций).
 EASE не видит оценок, поэтому вход ему взвешен по оценке: 1★ −2, 2★ −1, 3★ 0, 4★ 1, 5★ 2 (решение
 пользователя) — без этого он советует книги, похожие на оценённые низко, и «Сумерки» за «Голодные игры».
@@ -59,7 +59,7 @@ class Mix:
         self.als_weight, self.ease_input = float(als_weight), tuple(float(v) for v in ease_input)
 
     def ease_inputs(self, inputs: sp.csr_matrix, dnf: sp.csr_matrix | None = None) -> sp.csr_matrix:
-        """Вход EASE: столбцы — 20 000 книг EASE, значение — вес по оценке.
+        """Вход EASE: столбцы — 30 000 книг EASE, значение — вес по оценке.
         dnf — той же формы, что inputs: ненулевое — книга недочитана, её вес — DNF_INPUT."""
         weighted = inputs[:, self.ease.top_cols].tocsr()
         weighted.data = np.asarray(self.ease_input, np.float32)[metrics.rounded(weighted.data).astype(int) - 1]
@@ -71,7 +71,7 @@ class Mix:
 
     def components(self, inputs: sp.csr_matrix,
                    dnf: sp.csr_matrix | None = None) -> tuple[np.ndarray, np.ndarray]:
-        """Баллы ALS и EASE по 20 000 книг EASE (до нормировки)."""
+        """Баллы ALS и EASE по 30 000 книг EASE (до нормировки)."""
         s_ease = self.ease_inputs(inputs, dnf) @ self.ease._B
         s_ease = s_ease.toarray() if sp.issparse(s_ease) else np.asarray(s_ease)
         s_als = self.als.score(inputs)[:, self.ease.top_cols]
