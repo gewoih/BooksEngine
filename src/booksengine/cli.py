@@ -96,6 +96,18 @@ def ease_size() -> None:
     print(text)
 
 
+@app.command("taste-gap")
+def taste_gap() -> None:
+    """Личная точность: ставит ли модель понравившиеся книги выше непонравившихся (п. 37) → reports/taste_gap.md."""
+    from booksengine.model import taste_gap as tg
+    from booksengine.model.evaluate import RATINGS
+    from booksengine.paths import EVAL_DIR, MODELS_DIR, REPORTS_DIR, SPLIT_DIR
+    text = tg.report(tg.run(ratings_path=RATINGS, split_dir=SPLIT_DIR, models_dir=MODELS_DIR, eval_dir=EVAL_DIR))
+    REPORTS_DIR.mkdir(exist_ok=True)
+    (REPORTS_DIR / "taste_gap.md").write_text(text)
+    print(text)
+
+
 @app.command("export-model")
 def export_model() -> None:
     """Смесь models/mix → PostgreSQL для C# API: перезаписывает модель целиком (веб-интерфейс)."""
