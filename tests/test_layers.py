@@ -210,3 +210,25 @@ def test_tune_like_force_saves_requested_setting(world):
     ly.tune_like(grid=[(7.0, (-2, -1, 0.5, 1, 2))], force=True, **kw)
     saved = read_params(md / "ease_like")
     assert saved["lam"] == 7.0 and saved["weights"] == [-2.0, -1.0, 0.5, 1.0, 2.0]
+
+
+def test_why_explains_place_of_hidden_book(world):
+    from booksengine.model.ease import EASELike
+    tp, sd, md = world
+    train = load_train(tp / "ratings.parquet", sd / "holdout_users.parquet")
+    like = EASELike(lam=10.0, topk=20, weights=ly.W3)
+    like.fit(train)
+    like.save(md / "ease_like")
+    mix = Mix(md / "als_neg", md / "ease_like")
+    mix.fit(train)
+    mix.configure(als_weight=0.5, ease_input=like.weights)
+    mix.save(md / "mix_like")
+    ly.run("val", clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval")
+    p = json.loads((md / "layers" / "params.json").read_text())
+    p["variant"] = {"crowd": "like", "taste_weight": 0.0, "cutoff": None, "als_weight": 0.25}
+    (md / "layers" / "params.json").write_text(json.dumps(p))
+    prof = tp / "profiles"
+    prof.mkdir()
+    pd.DataFrame({"goodreads_work_id": [100, 101, 102, 125], "rating": [5, 5, 4, 1]}).to_csv(prof / "p.csv", index=False)
+    text = ly.why(clean_dir=tp, models_dir=md, profile_csv=prof / "p.csv", query="Book 101")
+    assert "оценена на 5★ и спрятана" in text and "| итог |" in text and "| 125 | 1 |" in text

@@ -556,3 +556,79 @@ def profile_check(*, clean_dir: Path, models_dir: Path, profiles_dir: Path) -> s
             pl = [("—" if np.isnan(places[n][i]) else f"{places[n][i]:.0f}") for n in variants]
             out.append(f"| {prof.names.get(int(c), info.title[c])} | {r[i]:.0f} | {pl[0]} | {pl[1]} |")
     return "\n".join(out) + "\n"
+
+
+def why(*, clean_dir: Path, models_dir: Path, profile_csv: Path, query: str, top: int = 8) -> str:
+    """TODO п. 39: почему книга стоит там, где стоит, у выбранного варианта (models/layers). Книга ищется по
+    goodreads_work_id или части названия (сначала среди оценённых); оценённая — прячется, как в profile-check.
+    Разбор: место по каждой части (ALS, EASE «ценность», вкус) и вклады книг входа в балл толпы — точно, `explain`."""
+    from booksengine.model import explain
+    from booksengine.model.filters import work_info
+    from booksengine.model.matrix import catalog_works
+    from booksengine.model.series import SeriesIndex, exclusion
+    from booksengine.recommend import read_profile
+    work_ids = catalog_works(clean_dir / "ratings.parquet")
+    layers = Layers.load(models_dir / "layers")
+    v = layers.variant
+    if v.crowd != "like":
+        raise ValueError("разбор сделан для толпы «ценность» (п. 38): выбранный вариант другой")
+    info = work_info(clean_dir, work_ids)
+    prof = read_profile(profile_csv, work_ids, clean_dir)
+    if query.isdigit() and int(query) in set(work_ids.tolist()):
+        col = int(np.searchsorted(work_ids, int(query)))
+    else:
+        q = query.lower()
+        rated = [c for c, n in prof.names.items() if q in str(n).lower() or q in str(info.title[c]).lower()]
+        found = rated or [int(c) for c in np.flatnonzero(info.title.str.lower().str.contains(q, regex=False).to_numpy())]
+        if not found:
+            raise ValueError(f"книга «{query}» не найдена")
+        col = found[0]
+    top_cols = layers.mix.ease.top_cols
+    pos = int(np.searchsorted(top_cols, col))
+    if pos >= len(top_cols) or top_cols[pos] != col:
+        return f"«{info.title[col]}» вне 30 000 книг EASE — модель её не советует вовсе.\n"
+    keep = prof.x.indices != col
+    rating = prof.x.data[~keep]
+    x = sp.csr_matrix((prof.x.data[keep], (np.zeros(keep.sum(), int), prof.x.indices[keep])), shape=prof.x.shape)
+    d = prof.dnf.toarray()[0]
+    d[col] = 0
+    dnf = sp.csr_matrix(d[None, :])
+    series = SeriesIndex(info.title.tolist())
+    excl = exclusion(x, series)[:, top_cols].toarray()[0] != 0
+    za, ze = layers.like_parts(x, dnf)
+    tz = layers.taste_z(x)
+    parts = {"ALS": za[0], "EASE «ценность»": ze[0], "вкус": tz[0],
+             "итог": layers.combine(v.als_weight * za + (1 - v.als_weight) * ze, tz, excl[None, :], v)[0]}
+
+    def place(s: np.ndarray) -> str:
+        s = np.where(excl, -np.inf, s)
+        return "исключена" if not np.isfinite(s[pos]) else f"{int((s > s[pos]).sum()) + 1}"
+
+    lines = [f"# Почему «{info.title[col]}» — {info.author[col] or '?'} стоит там, где стоит", "",
+             f"Профиль {profile_csv.stem}" + (f", книга оценена на {metrics.rounded(rating)[0]:.0f}★ и спрятана" if len(rating)
+                                               else ", книга не оценена") + f"; вариант «{v.label()}».", "",
+             "| часть | z-балл книги | место по одной этой части |", "|---|---|---|"]
+    lines += [f"| {k} | {s[pos]:+.2f} | {place(s)} |" for k, s in parts.items()]
+    m = layers.like_mix
+    w0 = m.als_weight
+    try:
+        m.configure(als_weight=1.0, ease_input=m.ease_input)
+        in_cols, c_als = explain.contributions(m, x, np.array([col]), dnf)
+        m.configure(als_weight=0.0, ease_input=m.ease_input)
+        _, c_ease = explain.contributions(m, x, np.array([col]), dnf)
+    finally:
+        m.configure(als_weight=w0, ease_input=m.ease_input)
+    c_als, c_ease = c_als[:, 0], c_ease[:, 0]
+    total = v.als_weight * c_als + (1 - v.als_weight) * c_ease
+    r_in = metrics.rounded(x.data)
+    lines += ["", f"Вклады книг входа в балл толпы (ALS × {v.als_weight:g} + EASE × {1 - v.als_weight:g}); "
+                  "сумма по книгам = z-балл толпы. Самые тянущие вниз и вверх:", "",
+              "| книга входа | оценка | вклад | ALS | EASE |", "|---|---|---|---|---|"]
+    order = np.argsort(total)
+    for i in dict.fromkeys(list(order[:top]) + list(order[::-1][:top])):
+        c = int(in_cols[i])
+        lines.append(f"| {prof.names.get(c, info.title[c])} | {r_in[i]:.0f} | {total[i]:+.3f} | {c_als[i]:+.3f} | "
+                     f"{c_ease[i]:+.3f} |")
+    lines += ["", f"Книг серии этой книги в ядре: {series.continuations(np.array([col])).size} "
+                  "(продолжения начатых серий исключаются)."]
+    return "\n".join(lines) + "\n"

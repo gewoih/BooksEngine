@@ -186,6 +186,16 @@ def profile_check() -> None:
     print(text)
 
 
+@app.command()
+def why(profile: str = typer.Option("my_ratings", help="профиль из profiles/ без .csv"),
+        book: str = typer.Argument(..., help="goodreads_work_id или часть названия")) -> None:
+    """Почему книга стоит там, где стоит (п. 39): место по частям модели и вклады книг профиля."""
+    from booksengine.model import layers as ly
+    from booksengine.paths import CLEAN_DIR, MODELS_DIR, PROJECT_ROOT
+    print(ly.why(clean_dir=CLEAN_DIR, models_dir=MODELS_DIR, profile_csv=PROJECT_ROOT / "profiles" / f"{profile}.csv",
+                 query=book))
+
+
 @app.command("taste-gap")
 def taste_gap() -> None:
     """Личная точность: ставит ли модель понравившиеся книги выше непонравившихся (п. 37) → reports/taste_gap.md."""
