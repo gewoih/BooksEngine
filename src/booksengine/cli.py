@@ -155,6 +155,18 @@ def ease_like(lam: float = typer.Option(500.0, help="регуляризация 
     print(f"EASE «ценность» λ = {lam}: обучение {time.perf_counter() - t0:.0f} с → models/ease_like, models/mix_like")
 
 
+@app.command("ease-like-tune")
+def ease_like_tune() -> None:
+    """П. 38: подбор толпы «ценность» (λ, веса звёзд) на валидации → лучшая в models/ease_like; ~40–60 мин."""
+    from booksengine.model import layers as ly
+    from booksengine.paths import CLEAN_DIR, EVAL_DIR, MODELS_DIR, REPORTS_DIR, SPLIT_DIR
+    text = ly.report_like(ly.tune_like(clean_dir=CLEAN_DIR, split_dir=SPLIT_DIR, models_dir=MODELS_DIR,
+                                       eval_dir=EVAL_DIR))
+    REPORTS_DIR.mkdir(exist_ok=True)
+    (REPORTS_DIR / "ease_like_tune.md").write_text(text)
+    print(text)
+
+
 @app.command("taste-gap")
 def taste_gap() -> None:
     """Личная точность: ставит ли модель понравившиеся книги выше непонравившихся (п. 37) → reports/taste_gap.md."""

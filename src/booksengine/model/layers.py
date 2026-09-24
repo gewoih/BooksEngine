@@ -391,3 +391,86 @@ def profiles(*, clean_dir: Path, models_dir: Path, profiles_dir: Path, top: int 
             out.append(f"| {i + 1} | {cells[0]} | {cells[1]} |")
         out.append(f"\nСовпадает книг: {len(before & set(lists[chosen]))} из {top}.")
     return "\n".join(out) + "\n"
+
+
+# TODO п. 38, идея 1: подбор толпы «ценность» — регуляризация λ и веса звёзд на входе (1★ … 5★).
+# (500, W0) — нынешний models/ease_like, не переобучается. W1: 3★ — слабый плюс «прочитал»; W2: пятёрка весит больше.
+W0, W1, W2 = (-2.0, -1.0, 0.0, 1.0, 2.0), (-2.0, -1.0, 0.5, 1.0, 2.0), (-2.0, -1.0, 0.0, 1.0, 3.0)
+LIKE_GRID = [(500.0, W0), (250.0, W0), (1000.0, W0), (500.0, W1), (500.0, W2)]
+LIKE_JUDGED = (Variant("like", 0.1, None, 0.25), Variant("like", 0.0, None, 0.25))   # выбранный вариант и без вкуса
+
+
+def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: Path, grid=LIKE_GRID,
+              fit_kw: dict | None = None) -> dict:
+    """Обучает толпу «ценность» с каждой настройкой, меряет на валидации вариантами LIKE_JUDGED по ценности топа;
+    лучшая настройка (по «ценность, ALS 0.25, вкус 0.1») записывается в models/ease_like и models/mix_like.
+    После — `layers val` и `layers test` заново (отпечатки компонентов меняются)."""
+    import time
+
+    from booksengine.model.ease import EASE, EASELike
+    from booksengine.model.filters import work_info
+    from booksengine.model.matrix import load_train
+    ratings_path = clean_dir / "ratings.parquet"
+    train = load_train(ratings_path, split_dir / "holdout_users.parquet")
+    info = work_info(clean_dir, train.work_ids)
+    hold = _hold(ratings_path, split_dir, "val", train.work_ids)
+    base = Layers.from_models(models_dir)
+    ref = Variant(*REFERENCE)
+    saved = read_params(models_dir / "ease_like") if (models_dir / "ease_like" / "params.json").exists() else {}
+    results, best, best_model = [], None, None
+    eval_dir.mkdir(parents=True, exist_ok=True)
+    for lam, weights in grid:
+        t0 = time.perf_counter()
+        is_saved = saved.get("lam") == lam and tuple(saved.get("weights", W0)) == tuple(weights)
+        if is_saved:
+            ease = EASE.load(models_dir / "ease_like")
+        else:
+            ease = EASELike(lam=lam, weights=weights, **(fit_kw or {}))
+            ease.fit(train)
+        fit_s = round(time.perf_counter() - t0, 1)
+        like = Mix(str(models_dir / "als_neg"), str(models_dir / "ease_like"))
+        like.als, like.ease = base.mix.als, ease
+        like.configure(als_weight=0.5, ease_input=weights)
+        layers = Layers(base.mix, base.taste, like_mix=like)
+        summ = summarize(evaluate(layers, hold, info, [ref, *LIKE_JUDGED]), ref)
+        rows = {r["label"]: r["groups"]["all"] for r in summ}
+        row = {"lam": lam, "weights": list(weights), "fit_seconds": fit_s, "saved": is_saved,
+               "variants": {LIKE_JUDGED[i].label(): {k: rows[LIKE_JUDGED[i].label()][k] for k in
+                                                      ("value20", "value20_diff", "ndcg20", "low20", "fives", "hits")}
+                            for i in range(len(LIKE_JUDGED))}}
+        results.append(row)
+        v = row["variants"][LIKE_JUDGED[0].label()]["value20"]["mean"]
+        print(f"«ценность» λ = {lam:g}, веса {weights}: ценность топа {v:.3f}, обучение {fit_s} с", flush=True)
+        (eval_dir / "ease_like_tune.json").write_text(json.dumps({"results": results}, ensure_ascii=False, indent=1))
+        if best is None or v > best:
+            best, best_model = v, (lam, weights, ease)
+        else:
+            del ease
+    lam, weights, ease = best_model
+    if not (saved.get("lam") == lam and tuple(saved.get("weights", W0)) == tuple(weights)):
+        ease.save(models_dir / "ease_like")
+        mix = Mix(models_dir / "als_neg", models_dir / "ease_like")
+        mix.fit(train)
+        mix.configure(als_weight=0.5, ease_input=weights)
+        mix.save(models_dir / "mix_like")
+    return {"results": results, "best": {"lam": lam, "weights": list(weights)}}
+
+
+def report_like(res: dict) -> str:
+    labels = [v.label() for v in LIKE_JUDGED]
+    lines = ["# Подбор толпы «ценность» (валидация, TODO п. 38)", "",
+             "Разницы — с нынешней выдачей («толпа по оценкам, вкус 0»), в скобках 95% интервал. Веса звёзд — "
+             "вход 1★ … 5★. Лучшая по ценности топа (первый вариант) записана в models/ease_like и models/mix_like.", "",
+             "| λ | веса звёзд | вариант | ценность топа | разница | угадано | пятёрок | NDCG@20 | Low@20 |",
+             "|---|---|---|---|---|---|---|---|---|"]
+    for r in res["results"]:
+        for lab in labels:
+            g = r["variants"][lab]
+            lines.append(f"| {r['lam']:g} | {'/'.join(f'{w:g}' for w in r['weights'])} | {lab} | "
+                         f"{_f(g['value20'])} | {_f(g['value20_diff'], True)}{_ci(g['value20_diff'])} | "
+                         f"{g['hits']['mean']:.2f} | {g['fives']['mean']:.3f} | {_f(g['ndcg20'])} | "
+                         f"{_f(g['low20'], pct=True)} |")
+    b = res["best"]
+    lines += ["", f"Выбрано: λ = {b['lam']:g}, веса {'/'.join(f'{w:g}' for w in b['weights'])}. Дальше — "
+                  "`booksengine layers val` и `layers test` (вес ALS и вкуса подбираются заново под новую толпу)."]
+    return "\n".join(lines) + "\n"

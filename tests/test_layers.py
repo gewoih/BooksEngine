@@ -166,3 +166,21 @@ def test_val_includes_value_crowd_when_trained(world):
     assert g["fives_ideal"]["mean"] >= g["fives"]["mean"] and g["value_ideal"]["mean"] >= g["value20"]["mean"]
     assert "mix_like" in json.loads((md / "layers" / "params.json").read_text())["components"]
     assert ly.Layers.load(md / "layers").like_mix is not None
+
+
+def test_tune_like_trains_grid_and_saves_best(world):
+    from booksengine.model.base import read_params
+    tp, sd, md = world
+    grid = [(10.0, ly.W0), (5.0, ly.W1)]
+    res = ly.tune_like(clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval", grid=grid,
+                       fit_kw={"topk": 20, "block": 7})
+    assert [(r["lam"], tuple(r["weights"])) for r in res["results"]] == grid
+    best = res["best"]
+    saved = read_params(md / "ease_like")
+    assert saved["lam"] == best["lam"] and saved["weights"] == best["weights"]
+    L = ly.Layers.from_models(md)                       # mix_like подаёт в «ценность» те же веса звёзд
+    assert list(L.like_mix.ease_input) == best["weights"]
+    assert "Выбрано: λ" in ly.report_like(res)
+    again = ly.tune_like(clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval",
+                         grid=[(best["lam"], tuple(best["weights"]))], fit_kw={"topk": 20})
+    assert again["results"][0]["saved"]                 # сохранённая настройка не переобучается
