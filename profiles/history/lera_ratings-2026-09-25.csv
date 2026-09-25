@@ -1,21 +1,21 @@
 rank,goodreads_work_id,title,author,chance,model
-1,3331807,The Fountainhead,Ayn Rand,95,97c51e582e2da1031dba1c5139ec53a4
-2,3275794,To Kill a Mockingbird,Harper Lee,94,97c51e582e2da1031dba1c5139ec53a4
-3,3393910,The Brothers Karamazov,Fyodor Dostoyevsky,93,97c51e582e2da1031dba1c5139ec53a4
-4,2574991,East of Eden,John Steinbeck,93,97c51e582e2da1031dba1c5139ec53a4
-5,41364467,Hard to Be a God,Arkady Strugatsky,93,97c51e582e2da1031dba1c5139ec53a4
-6,2207778,Animal Farm,George Orwell,92,97c51e582e2da1031dba1c5139ec53a4
-7,18160093,1Q84,Haruki Murakami,92,97c51e582e2da1031dba1c5139ec53a4
-8,1172473,Like Water for Chocolate,Laura Esquivel,92,97c51e582e2da1031dba1c5139ec53a4
-9,1243896,Roadside Picnic,Arkady Strugatsky,92,97c51e582e2da1031dba1c5139ec53a4
-10,3036731,The Catcher in the Rye,J.D. Salinger,91,97c51e582e2da1031dba1c5139ec53a4
-11,3285349,Love in the Time of Cholera,Gabriel Garcia Marquez,91,97c51e582e2da1031dba1c5139ec53a4
-12,153313,1984,George Orwell,91,97c51e582e2da1031dba1c5139ec53a4
-13,16827462,The Fault in Our Stars,John Green,91,97c51e582e2da1031dba1c5139ec53a4
-14,69741,The Old Man and the Sea,Ernest Hemingway,91,97c51e582e2da1031dba1c5139ec53a4
-15,166902,A Hero of Our Time,Mikhail Lermontov,91,97c51e582e2da1031dba1c5139ec53a4
-16,2531870,Hard-Boiled Wonderland and the End of the World,Haruki Murakami,90,97c51e582e2da1031dba1c5139ec53a4
-17,2375385,Alice's Adventures in Wonderland & Through the Looking-Glass,Lewis Carroll,90,97c51e582e2da1031dba1c5139ec53a4
-18,3346751,"The Lightning Thief (Percy Jackson and the Olympians, #1)",Rick Riordan,90,97c51e582e2da1031dba1c5139ec53a4
-19,2977639,Jane Eyre,Charlotte Bronte,90,97c51e582e2da1031dba1c5139ec53a4
-20,1272463,Fahrenheit 451,Ray Bradbury,90,97c51e582e2da1031dba1c5139ec53a4
+1,3331807,The Fountainhead,Ayn Rand,95,130c5f428c18837eb61397b081e1f9cc
+2,3275794,To Kill a Mockingbird,Harper Lee,94,130c5f428c18837eb61397b081e1f9cc
+3,3393910,The Brothers Karamazov,Fyodor Dostoyevsky,93,130c5f428c18837eb61397b081e1f9cc
+4,2574991,East of Eden,John Steinbeck,93,130c5f428c18837eb61397b081e1f9cc
+5,41364467,Hard to Be a God,Arkady Strugatsky,93,130c5f428c18837eb61397b081e1f9cc
+6,2207778,Animal Farm,George Orwell,92,130c5f428c18837eb61397b081e1f9cc
+7,18160093,1Q84,Haruki Murakami,92,130c5f428c18837eb61397b081e1f9cc
+8,153313,1984,George Orwell,92,130c5f428c18837eb61397b081e1f9cc
+9,1172473,Like Water for Chocolate,Laura Esquivel,92,130c5f428c18837eb61397b081e1f9cc
+10,1243896,Roadside Picnic,Arkady Strugatsky,91,130c5f428c18837eb61397b081e1f9cc
+11,3285349,Love in the Time of Cholera,Gabriel Garcia Marquez,91,130c5f428c18837eb61397b081e1f9cc
+12,3036731,The Catcher in the Rye,J.D. Salinger,91,130c5f428c18837eb61397b081e1f9cc
+13,16827462,The Fault in Our Stars,John Green,91,130c5f428c18837eb61397b081e1f9cc
+14,69741,The Old Man and the Sea,Ernest Hemingway,91,130c5f428c18837eb61397b081e1f9cc
+15,166902,A Hero of Our Time,Mikhail Lermontov,91,130c5f428c18837eb61397b081e1f9cc
+16,2531870,Hard-Boiled Wonderland and the End of the World,Haruki Murakami,90,130c5f428c18837eb61397b081e1f9cc
+17,2375385,Alice's Adventures in Wonderland & Through the Looking-Glass,Lewis Carroll,90,130c5f428c18837eb61397b081e1f9cc
+18,2977639,Jane Eyre,Charlotte Bronte,90,130c5f428c18837eb61397b081e1f9cc
+19,3346751,"The Lightning Thief (Percy Jackson and the Olympians, #1)",Rick Riordan,90,130c5f428c18837eb61397b081e1f9cc
+20,1272463,Fahrenheit 451,Ray Bradbury,90,130c5f428c18837eb61397b081e1f9cc

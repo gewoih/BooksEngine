@@ -1,21 +1,21 @@
 rank,goodreads_work_id,title,author,chance,model
-1,2766512,Lord of the Flies,William Golding,87,97c51e582e2da1031dba1c5139ec53a4
-2,3204877,Brave New World,Aldous Huxley,85,97c51e582e2da1031dba1c5139ec53a4
-3,2574991,East of Eden,John Steinbeck,84,97c51e582e2da1031dba1c5139ec53a4
-4,3275794,To Kill a Mockingbird,Harper Lee,83,97c51e582e2da1031dba1c5139ec53a4
-5,150259,It,Stephen King,82,97c51e582e2da1031dba1c5139ec53a4
-6,3230869,Misery,Stephen King,82,97c51e582e2da1031dba1c5139ec53a4
-7,2949952,White Fang,Jack London,81,97c51e582e2da1031dba1c5139ec53a4
-8,4835472,The Alchemist,Paulo Coelho,81,97c51e582e2da1031dba1c5139ec53a4
-9,245494,The Great Gatsby,F. Scott Fitzgerald,80,97c51e582e2da1031dba1c5139ec53a4
-10,3252320,The Call of the Wild,Jack London,79,97c51e582e2da1031dba1c5139ec53a4
-11,57612,Steppenwolf,Hermann Hesse,79,97c51e582e2da1031dba1c5139ec53a4
-12,2682802,The White Guard,Mikhail Bulgakov,78,97c51e582e2da1031dba1c5139ec53a4
-13,2373750,The Metamorphosis,Franz Kafka,78,97c51e582e2da1031dba1c5139ec53a4
-14,13155899,"Divergent (Divergent, #1)",Veronica Roth,78,97c51e582e2da1031dba1c5139ec53a4
-15,195832,The Pearl,John Steinbeck,78,97c51e582e2da1031dba1c5139ec53a4
-16,3324344,The Stranger,Albert Camus,77,97c51e582e2da1031dba1c5139ec53a4
-17,14863741,Ready Player One,Ernest Cline,77,97c51e582e2da1031dba1c5139ec53a4
-18,2252079,For Whom the Bell Tolls,Ernest Hemingway,77,97c51e582e2da1031dba1c5139ec53a4
-19,2784253,Three Comrades,Erich Maria Remarque,77,97c51e582e2da1031dba1c5139ec53a4
-20,2543234,"The Giver (The Giver, #1)",Lois Lowry,76,97c51e582e2da1031dba1c5139ec53a4
+1,2766512,Lord of the Flies,William Golding,88,130c5f428c18837eb61397b081e1f9cc
+2,3204877,Brave New World,Aldous Huxley,86,130c5f428c18837eb61397b081e1f9cc
+3,2574991,East of Eden,John Steinbeck,84,130c5f428c18837eb61397b081e1f9cc
+4,3275794,To Kill a Mockingbird,Harper Lee,84,130c5f428c18837eb61397b081e1f9cc
+5,150259,It,Stephen King,83,130c5f428c18837eb61397b081e1f9cc
+6,3230869,Misery,Stephen King,82,130c5f428c18837eb61397b081e1f9cc
+7,4835472,The Alchemist,Paulo Coelho,82,130c5f428c18837eb61397b081e1f9cc
+8,2949952,White Fang,Jack London,81,130c5f428c18837eb61397b081e1f9cc
+9,245494,The Great Gatsby,F. Scott Fitzgerald,80,130c5f428c18837eb61397b081e1f9cc
+10,3252320,The Call of the Wild,Jack London,80,130c5f428c18837eb61397b081e1f9cc
+11,57612,Steppenwolf,Hermann Hesse,79,130c5f428c18837eb61397b081e1f9cc
+12,2682802,The White Guard,Mikhail Bulgakov,79,130c5f428c18837eb61397b081e1f9cc
+13,3324344,The Stranger,Albert Camus,78,130c5f428c18837eb61397b081e1f9cc
+14,195832,The Pearl,John Steinbeck,78,130c5f428c18837eb61397b081e1f9cc
+15,2252079,For Whom the Bell Tolls,Ernest Hemingway,78,130c5f428c18837eb61397b081e1f9cc
+16,2373750,The Metamorphosis,Franz Kafka,77,130c5f428c18837eb61397b081e1f9cc
+17,14863741,Ready Player One,Ernest Cline,77,130c5f428c18837eb61397b081e1f9cc
+18,13155899,"Divergent (Divergent, #1)",Veronica Roth,77,130c5f428c18837eb61397b081e1f9cc
+19,2784253,Three Comrades,Erich Maria Remarque,77,130c5f428c18837eb61397b081e1f9cc
+20,2543234,"The Giver (The Giver, #1)",Lois Lowry,77,130c5f428c18837eb61397b081e1f9cc
