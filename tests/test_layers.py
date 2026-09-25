@@ -273,16 +273,17 @@ def test_layers_contributions_sum_to_score(world):
         np.testing.assert_allclose(crowd + taste, c, atol=1e-6)
         np.testing.assert_allclose(const2, const, atol=1e-9)
         assert v.taste_weight or not taste.any()
-    # недочитанная книга во вкус не подаётся: вкус — как без неё, её вклад во вкус 0, сумма по-прежнему = балл
+    # недочитанная книга во вкусе — чуть ниже обычной оценки, а не 1★; сумма вкладов по-прежнему = балл
     L.variant = ly.Variant("like", 2.0, None, 0.25)
     k = 1
+    x = x.copy()
+    x.data[k] = 1.0
     dnf = sp.csr_matrix(([1.0], ([0], [x.indices[k]])), shape=x.shape, dtype=np.float32)
-    keep = np.arange(x.nnz) != k
-    x_wo = sp.csr_matrix((x.data[keep], (np.zeros(keep.sum(), int), x.indices[keep])), shape=x.shape)
-    np.testing.assert_allclose(L.taste_z(x, dnf), L.taste_z(x_wo), atol=1e-6)
-    assert not np.allclose(L.taste_z(x), L.taste_z(x_wo))
+    soft = x.copy()
+    soft.data[k] = L.taste.mu + L.taste.item_bias[x.indices[k]] - ly.DNF_TASTE_DROP
+    np.testing.assert_allclose(L.taste_z(x, dnf), L.taste_z(soft), atol=1e-5)
+    assert not np.allclose(L.taste_z(x), L.taste_z(soft))
     _, crowd, taste, const = explain.layers_parts(L, x, cols, dnf)
-    assert not taste[k].any() and taste.any()
     np.testing.assert_allclose(crowd.sum(axis=0) + taste.sum(axis=0) + const, L.score(x, dnf)[0, cols], atol=1e-4)
 
 

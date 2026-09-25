@@ -105,11 +105,9 @@ def layers_parts(layers, x: sp.csr_matrix, cols: np.ndarray,
         m.configure(als_weight=w0, ease_input=m.ease_input)
     t, const = np.zeros_like(c), np.zeros(len(cols))
     if v.taste_weight:
-        from booksengine.model.layers import without_dnf
-        xt = without_dnf(x, dnf)                  # недочитанные во вкус не подаются — их вклад во вкус 0
-        ct, kt = taste_contributions(layers.taste, xt, cols, m.ease.top_cols)
-        t[np.searchsorted(in_cols, xt.indices)] = v.taste_weight * ct
-        const = v.taste_weight * kt
+        # вход вкуса — с недочитанными чуть ниже обычной оценки (`Layers.taste_input`), столбцы те же
+        ct, kt = taste_contributions(layers.taste, layers.taste_input(x, dnf), cols, m.ease.top_cols)
+        t, const = v.taste_weight * ct, v.taste_weight * kt
     return in_cols, c, t, const
 
 

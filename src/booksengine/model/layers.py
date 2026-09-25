@@ -42,6 +42,7 @@ LIKE_ALS = (0.0, 0.1, 0.25, 0.5, 0.75)   # вес ALS в толпе «ценно
 # угадано в топ-20 — не меньше этой доли от опоры (`anchor`). 90% было выбрано без замера и держало вкус на 1.5;
 # 80% — решение пользователя 2026-09-25 (вкус 2 угадывает 88%, 3 — 78%); проверяется журналом выдач
 GUARD = 0.8
+DNF_TASTE_DROP = 0.5   # недочитанная во входе вкуса — на столько ниже обычной оценки книги (`Layers.taste_input`)
 JUDGE_STARS = np.array([-1.0, -0.5, 0.5, 1.0, 2.0])   # ценность угаданной книги с оценкой 1★ … 5★
 STARS = tuple(f"s{k}" for k in range(1, 6))           # доля угаданных с оценкой k★
 BASE = tuple(f"b{k}" for k in range(1, 6))            # то же среди всего прочитанного — «случайные из прочитанного»
@@ -149,9 +150,26 @@ class Layers:
             self.mix.configure(als_weight=w, ease_input=ein)
             self.mix.als.configure(rule, beta)
 
+    def taste_input(self, inputs: sp.csr_matrix, dnf: sp.csr_matrix | None = None) -> sp.csr_matrix:
+        """Вход вкуса: недочитанная книга (dnf) — на DNF_TASTE_DROP ниже её обычной оценки, а не 1★. Вкус читает
+        отклонение от обычной оценки, и 1★ при обычных ~4 было самым сильным сигналом профиля: одна брошенная книга
+        поднимала «её противоположность» («Цветы на чердаке» у пользователя — от «Вина из одуванчиков»; 1.5★ и 2★ —
+        то же). «Не дочитал» — мягкий минус (решение пользователя); во входе EASE такая книга весит 0 (`mix.DNF_INPUT`).
+        В датасете недочитанных нет — на замеры не влияет."""
+        if dnf is None or dnf.nnz == 0:
+            return inputs
+        x = inputs.tocsr().astype(np.float32, copy=True)
+        d = dnf.tocsr()
+        for r in range(x.shape[0]):
+            a, b = x.indptr[r], x.indptr[r + 1]
+            hit = np.isin(x.indices[a:b], d.indices[d.indptr[r]:d.indptr[r + 1]])
+            cols = x.indices[a:b][hit]
+            x.data[a:b][hit] = self.taste.mu + self.taste.item_bias[cols] - DNF_TASTE_DROP
+        return x
+
     def taste_z(self, inputs: sp.csr_matrix, dnf: sp.csr_matrix | None = None) -> np.ndarray:
-        """z-балл вкуса по книгам EASE; недочитанные (dnf) во вкус не подаются (`without_dnf`)."""
-        return _z(self.taste.score(without_dnf(inputs, dnf))[:, self.mix.ease.top_cols].astype(np.float64))
+        """z-балл вкуса по книгам EASE (вход — `taste_input`)."""
+        return _z(self.taste.score(self.taste_input(inputs, dnf))[:, self.mix.ease.top_cols].astype(np.float64))
 
     @staticmethod
     def combine(crowd: np.ndarray, taste: np.ndarray, excl: np.ndarray, v: Variant) -> np.ndarray:
@@ -170,19 +188,6 @@ class Layers:
             s = np.where(out, crowd + np.where(ok, floor - best_out - 1.0, 0.0), s)
         s[excl] = -np.inf
         return s
-
-
-def without_dnf(inputs: sp.csr_matrix, dnf: sp.csr_matrix | None) -> sp.csr_matrix:
-    """Вход вкуса без недочитанных книг. Вкус читает отклонение оценки от обычной для книги, и недочитанная как 1★
-    при обычных ~4 давала самый сильный сигнал профиля: одна брошенная книга поднимала «её противоположность»
-    («Цветы на чердаке» у пользователя — от «Вина из одуванчиков»). «Не дочитал» — мягкий негатив (решение
-    пользователя): во входе EASE такая книга тоже весит 0 (`mix.DNF_INPUT`). В датасете недочитанных нет."""
-    if dnf is None or dnf.nnz == 0:
-        return inputs
-    x = inputs.tocsr().copy()
-    x = (x - x.multiply(dnf != 0)).tocsr()
-    x.eliminate_zeros()
-    return x
 
 
 def popularity(ratings_path: Path, work_ids: np.ndarray) -> np.ndarray:
