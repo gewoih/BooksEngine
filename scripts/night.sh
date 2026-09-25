@@ -25,7 +25,7 @@ step() {
 }
 
 if [[ "${1:-}" == "--taste" ]]; then step taste --factors 64,128 --reg 0.05,0.08; fi
-step ease-like-tune                 # λ 250/500/1000 × 6 наборов весов звёзд (18 настроек, ~3 ч)
+step ease-like-tune                 # λ 125/250/500/1000, веса звёзд −1/−0.5/0.5/1/2 (посчитанное не повторяется)
 # шанс нужен под тот вариант, что выбран: без свежего layers val старые params и chance.json остаются рабочими
 step layers val && step layers test && step calibrate layers
 step layers profiles
