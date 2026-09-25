@@ -14,14 +14,24 @@ from booksengine.model.taste import Taste
 from tests.test_split import synthetic_users
 
 
-def test_combine_excludes_input_and_cuts_to_crowd_top():
+def test_combine_excludes_input_and_orders_cutoff_without_ties():
     crowd = np.array([[5.0, 4.0, 3.0, 2.0, 1.0]])
     taste = np.array([[0.0, 0.0, 0.0, 0.0, 10.0]])
     excl = np.array([[True, False, False, False, False]])
     s = ly.Layers.combine(crowd, taste, excl, ly.Variant("mix", 1.0, None))
     assert s[0, 0] == -np.inf and np.argmax(s[0]) == 4           # вкус поднял последнюю книгу толпы
     s = ly.Layers.combine(crowd, taste, excl, ly.Variant("mix", 1.0, 2))
-    assert np.isfinite(s[0]).tolist() == [False, True, True, False, False]  # первые 2 толпы без входа
+    # вне первых 2 толпы вкус книгу не поднимает; эти книги — сразу после первых, в порядке толпы, без ничьих
+    assert s[0, 0] == -np.inf and np.isfinite(s[0, 1:]).all() and np.argsort(-s[0])[:4].tolist() == [1, 2, 3, 4]
+    s = ly.Layers.combine(crowd, np.array([[0.0, 0.0, 10.0, 0.0, 0.0]]), excl, ly.Variant("mix", 1.0, 2))
+    assert np.argsort(-s[0])[:4].tolist() == [2, 1, 3, 4]        # внутри первых 2 порядок решает вкус
+
+
+def test_choose_keeps_hits():
+    def row(label, quality, hits):
+        return {"label": label, "groups": {"all": {"quality": {"mean": quality}, "hits": {"mean": hits}}}}
+    now, sharp, niche = row("нынешняя", 0.40, 2.0), row("лучше", 0.50, 1.9), row("редкие книги", 0.70, 1.0)
+    assert ly.choose([now, sharp, niche], now)["label"] == "лучше"             # «редкие» угадывают меньше 90%
 
 
 def _data(tmp_path, n_users=90, n_works=40, seed=3):
@@ -92,31 +102,39 @@ def test_run_val_test_and_profiles(world):
     tp, sd, md = world
     ed = tp / "eval"
     val = ly.run("val", clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=ed)
-    assert len(val["summary"]) == len(ly.CROWDS) * len(ly.CUTOFFS) * len(ly.WEIGHTS)
-    ref = next(r for r in val["summary"] if r["label"] == ly.Variant(*ly.REFERENCE).label())
-    assert ref["groups"]["all"]["ndcg20_diff"]["mean"] == 0.0 and ly.allowed(ref)
-    assert ref["groups"]["all"]["value20_diff"]["mean"] == 0.0
-    best = max(val["summary"], key=lambda r: r["groups"]["all"]["value20"]["mean"])
-    assert val["chosen"] == best["variant"] and set(val["chosen_by_five_value"]) == {"2.0", "3.0"}
-    chosen = json.loads((md / "layers" / "params.json").read_text())["variant"]
-    assert chosen == val["chosen"]
-    assert "← выбран" in ly.report(val)
+    assert len(val["summary"]) == len(ly.grid(ly.Layers.from_models(md)))   # без params.json нынешняя — прежняя смесь
+    cur = val["summary"][0]
+    assert cur["label"] == ly.Variant(*ly.REFERENCE).label() and cur["groups"]["all"]["quality_diff"]["mean"] == 0.0
+    g = cur["groups"]["all"]
+    assert g["quality"]["n"] > 0
+    stars = [g[f"s{k}"]["mean"] for k in range(1, 6)]
+    assert abs(sum(stars) - 1) < 1e-9 and abs(sum(g[f"b{k}"]["mean"] for k in range(1, 6)) - 1) < 1e-9
+    assert abs(g["five_minus_low"]["mean"] - (stars[4] - stars[0] - stars[1])) < 1e-9
+    assert abs(g["quality"]["mean"] - float(ly.JUDGE_STARS @ np.array(stars))) < 0.2   # среднее по людям ≈ по долям
+    assert -1 <= g["quality"]["mean"] <= 2 and val["chosen_by_share"]
+    same = [r["groups"]["all"]["same"]["mean"] for r in val["summary"]]    # у нынешней — весь свой список
+    assert g["same"]["mean"] == max(same) and min(same) >= 0
+    assert g["known"]["mean"] > 0 and "известность" in ly.report(val)
+    assert val["chosen"] == ly.choose(val["summary"], cur)["variant"]
+    saved = json.loads((md / "layers" / "params.json").read_text())
+    assert saved["variant"] == val["chosen"] and saved["baseline"] == val["current"]
+    # нынешний вариант держится, пока другой не лучше уверенно: равный по качеству его не сменяет
+    json.dump(saved | {"variant": val["summary"][1]["variant"]}, (md / "layers" / "params.json").open("w"))
+    again = ly.run("val", clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=ed)
+    d = next(r for r in again["summary"] if r["variant"] == val["chosen"])["groups"]["all"]["quality_diff"]
+    assert (again["chosen"] == val["summary"][1]["variant"]) == (d["lo"] <= 0 or val["chosen"] == val["summary"][1]["variant"])
+    json.dump(saved, (md / "layers" / "params.json").open("w"))
+    text = ly.report(val)
+    assert "Как читать" in text and "случайные из прочитанного" in text and "Прежние судьи" in text
+    assert "5★ | 4★ | 3★ | 2★ | 1★" in text
     test = ly.run("test", clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=ed)
-    assert 1 <= len(test["summary"]) <= 2 and (ed / "layers_test.json").exists()
+    assert 1 <= len(test["summary"]) <= 3 and test["current"] == val["current"] and (ed / "layers_test.json").exists()
+    assert "Как читать" in ly.report(test)
     prof = tp / "profiles"
     prof.mkdir()
     pd.DataFrame({"goodreads_work_id": [100, 101, 102, 125], "rating": [5, 5, 4, 1]}).to_csv(prof / "p.csv", index=False)
     text = ly.profiles(clean_dir=tp, models_dir=md, profiles_dir=prof, top=5)
     assert "## p (4 оценок)" in text and "Совпадает книг" in text
-
-
-def test_allowed_rejects_significant_ndcg_drop_even_if_small():
-    def row(nd_lo, nd_hi, low_lo):
-        return {"groups": {"all": {"ndcg20_diff": {"mean": (nd_lo + nd_hi) / 2, "lo": nd_lo, "hi": nd_hi},
-                                   "low20_diff": {"mean": low_lo, "lo": low_lo, "hi": low_lo + 0.01}}}}
-    assert ly.allowed(row(-0.002, 0.001, -0.02))        # в шуме — допустим
-    assert not ly.allowed(row(-0.006, -0.002, -0.02))   # мало, но значимо хуже (вес 1.5 на валидации)
-    assert not ly.allowed(row(-0.001, 0.001, 0.001))    # Low@20 значимо выше
 
 
 def test_saved_layers_score_calibrate_and_refuse_stale_components(world):
@@ -139,11 +157,6 @@ def test_saved_layers_score_calibrate_and_refuse_stale_components(world):
         ly.Layers.load(md / "layers")
 
 
-def test_value_of_counts_from_three():
-    np.testing.assert_array_equal(ly.value_of(np.array([5.0, 4.0, 3.0, 2.0, 1.0, 4.5])), [2, 1, 0, -1, -2, 2])
-    np.testing.assert_array_equal(ly.value_of(np.array([5.0, 4.0, 1.0]), five=3.0), [3, 1, -2])
-
-
 def test_val_includes_value_crowd_when_trained(world):
     from booksengine.model.ease import EASELike
     tp, sd, md = world
@@ -161,9 +174,10 @@ def test_val_includes_value_crowd_when_trained(world):
     np.testing.assert_allclose(L.crowd("like", x, als_weight=0.5), L.like_mix.score(x)[:, top], rtol=1e-5, atol=1e-5)
     assert not np.allclose(L.crowd("like", x, als_weight=0.0), L.crowd("like", x, als_weight=0.5))
     val = ly.run("val", clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval")
-    assert len(val["summary"]) == (1 + len(ly.LIKE_ALS)) * len(ly.WEIGHTS)
+    assert len(val["summary"]) == 1 + len(ly.grid(L))            # прежняя смесь + перебор толпы «ценность»
+    assert all(v.crowd == "like" for v in ly.grid(L)) and any(v.cutoff for v in ly.grid(L))
     g = val["summary"][0]["groups"]["all"]
-    assert g["fives_ideal"]["mean"] >= g["fives"]["mean"] and g["value_ideal"]["mean"] >= g["value20"]["mean"]
+    assert g["hits"]["mean"] > 0 and -1 <= g["quality"]["mean"] <= 2 and 0 <= g["b5"]["mean"] <= 1
     assert "mix_like" in json.loads((md / "layers" / "params.json").read_text())["components"]
     assert ly.Layers.load(md / "layers").like_mix is not None
 
@@ -180,7 +194,7 @@ def test_tune_like_trains_grid_and_saves_best(world):
     assert saved["lam"] == best["lam"] and saved["weights"] == best["weights"]
     L = ly.Layers.from_models(md)                       # mix_like подаёт в «ценность» те же веса звёзд
     assert list(L.like_mix.ease_input) == best["weights"]
-    assert "Выбрано: λ" in ly.report_like(res)
+    assert "Выбрана" in ly.report_like(res) or "осталась" in ly.report_like(res)
     again = ly.tune_like(clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval",
                          grid=[(best["lam"], tuple(best["weights"]))], fit_kw={"topk": 20})
     assert again["results"][0]["saved"]                 # сохранённая настройка не переобучается
@@ -269,9 +283,63 @@ def test_recommend_uses_layers_with_chance_and_writes_history(world):
     chance.calibrate("layers", ratings_path=tp / "ratings.parquet", split_dir=sd, models_dir=md, eval_dir=tp / "eval")
     res = rec.recommend(prof, clean_dir=tp, models_dir=md, top=5, history_dir=tp / "history")
     assert len(res.recs) == 5 and all(0 <= r.chance <= 100 for r in res.recs)
+    assert not any("Saga" in r.title for r in res.recs)             # поздние тома без первой книги — не в списке
+    assert len({r.author for r in res.recs}) == 5                    # список из 5 — одна книга на автора
     assert all(set(r.because) <= {"А", "Б", "В", "Г"} for r in res.recs)
     hist = list((tp / "history").glob("p-*.csv"))
     assert len(hist) == 1 and len(pd.read_csv(hist[0])) == 5
     chance.calibrate("mix", ratings_path=tp / "ratings.parquet", split_dir=sd, models_dir=md, eval_dir=tp / "eval")
     mix_res = rec.recommend(prof, clean_dir=tp, models_dir=md, top=5, model="mix")  # приложение — смесь
     assert len(mix_res.recs) == 5
+
+
+def test_tune_like_skips_setting_that_guesses_too_little(world, monkeypatch):
+    from booksengine.model.base import read_params
+    tp, sd, md = world
+    kw = dict(clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval", fit_kw={"topk": 20})
+    ly.tune_like(grid=[(10.0, ly.W0)], **kw)
+    monkeypatch.setattr(ly, "GUARD", 10.0)                # никто не угадывает в 10 раз больше нынешней выдачи
+    res = ly.tune_like(grid=[(5.0, ly.W1)], **kw)
+    assert [r["best_variant"] for r in res["results"]] == [None, None]
+    assert read_params(md / "ease_like")["lam"] == 10.0     # сохранённая толпа осталась
+    assert "не подходит" in ly.report_like(res)
+
+
+def test_tune_like_reuses_previous_run_and_trains_reused_best_to_save(world, monkeypatch):
+    from booksengine.model.base import read_params
+    from booksengine.model.ease import EASELike
+    tp, sd, md = world
+    kw = dict(clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval", fit_kw={"topk": 20})
+    ly.tune_like(grid=[(10.0, ly.W0)], **kw)
+    monkeypatch.setattr(ly, "GUARD", 10.0)                # (5, W1) посчитана, но не выбрана — не записана
+    ly.tune_like(grid=[(5.0, ly.W1)], **kw)
+    monkeypatch.setattr(ly, "GUARD", 0.9)
+    fits = []
+    real_fit = EASELike.fit
+    monkeypatch.setattr(EASELike, "fit", lambda self, train: fits.append(self.lam) or real_fit(self, train))
+    res = ly.tune_like(grid=[(5.0, ly.W1)], force=True, **kw)
+    assert res["results"][1]["reused"] and res["results"][1]["best_variant"] is not None   # решение пересчитано
+    assert fits == [5.0]                                  # не в переборе — только чтобы записать выбранную
+    assert read_params(md / "ease_like")["lam"] == 5.0
+    assert "из прошлого прогона" in ly.report_like(res)
+
+
+def test_quality_is_mean_star_value_of_guessed_books():
+    got = np.array([5, 5, 4, 3, 1], dtype=float)                 # пример пользователя: лучше, чем 5/1/5/5/1
+    risky = np.array([5, 1, 5, 5, 1], dtype=float)
+    value = lambda r: ly.JUDGE_STARS[r.astype(int) - 1].mean()
+    assert value(got) == pytest.approx(0.9) and value(risky) == pytest.approx(0.8)
+
+
+def test_tune_like_replaces_saved_crowd_only_when_surely_better(world):
+    from booksengine.model.base import read_params
+    tp, sd, md = world
+    kw = dict(clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval", fit_kw={"topk": 20})
+    ly.tune_like(grid=[(10.0, ly.W0)], **kw)
+    res = ly.tune_like(grid=[(5.0, ly.W1)], **kw)
+    saved, new = res["results"]
+    assert saved["saved"] and saved["quality_diff"]["mean"] == 0.0
+    d = new["quality_diff"]
+    assert d["lo"] <= d["mean"] <= d["hi"]
+    assert (read_params(md / "ease_like")["lam"] == 5.0) == (d["lo"] > 0)   # сменила — только если уверенно лучше
+    assert "разница" in ly.report_like(res)

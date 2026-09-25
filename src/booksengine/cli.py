@@ -64,14 +64,16 @@ def evaluate(model: str = typer.Argument(..., help="popularity | als | als_neg |
 
 @app.command()
 def calibrate(model: str = typer.Argument("mix", help="сохранённая модель в models/")) -> None:
-    """Шанс «понравится»: учится на валидации, проверяется на тесте → models/<model>/chance.json."""
-    import json
-
+    """Шанс «понравится»: учится на валидации, проверяется на тесте → models/<model>/chance.json,
+    отчёт — reports/chance_<model>.md."""
     from booksengine.model import chance
     from booksengine.model.evaluate import RATINGS
-    from booksengine.paths import EVAL_DIR, MODELS_DIR, SPLIT_DIR
+    from booksengine.paths import EVAL_DIR, MODELS_DIR, REPORTS_DIR, SPLIT_DIR
     out = chance.calibrate(model, ratings_path=RATINGS, split_dir=SPLIT_DIR, models_dir=MODELS_DIR, eval_dir=EVAL_DIR)
-    print(json.dumps({k: out[k] for k in ("chance", "test", "reliability")}, ensure_ascii=False, indent=1))
+    text = chance.report(out)
+    REPORTS_DIR.mkdir(exist_ok=True)
+    (REPORTS_DIR / f"chance_{model}.md").write_text(text)
+    print(text)
 
 
 @app.command()
@@ -84,6 +86,18 @@ def recommend(ratings: str = typer.Option(..., "--ratings", help="CSV: goodreads
     from booksengine.paths import CLEAN_DIR, MODELS_DIR, PROJECT_ROOT
     print(rec.format_result(rec.recommend(Path(ratings), clean_dir=CLEAN_DIR, models_dir=MODELS_DIR, top=top,
                                           history_dir=PROJECT_ROOT / "profiles" / "history")))
+
+
+@app.command()
+def journal() -> None:
+    """Журнал выдач (profiles/history/) против оценок, поставленных позже: что прочитано из советов и как оценено
+    → reports/journal.md."""
+    from booksengine import journal as jr
+    from booksengine.paths import CLEAN_DIR, PROJECT_ROOT, REPORTS_DIR
+    text = jr.report(PROJECT_ROOT / "profiles", PROJECT_ROOT / "profiles" / "history", CLEAN_DIR)
+    REPORTS_DIR.mkdir(exist_ok=True)
+    (REPORTS_DIR / "journal.md").write_text(text)
+    print(text)
 
 
 @app.command("ease-size")

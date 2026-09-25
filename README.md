@@ -80,17 +80,18 @@ uv run booksengine load-db                                  # каталог и�
 | **модели и замеры** | |
 | `evaluate <model> --stage val\|test` | стенд `popularity`, `als`, `als_neg`, `knn`, `ease`, `mix`: перебор по NDCG@20 → `models/<model>` / замер на тесте |
 | `report-3a` | `reports/stage3a_report.md` — сравнение моделей стенда |
-| `calibrate [model]` | шанс «понравится» → `models/<model>/chance.json` |
+| `calibrate [model]` | шанс «понравится» → `models/<model>/chance.json`, отчёт `reports/chance_<model>.md` |
 | `taste [--factors … --reg …]` | модель вкуса → `models/taste` |
 | `ease-like-tune [--lam … --weights … --force --min-user N]` | подбор толпы «ценность» → `models/ease_like`, `models/mix_like` |
-| `layers val\|test\|profiles [--top N]` | слои «толпа + вкус»: выбор → `models/layers`, замер на тесте, топ профилей рядом со смесью |
+| `layers val\|test\|profiles [--top N]` | слои «толпа + вкус»: выбор по качеству списка (средняя ценность угаданных книг топ-20: 5★ = 2 … 1★ = −1) → `models/layers`, замер на тесте, топ профилей рядом с прежней выдачей |
 | `profile-check` | каждая книга `profiles/*.csv` по очереди прячется — на каком месте её поставит выдача |
 | `why [--profile имя] "<книга>"` | почему книга стоит на своём месте: части модели и вклады книг профиля |
 | `taste-gap` | личная точность моделей: понравившиеся скрытые книги выше непонравившихся? |
 | `ease-size` | книги профилей и теста за границей EASE (30 000) — стоит ли её расширять |
 | `exp save\|split\|run\|report` | сравнить варианты очистки на общем тесте |
 | **выдача** | |
-| `recommend --ratings <csv> [--top 20]` | рекомендации по CSV (`goodreads_work_id`, `rating` 1–5, `status`, `title`): слои `models/layers`, без них — смесь; выдача пишется в `profiles/history/` |
+| `journal` | журнал выдач (`profiles/history/`) против оценок, поставленных позже: доля 5★ и 1–2★ среди прочитанного из советов и среди остальных оценок → `reports/journal.md` |
+| `recommend --ratings <csv> [--top 20]` | рекомендации по CSV (`goodreads_work_id`, `rating` 1–5, `status`, `title`): слои `models/layers`, без них — смесь; без сборников, поздний том неначатой серии — первой книгой, не больше одной книги автора на 10 мест; выдача пишется в `profiles/history/` |
 | `export-model` | смесь → БД для веб-интерфейса (перезаписывает целиком) |
 
 Порядок сборки моделей: `split` → `evaluate als_neg` и `evaluate ease` (val, затем test) → `evaluate mix` →
