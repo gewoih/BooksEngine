@@ -239,11 +239,13 @@ def _mean(row: dict, metric: str) -> float:
     return -np.inf if m is None else m
 
 
-def choose(summary: list[dict], baseline: dict) -> dict:
+def choose(summary: list[dict], baseline: dict) -> dict | None:
     """Наибольшее качество списка среди вариантов, которые угадывают в топ-20 не меньше GUARD от baseline — строки
-    summary нынешней выдачи (она сама проходит всегда)."""
+    нынешней выдачи. None — ни один не угадывает столько: так бывает у чужой толпы в `tune_like`; в `layers val`
+    нынешняя выдача сама в summary и проходит всегда."""
     floor = GUARD * _mean(baseline, "hits")
-    return max((r for r in summary if _mean(r, "hits") >= floor), key=lambda r: _mean(r, "quality"))
+    ok = [r for r in summary if _mean(r, "hits") >= floor]
+    return max(ok, key=lambda r: _mean(r, "quality")) if ok else None
 
 
 def grid(layers: Layers) -> list[Variant]:
@@ -428,14 +430,31 @@ LIKE_GRID = [(lam, w) for w in (W0, W1, W2, W3, W4, W5) for lam in (250.0, 500.0
 LIKE_JUDGED = (Variant("like", 0.0, None, 0.25), Variant("like", 1.0, None, 0.25), Variant("like", 1.0, 300, 0.25))
 
 
+def _setting(row: dict) -> tuple:
+    return float(row["lam"]), tuple(float(w) for w in row["weights"]), int(row.get("min_user", 20))
+
+
+def _same_numbers(old: dict, new: dict) -> bool:
+    """Прошлый прогон считал на тех же данных, компонентах и судье: у сохранённой толпы те же цифры всех вариантов."""
+    try:
+        return all(np.isclose(old["variants"][lab][k]["mean"], g[k]["mean"], rtol=1e-9, atol=1e-12)
+                   for lab, g in new["variants"].items() for k in ("quality", "hits"))
+    except (KeyError, TypeError):
+        return False
+
+
 def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: Path, grid=LIKE_GRID,
               fit_kw: dict | None = None, force: bool = False, min_user: int = 20) -> dict:
     """Обучает толпу «ценность» с каждой настройкой и судит её вариантами LIKE_JUDGED тем же судьёй, что `layers val`:
-    качество списка у лучшего варианта из тех, что угадывают не меньше GUARD от нынешней выдачи. Нынешняя —
-    сохранённая толпа (первая в переборе) с вариантом из models/layers, без него — первый из LIKE_JUDGED. Лучшая
-    настройка записывается в models/ease_like и models/mix_like; force — записать последнюю настройку сетки, даже если
-    она хуже (решение пользователя); min_user — обучать новые настройки только на людях с ≥ min_user оценок
-    (сохранённая — со своим порогом). После — `layers val` и `layers test` заново (отпечатки компонентов меняются)."""
+    качество списка у лучшего варианта из тех, что угадывают не меньше GUARD от нынешней выдачи; если не угадывает
+    ни один — настройка не подходит. Нынешняя — сохранённая толпа (первая в переборе) с вариантом из models/layers,
+    без него — первый из LIKE_JUDGED. Лучшая настройка записывается в models/ease_like и models/mix_like; force —
+    записать последнюю настройку сетки, даже если она хуже (решение пользователя); min_user — обучать новые настройки
+    только на людях с ≥ min_user оценок (сохранённая — со своим порогом).
+
+    Посчитанное в прошлый прогон (eval_dir/ease_like_tune.json) не пересчитывается, если сохранённая толпа дала те же
+    цифры, что тогда: данные, компоненты и судья те же. Лучшая из таких настроек обучается заново один раз — чтобы
+    записать её. После — `layers val` и `layers test` заново (отпечатки компонентов меняются)."""
     import time
 
     from booksengine.model.ease import EASE, EASELike, normalize_weights
@@ -454,34 +473,50 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
     if saved:  # сохранённая толпа — всегда точка сравнения: без неё прогон из одной настройки записал бы худшую
         cur = (float(saved["lam"]), tuple(saved.get("weights", W0)), int(saved.get("min_user", 20)))
         grid = [cur] + [g for g in grid if g != cur]
+    path = eval_dir / "ease_like_tune.json"
+    prev = {_setting(r): r for r in json.loads(path.read_text()).get("results", [])} if path.exists() else {}
+    reuse = False
     results, best, best_model, baseline = [], None, None, None
     eval_dir.mkdir(parents=True, exist_ok=True)
     for lam, weights, mu in grid:
-        t0 = time.perf_counter()
         is_saved = bool(saved) and cur == (lam, weights, mu)
-        if is_saved:
-            ease = EASE.load(models_dir / "ease_like")
+        old = prev.get((lam, weights, mu))
+        if reuse and old is not None and not is_saved:
+            row, ease = old | {"saved": False, "reused": True}, None
         else:
-            ease = EASELike(lam=lam, weights=weights, min_user=mu, **(fit_kw or {}))
-            ease.fit(train)
-        fit_s = round(time.perf_counter() - t0, 1)
-        like = Mix(str(models_dir / "als_neg"), str(models_dir / "ease_like"))
-        like.als, like.ease = base.mix.als, ease
-        like.configure(als_weight=0.5, ease_input=weights)
-        layers = Layers(base.mix, base.taste, like_mix=like)
-        summ = summarize(evaluate(layers, hold, info, judged), judged[0])
-        baseline = baseline or summ[0]            # нынешняя выдача: первая настройка — сохранённая толпа
-        top = choose(summ, baseline)
-        row = {"lam": lam, "weights": list(weights), "min_user": mu, "fit_seconds": fit_s, "saved": is_saved,
-               "best_variant": top["label"], "quality": top["groups"]["all"]["quality"],
-               "variants": {r["label"]: {k: r["groups"]["all"][k] for k in ("quality", "five_share", "low_share", "hits")}
-                            for r in summ},
-               "quality_by_group": {b: g["quality"]["mean"] for b, g in top["groups"].items()}}
+            t0 = time.perf_counter()
+            if is_saved:
+                ease = EASE.load(models_dir / "ease_like")
+            else:
+                ease = EASELike(lam=lam, weights=weights, min_user=mu, **(fit_kw or {}))
+                ease.fit(train)
+            fit_s = round(time.perf_counter() - t0, 1)
+            like = Mix(str(models_dir / "als_neg"), str(models_dir / "ease_like"))
+            like.als, like.ease = base.mix.als, ease
+            like.configure(als_weight=0.5, ease_input=weights)
+            layers = Layers(base.mix, base.taste, like_mix=like)
+            summ = summarize(evaluate(layers, hold, info, judged), judged[0])
+            baseline = baseline or summ[0]            # нынешняя выдача: первая настройка — сохранённая толпа
+            row = {"lam": lam, "weights": list(weights), "min_user": mu, "fit_seconds": fit_s, "saved": is_saved,
+                   "variants": {r["label"]: {k: r["groups"]["all"][k] for k in
+                                             ("quality", "five_share", "low_share", "hits")}
+                                | {"by_group": {b: g["quality"]["mean"] for b, g in r["groups"].items()}}
+                                for r in summ}}
+            if is_saved:
+                reuse = old is not None and _same_numbers(old, row)
+        top = choose([{"label": lab, "groups": {"all": g}} for lab, g in row["variants"].items()], baseline)
+        row["best_variant"] = None if top is None else top["label"]
+        row["quality"] = None if top is None else row["variants"][top["label"]]["quality"]
+        row["quality_by_group"] = {} if top is None else row["variants"][top["label"]].get("by_group", {})
         results.append(row)
-        v = _mean(top, "quality")
-        print(f"«ценность» λ = {lam:g}, веса {weights}, люди с ≥ {mu} оценок: качество списка {v:.3f} "
-              f"({top['label']}), обучение {fit_s} с", flush=True)
-        (eval_dir / "ease_like_tune.json").write_text(json.dumps({"results": results}, ensure_ascii=False, indent=1))
+        v = -np.inf if top is None else _mean(top, "quality")
+        how = ("уже посчитано в прошлый прогон" if row.get("reused")
+               else f"обучение {row['fit_seconds']} с")
+        print(f"«ценность» λ = {lam:g}, веса {weights}, люди с ≥ {mu} оценок: "
+              + (f"качество списка {v:.3f} ({top['label']})" if top is not None
+                 else f"не подходит — ни один вариант не угадывает {GUARD:.0%} от нынешней выдачи")
+              + f", {how}", flush=True)
+        path.write_text(json.dumps({"results": results}, ensure_ascii=False, indent=1))
         last = (lam, weights, mu) == grid[-1]
         if (force and last) or (not force and (best is None or v > best)):
             best, best_model = v, (lam, weights, mu, ease)
@@ -489,6 +524,10 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
             del ease
     lam, weights, mu, ease = best_model
     if not (saved and cur == (lam, weights, mu)):
+        if ease is None:   # лучшая посчитана в прошлый прогон — обучить заново, чтобы записать
+            print(f"«ценность» λ = {lam:g}, веса {weights}: обучаю заново, чтобы записать", flush=True)
+            ease = EASELike(lam=lam, weights=weights, min_user=mu, **(fit_kw or {}))
+            ease.fit(train)
         ease.save(models_dir / "ease_like")
         mix = Mix(models_dir / "als_neg", models_dir / "ease_like")
         mix.fit(train)
@@ -509,17 +548,22 @@ def report_like(res: dict) -> str:
     for r in res["results"]:
         for lab, g in r["variants"].items():
             mark = " **← лучший**" if lab == r["best_variant"] else ""
+            mark += " (из прошлого прогона)" if r.get("reused") else ""
             lines.append(f"| {r['lam']:g} | {'/'.join(f'{w:g}' for w in r['weights'])} | {r.get('min_user', 20)} | "
                          f"{lab}{mark} | {_f(g['quality'], pct=True)} | {_f(g['five_share'], pct=True)} | "
                          f"{_f(g['low_share'], pct=True)} | {g['hits']['mean']:.2f} |")
-    groups = [g for g in BUCKET_ORDER if g in res["results"][0]["quality_by_group"]]
+    groups = [g for g in BUCKET_ORDER if any(g in r["quality_by_group"] for r in res["results"])]
     if groups:
         lines += ["", "Качество списка по группам (лучший вариант настройки):", "",
                   "| λ | веса звёзд | людей с ≥ N | " + " | ".join(groups) + " |", "|---|---|---|" + "---|" * len(groups)]
         for r in res["results"]:
             lines.append(f"| {r['lam']:g} | {'/'.join(f'{w:g}' for w in r['weights'])} | {r.get('min_user', 20)} | "
-                         + " | ".join("—" if r["quality_by_group"][g] is None else f"{r['quality_by_group'][g]:.1%}"
+                         + " | ".join("—" if r["quality_by_group"].get(g) is None else f"{r['quality_by_group'][g]:.1%}"
                                       for g in groups) + " |")
+    bad = [r for r in res["results"] if r["best_variant"] is None]
+    if bad:
+        lines += ["", "Не подходят — ни один вариант не угадывает столько, сколько нужно: "
+                  + "; ".join(f"λ = {r['lam']:g}, веса {'/'.join(f'{w:g}' for w in r['weights'])}" for r in bad) + "."]
     b = res["best"]
     lines += ["", f"Выбрано: λ = {b['lam']:g}, веса {'/'.join(f'{w:g}' for w in b['weights'])}, "
                   f"люди с ≥ {b.get('min_user', 20)} оценок. Дальше — "

@@ -284,3 +284,34 @@ def test_recommend_uses_layers_with_chance_and_writes_history(world):
     chance.calibrate("mix", ratings_path=tp / "ratings.parquet", split_dir=sd, models_dir=md, eval_dir=tp / "eval")
     mix_res = rec.recommend(prof, clean_dir=tp, models_dir=md, top=5, model="mix")  # приложение — смесь
     assert len(mix_res.recs) == 5
+
+
+def test_tune_like_skips_setting_that_guesses_too_little(world, monkeypatch):
+    from booksengine.model.base import read_params
+    tp, sd, md = world
+    kw = dict(clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval", fit_kw={"topk": 20})
+    ly.tune_like(grid=[(10.0, ly.W0)], **kw)
+    monkeypatch.setattr(ly, "GUARD", 10.0)                # никто не угадывает в 10 раз больше нынешней выдачи
+    res = ly.tune_like(grid=[(5.0, ly.W1)], **kw)
+    assert [r["best_variant"] for r in res["results"]] == [None, None]
+    assert read_params(md / "ease_like")["lam"] == 10.0     # сохранённая толпа осталась
+    assert "Не подходят" in ly.report_like(res)
+
+
+def test_tune_like_reuses_previous_run_and_trains_reused_best_to_save(world, monkeypatch):
+    from booksengine.model.base import read_params
+    from booksengine.model.ease import EASELike
+    tp, sd, md = world
+    kw = dict(clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval", fit_kw={"topk": 20})
+    ly.tune_like(grid=[(10.0, ly.W0)], **kw)
+    monkeypatch.setattr(ly, "GUARD", 10.0)                # (5, W1) посчитана, но не выбрана — не записана
+    ly.tune_like(grid=[(5.0, ly.W1)], **kw)
+    monkeypatch.setattr(ly, "GUARD", 0.9)
+    fits = []
+    real_fit = EASELike.fit
+    monkeypatch.setattr(EASELike, "fit", lambda self, train: fits.append(self.lam) or real_fit(self, train))
+    res = ly.tune_like(grid=[(5.0, ly.W1)], force=True, **kw)
+    assert res["results"][1]["reused"] and res["results"][1]["best_variant"] is not None   # решение пересчитано
+    assert fits == [5.0]                                  # не в переборе — только чтобы записать выбранную
+    assert read_params(md / "ease_like")["lam"] == 5.0
+    assert "из прошлого прогона" in ly.report_like(res)
