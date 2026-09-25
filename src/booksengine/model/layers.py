@@ -12,7 +12,7 @@
 человек прочёл сам (скрытые оценки, «угаданные»): качество — средняя ценность угаданных (`JUDGE_STARS`: 5★ = 2,
 4★ = 1, 3★ = 0.5, 2★ = −0.5, 1★ = −1 — смысл оценок пользователя), сначала по человеку, потом по людям. Учитывает
 все оценки: четвёрка лучше тройки, одна плохая книга не перечёркивает отличную.
-Ограничение (`GUARD`) — угадано не меньше 90% того, что угадывает толпа без вкуса (`anchor`): иначе список уходит в книги,
+Ограничение (`GUARD`) — угадано не меньше 80% того, что угадывает толпа без вкуса (`anchor`): иначе список уходит в книги,
 которые такие люди не читают, и проверить его нечем. Для сравнения в отчёте — прежние судьи: доля 5★ минус доля 1–2★
 (четвёрку приравнивала к тройке) и сумма (оценка − 3) угаданных (награждала «угадал, что человек и так прочтёт» —
 вкус при ней получал вес 0).
@@ -35,11 +35,14 @@ from booksengine.model.taste_gap import graded_auc
 
 # толпа «прочитал» замерена 2026-09-24 и отклонена (Low@20 8.7% → 11–14%); остаётся в коде для повторного замера
 CROWDS = ("mix",)
-WEIGHTS = (0.0, 0.1, 0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0, 8.0)
+WEIGHTS = (0.0, 0.1, 0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 8.0)
 CUTOFFS = (None, 100, 300, 500, 1000)
 REFERENCE = ("mix", 0.0, None)     # прежняя смесь — для сведения
 LIKE_ALS = (0.0, 0.1, 0.25, 0.5, 0.75)   # вес ALS в толпе «ценность»: ALS находит прочитанное, «ценность» — отсеивает плохое
-GUARD = 0.9                        # угадано в топ-20 — не меньше этой доли от опоры (`anchor`)
+# угадано в топ-20 — не меньше этой доли от опоры (`anchor`). 90% было выбрано без замера и держало вкус на 1.5;
+# 80% — решение пользователя 2026-09-25 (вкус 2 угадывает 88%, 3 — 78%); проверяется журналом выдач
+GUARD = 0.8
+DNF_TASTE_DROP = 0.5   # недочитанная во входе вкуса — на столько ниже обычной оценки книги (`Layers.taste_input`)
 JUDGE_STARS = np.array([-1.0, -0.5, 0.5, 1.0, 2.0])   # ценность угаданной книги с оценкой 1★ … 5★
 STARS = tuple(f"s{k}" for k in range(1, 6))           # доля угаданных с оценкой k★
 BASE = tuple(f"b{k}" for k in range(1, 6))            # то же среди всего прочитанного — «случайные из прочитанного»
@@ -117,7 +120,7 @@ class Layers:
         top = self.mix.ease.top_cols
         excl = np.zeros((inputs.shape[0], len(top)), dtype=bool)
         c = self.crowd(self.variant.crowd, inputs, dnf, self.variant.als_weight)
-        s = self.combine(c, self.taste_z(inputs), excl, self.variant)
+        s = self.combine(c, self.taste_z(inputs, dnf), excl, self.variant)
         out = np.full(inputs.shape, -np.inf, dtype=np.float32)
         out[:, top] = s
         return out
@@ -147,8 +150,26 @@ class Layers:
             self.mix.configure(als_weight=w, ease_input=ein)
             self.mix.als.configure(rule, beta)
 
-    def taste_z(self, inputs: sp.csr_matrix) -> np.ndarray:
-        return _z(self.taste.score(inputs)[:, self.mix.ease.top_cols].astype(np.float64))
+    def taste_input(self, inputs: sp.csr_matrix, dnf: sp.csr_matrix | None = None) -> sp.csr_matrix:
+        """Вход вкуса: недочитанная книга (dnf) — на DNF_TASTE_DROP ниже её обычной оценки, а не 1★. Вкус читает
+        отклонение от обычной оценки, и 1★ при обычных ~4 было самым сильным сигналом профиля: одна брошенная книга
+        поднимала «её противоположность» («Цветы на чердаке» у пользователя — от «Вина из одуванчиков»; 1.5★ и 2★ —
+        то же). «Не дочитал» — мягкий минус (решение пользователя); во входе EASE такая книга весит 0 (`mix.DNF_INPUT`).
+        В датасете недочитанных нет — на замеры не влияет."""
+        if dnf is None or dnf.nnz == 0:
+            return inputs
+        x = inputs.tocsr().astype(np.float32, copy=True)
+        d = dnf.tocsr()
+        for r in range(x.shape[0]):
+            a, b = x.indptr[r], x.indptr[r + 1]
+            hit = np.isin(x.indices[a:b], d.indices[d.indptr[r]:d.indptr[r + 1]])
+            cols = x.indices[a:b][hit]
+            x.data[a:b][hit] = self.taste.mu + self.taste.item_bias[cols] - DNF_TASTE_DROP
+        return x
+
+    def taste_z(self, inputs: sp.csr_matrix, dnf: sp.csr_matrix | None = None) -> np.ndarray:
+        """z-балл вкуса по книгам EASE (вход — `taste_input`)."""
+        return _z(self.taste.score(self.taste_input(inputs, dnf))[:, self.mix.ease.top_cols].astype(np.float64))
 
     @staticmethod
     def combine(crowd: np.ndarray, taste: np.ndarray, excl: np.ndarray, v: Variant) -> np.ndarray:
@@ -456,7 +477,7 @@ def profiles(*, clean_dir: Path, models_dir: Path, profiles_dir: Path, top: int 
             continue
         excl = exclusion(prof.x, series)[:, top_cols].toarray() != 0
         crowds = {v: layers.crowd(v.crowd, prof.x, prof.dnf, v.als_weight) for v in (ref, chosen)}
-        taste = layers.taste_z(prof.x)
+        taste = layers.taste_z(prof.x, prof.dnf)
         rated = RatedFilter(picker.books, prof.x.indices)
         lists = {v: pick_top(layers.combine(crowds[v], taste, excl, v), top_cols, pos_of, picker, [rated], top)[0].tolist()
                  for v in (ref, chosen)}
@@ -693,7 +714,7 @@ def profile_check(*, clean_dir: Path, models_dir: Path, profiles_dir: Path) -> s
             dnf_rows.append(sp.csr_matrix(d[None, :]))
         X, D = sp.vstack(rows).tocsr(), sp.vstack(dnf_rows).tocsr()
         excl = exclusion(X, series)[:, top].toarray() != 0
-        taste = layers.taste_z(X)
+        taste = layers.taste_z(X, D)
         places = {}
         for name, v in variants.items():
             sc = layers.combine(layers.crowd(v.crowd, X, D, v.als_weight), taste, excl, v)
@@ -766,7 +787,7 @@ def why(*, clean_dir: Path, models_dir: Path, profile_csv: Path, query: str, top
     series = SeriesIndex(info.title.tolist())
     excl = exclusion(x, series)[:, top_cols].toarray()[0] != 0
     za, ze = layers.like_parts(x, dnf)
-    tz = layers.taste_z(x)
+    tz = layers.taste_z(x, dnf)
     parts = {"ALS": za[0], "EASE «ценность»": ze[0], "вкус": tz[0],
              "итог": layers.combine(v.als_weight * za + (1 - v.als_weight) * ze, tz, excl[None, :], v)[0]}
 

@@ -82,6 +82,18 @@ def work_info(clean_dir: Path, work_ids: np.ndarray) -> pd.DataFrame:
     return d.reset_index()
 
 
+# нон-фикшн — доля голосов за жанр non-fiction на Goodreads не меньше этой: у художественных 0–8%, у биографий и
+# мемуаров («Ночь» Визеля, «Илон Маск», дневник Анны Франк) — 46–49%, у «Сапиенса» — 87%
+NONFICTION_SHARE = 0.4
+
+
+def nonfiction(clean_dir: Path, work_ids: np.ndarray) -> np.ndarray:
+    """Нон-фикшн ли книга (по столбцам work_ids); без жанров — художественная."""
+    d = duckdb.execute("SELECT work_id, max(share) AS s FROM read_parquet(?) WHERE genre = 'non-fiction' GROUP BY 1",
+                       [str(clean_dir / "work_genres.parquet")]).df()
+    return d.set_index("work_id").s.reindex(work_ids).fillna(0).to_numpy() >= NONFICTION_SHARE
+
+
 @dataclass(frozen=True)
 class Books:
     """Поля `work_info` массивами по столбцам: проверки тысяч кандидатов без обращений к строкам pandas."""

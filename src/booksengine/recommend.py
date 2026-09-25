@@ -22,7 +22,7 @@ from booksengine import journal
 from booksengine.model import explain, metrics
 from booksengine.model.base import fingerprint
 from booksengine.model.chance import Chance, personal_pct
-from booksengine.model.filters import WHY_REMOVED, ListPicker, RatedFilter, work_info
+from booksengine.model.filters import WHY_REMOVED, ListPicker, RatedFilter, nonfiction, work_info
 from booksengine.model.matrix import catalog_works
 from booksengine.model.mix import Mix
 from booksengine.model.series import SeriesIndex, exclusion
@@ -40,14 +40,26 @@ class Profile:
     outside: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))  # оценённые книги каталога вне ядра
 
 
+# «Смелая» выдача для журнала: вкус 4 при том же отсечении, что у выбранного варианта, — смелее порога
+# `layers.GUARD`. Не показывается, пишется рядом — прочитанное из неё покажет, не слишком ли осторожен порог.
+BOLD_TASTE = 4.0
+# два списка: художественная литература и нон-фикшн (`filters.nonfiction`) — у читателя двух областей одна не
+# вытесняет другую, список выбирается под настроение
+FICTION, NONFICTION = "Художественная литература", "Нон-фикшн"
+
+
 @dataclass
 class Rec:
     work_id: int
     title: str
     author: str
     chance: int
-    because: list[str]
-    despite: str | None
+    because: list[str]            # книги профиля, чьи читатели ценят эту (толпа), — названия
+    despite: str | None           # книга профиля, чьи читатели её не ценят
+    rated: dict[str, str] = field(default_factory=dict)   # название книги профиля → оценка («5★», «не дочитал»)
+    taste: str | None = None      # что говорит вкус («за: Сиддхартха 5★ (у всех 3.9) — похожа»), если сдвигает заметно
+    debug: dict = field(default_factory=dict)             # для журнала: известность, место у толпы, поднял ли вкус
+    section: str = ""             # список: FICTION / NONFICTION, "" — один общий
 
 
 @dataclass
@@ -105,10 +117,25 @@ def load_model(models_dir: Path, model: str | None = None):
     return model, Chance.load(d / "chance.json", model_fp=fingerprint(d)), fingerprint(d)
 
 
+def pick_sections(order: np.ndarray, score, top: int, picker: ListPicker, rated: RatedFilter, rules: bool,
+                  sections: dict[str, np.ndarray | None]) -> tuple[list[tuple[str, int]], list[tuple[int, str]]]:
+    """По top книг в каждый список sections (название → маска столбцов ядра, None — все книги); правила списка —
+    в каждом отдельно. Возвращает (список, столбец) по порядку и убранные правилами."""
+    picked, removed = [], []
+    for name, mask in sections.items():
+        o = order if mask is None else order[mask[order]]
+        p, r = picker.pick(o, score, top, rated, rules=rules)
+        picked += [(name, c) for c in p]
+        removed += r
+    return picked, removed
+
+
 def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int = 20,
-              history_dir: Path | None = None, model: str | None = None, rules: bool = True) -> Result:
+              history_dir: Path | None = None, model: str | None = None, rules: bool = True,
+              sections: bool = True) -> Result:
     """rules=False — без правил списка (сборники, поздние тома, книги автора), только «уже оценено»: так считает
-    приложение, и его эталон строится без них."""
+    приложение, и его эталон строится без них. sections — два списка по top книг (художественная литература и
+    нон-фикшн), иначе один общий (приложение)."""
     work_ids = catalog_works(clean_dir / "ratings.parquet")
     prof = read_profile(ratings_csv, work_ids, clean_dir)
     if prof.x.nnz == 0:
@@ -128,36 +155,123 @@ def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int 
 
     picker = ListPicker(info, series)
     rated = RatedFilter(picker.books, np.concatenate([prof.x.indices, np.arange(n, len(info))]))
-    picked, removed = picker.pick(order, lambda c: sc[c], top, rated, rules=rules)
-    picked = np.array(picked, dtype=np.int64)
+    if sections:
+        nf = nonfiction(clean_dir, work_ids)
+        parts = {FICTION: ~nf, NONFICTION: nf}
+    else:
+        parts = {"": None}
+    got, removed = pick_sections(order, lambda c: sc[c], top, picker, rated, rules, parts)
+    picked = np.array([c for _, c in got], dtype=np.int64)
 
     r = metrics.rounded(prof.x.data)
     pct = chance.predict(personal_pct(sc, picked), int((r >= 4).sum()), prof.x.nnz)
     if isinstance(model, Mix):
         in_cols, contrib = explain.contributions(model, prof.x, picked, prof.dnf)
+        taste, const = np.zeros_like(contrib), np.zeros(len(picked))
     else:
-        in_cols, contrib, _ = explain.layers_contributions(model, prof.x, picked, prof.dnf)
+        in_cols, contrib, taste, const = explain.layers_parts(model, prof.x, picked, prof.dnf)
     names = [prof.names[c] for c in in_cols.tolist()]
+    dnf = set(prof.dnf.indices.tolist())
+    stars = [("не дочитал" if c in dnf else f"{v:g}★") for c, v in zip(in_cols.tolist(), prof.x.data.tolist())]
     recs = []
     for k, c in enumerate(picked):
         why = explain.reason(contrib[:, k])
+        shown = why.because + ([] if why.despite is None else [why.despite])
+        note = explain.taste_note(taste[:, k], const[k])
         recs.append(Rec(int(work_ids[c]), info.title[c], info.author[c] or "", int(round(pct[k] * 100)),
-                        [names[i] for i in why.because], None if why.despite is None else names[why.despite]))
+                        [names[i] for i in why.because], None if why.despite is None else names[why.despite],
+                        {names[i]: stars[i] for i in shown},
+                        None if note is None else _taste_text(note, model.taste, c, in_cols, names, prof.x.data, stars),
+                        section=got[k][0]))
+    bold = []
+    if not isinstance(model, Mix):
+        bold = _debug(model, prof, recs, picked, ex, picker, rated, top, rules, clean_dir, work_ids, parts)
     res = Result(recs, [(f"{info.title[c]} — {info.author[c] or '?'}", WHY_REMOVED[w]) for c, w in removed],
                  prof.skipped, prof.x.nnz)
     if history_dir is not None:
-        journal.save(res.recs, ratings_csv.stem, model_fp, history_dir)
+        journal.save(res.recs, ratings_csv.stem, model_fp, history_dir,
+                     bold=[(int(work_ids[c]), info.title[c], info.author[c] or "", sec) for sec, c in bold])
     return res
 
 
+def _taste_text(note: explain.TasteNote, taste, col: int, in_cols: np.ndarray, names: list[str], x: np.ndarray,
+                stars: list[str]) -> str:
+    """«за: Сиддхартха 5★ (у всех 3.9) — похожа» — книга профиля, оценённая выше или ниже обычного, и похожа ли на
+    неё советуемая по вкусу; без книги — «эту книгу обычно ставят 4.3». Обычная оценка — по модели вкуса (μ + b)."""
+    side = "за" if note.sign > 0 else "против"
+    if note.book is None:
+        return f"{side}: эту книгу обычно ставят {taste.mu + taste.item_bias[col]:.1f}"
+    i = note.book
+    usual = taste.mu + taste.item_bias[in_cols[i]]
+    similar = (note.sign > 0) == (x[i] > usual)       # выше обычного и тянет вверх — похожа; ниже и тянет вверх — нет
+    return f"{side}: {names[i]} {stars[i]} (у всех {usual:.1f}) — {'похожа' if similar else 'не похожа'}"
+
+
+def _debug(layers, prof: Profile, recs: list[Rec], picked: np.ndarray, ex: sp.csr_matrix, picker: ListPicker,
+           rated: RatedFilter, top: int, rules: bool, clean_dir: Path, work_ids: np.ndarray,
+           parts: dict[str, np.ndarray | None]) -> list[tuple[str, int]]:
+    """Отладка слоёв для журнала (пишет в `Rec.debug`): известность книги, её место у толпы без вкуса, поднял ли её
+    вкус в список (списка толпы без вкуса она бы не попала), баллы толпы и вкуса. Возвращает «смелую» выдачу
+    (вкус BOLD_TASTE) — (список, столбец ядра), по тем же спискам."""
+    from dataclasses import replace
+
+    from booksengine.model.layers import popularity
+    top_cols = layers.mix.ease.top_cols
+    v = layers.variant
+    crowd = layers.crowd(v.crowd, prof.x, prof.dnf, v.als_weight)[0]
+    taste = layers.taste_z(prof.x, prof.dnf)[0]
+
+    def full(s: np.ndarray) -> np.ndarray:
+        out = np.full(len(work_ids), -np.inf)
+        out[top_cols] = s
+        out[ex.indices] = -np.inf
+        return out
+
+    def pick(s: np.ndarray) -> list[tuple[str, int]]:
+        order = np.argsort(-s, kind="stable")
+        return pick_sections(order[np.isfinite(s[order])], lambda c: s[c], top, picker, rated, rules, parts)[0]
+
+    c_full = full(crowd)
+    by_crowd = {c for _, c in pick(c_full)}
+    bold = pick(full(layers.combine(crowd[None, :], taste[None, :], np.zeros((1, len(top_cols)), bool),
+                                    replace(v, taste_weight=BOLD_TASTE))[0]))
+    place = np.argsort(np.argsort(-c_full, kind="stable"), kind="stable") + 1
+    pop = popularity(clean_dir / "ratings.parquet", work_ids)
+    pos = np.searchsorted(top_cols, picked)
+    for rec, c, p in zip(recs, picked.tolist(), pos.tolist()):
+        rec.debug = {"n_ratings": int(prof.x.nnz), "known": int(pop[c]), "crowd_place": int(place[c]),
+                     "by_taste": int(c not in by_crowd), "crowd_z": round(float(crowd[p]), 3),
+                     "taste_z": round(float(v.taste_weight * taste[p]), 3)}
+    return bold
+
+
+LEGEND = ("Как читать: «читатели» — книги из твоего профиля (рядом твоя оценка), чьи читатели ценят и эту; "
+          "«несмотря на» — чьи читатели её не ценят. «Вкус» сравнивает твою оценку со средней у всех: книга похожа "
+          "на ту, что ты оценил выше других, или не похожа на ту, что ниже; «обычно ставят» — книгу ценят все.")
+
+
+def _book(name: str, rec: Rec) -> str:
+    return f"{name} {rec.rated[name]}" if name in rec.rated else name
+
+
+def why_text(r: Rec) -> list[str]:
+    """Подпись к книге: строка толпы и, если вкус сдвигает заметно, строка вкуса."""
+    line = ("читатели: " + ", ".join(_book(b, r) for b in r.because)) if r.because else "по профилю в целом"
+    if r.despite:
+        line += f"; несмотря на: {_book(r.despite, r)}"
+    return [line] + ([f"вкус {r.taste}"] if r.taste else [])
+
+
 def format_result(res: Result) -> str:
-    out = [f"Учтено оценок: {res.n_used}", ""]
-    for i, r in enumerate(res.recs, 1):
-        why = "потому что: " + ", ".join(r.because) if r.because else "по общему вкусу"
-        if r.despite:
-            why += f"; несмотря на: {r.despite}"
+    out = [f"Учтено оценок: {res.n_used}", "", LEGEND]
+    section, i = None, 0
+    for r in res.recs:
+        if r.section != section:
+            section, i = r.section, 0
+            out += ["", f"## {section}", ""] if section else [""]
+        i += 1
         out.append(f"{i:3}. {r.title} — {r.author}  [{r.chance}%]")
-        out.append(f"      {why}")
+        out += [f"      {w}" for w in why_text(r)]
     if res.removed:
         out += ["", "Убраны из списка:"] + [f"  - {t}: {w}" for t, w in res.removed]
     if res.skipped:
