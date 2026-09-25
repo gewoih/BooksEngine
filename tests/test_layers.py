@@ -65,7 +65,7 @@ def world(tmp_path):
     _data(tmp_path)
     sd, md = tmp_path / "split", tmp_path / "models"
     split.build(tmp_path / "ratings.parquet", tmp_path / "users.parquet", sd, "fp",
-                test_per_bucket={"20-49": 15}, val_per_bucket={"20-49": 15}, bucket_pool_size={"20-49": 90},
+                test_per_bucket={"20-39": 15}, val_per_bucket={"20-39": 15}, bucket_pool_size={"20-39": 90},
                 seed=11, share=0.2)
     train = load_train(tmp_path / "ratings.parquet", sd / "holdout_users.parquet")
     als = ALS(factors=4, alpha=1.0, iterations=5)

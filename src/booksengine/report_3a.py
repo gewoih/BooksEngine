@@ -61,7 +61,7 @@ def write(eval_dir: Path = EVAL_DIR, split_dir: Path = SPLIT_DIR,
             L.append(f"| {_label(n, v)} | {_cell(a['ndcg20'])} | {_cell(a['ndcg10'])} | {_cell(a['recall20'])} | "
                      f"{_cell(a['map20'])} | {v['coverage']:.4f} | {_cell(a['low20'])} | {r['fit_seconds']} |")
     L += ["", "## NDCG@20 по активности пользователя", "",
-          "Целевые группы — читающие, 50–199 и 200+ оценок; 20–49 — вторична.", "",
+          "Этапы — по числу оценок человека: на каждом следующем их вдвое больше.", "",
           "| модель | " + " | ".join(BUCKET_ORDER) + " |", "|---|" + "---|" * len(BUCKET_ORDER)]
     for n in names:
         for v in tests[n]["variants"]:

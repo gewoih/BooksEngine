@@ -75,7 +75,7 @@ def bootstrap(x: np.ndarray, rng: np.random.Generator, n_boot: int) -> dict:
 
 
 def summarize(per_user: pd.DataFrame, n_boot: int = 1000, seed: int = 0) -> dict:
-    """Метрики по группам активности; NaN (нет скрытых 4–5★ / 1–2★) не входят."""
+    """Метрики по этапам (числу оценок); NaN (нет скрытых 4–5★ / 1–2★) не входят."""
     rng = np.random.default_rng(seed)
     parts = [("all", per_user)] + [(b, per_user[per_user["bucket"] == b]) for b in BUCKET_ORDER]
     return {name: {m: bootstrap(part[m].to_numpy(dtype=np.float64), rng, n_boot) for m in METRICS}

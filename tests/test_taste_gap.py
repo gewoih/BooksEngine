@@ -29,7 +29,7 @@ def test_book_scores_mean_and_count():
 
 def test_measure_uses_only_allowed_books_and_counts_liked_hits():
     inp = sp.csr_matrix(np.array([[5, 0, 0, 0, 0]], dtype=np.float32))
-    hold = Holdout(np.array([1]), np.array(["20-49"]), inp, [np.array([1, 2, 3])], [np.array([5.0, 2.0, 4.0])])
+    hold = Holdout(np.array([1]), np.array(["20-39"]), inp, [np.array([1, 2, 3])], [np.array([5.0, 2.0, 4.0])])
     model = taste_gap.BookScore(np.array([9, 1, 3, 2, 0]))   # 2 (2★) выше 1 (5★) — пара проиграна
     allowed = np.array([True, True, True, False, True])       # книга 3 вне сравнения
     d = taste_gap.measure(model, hold, allowed)

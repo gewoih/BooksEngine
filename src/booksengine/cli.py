@@ -38,7 +38,7 @@ def report() -> None:
 
 @app.command()
 def split(force: bool = typer.Option(False, "--force", help="пересобрать сплит")) -> None:
-    """Отложенная выборка: тест и валидация из групп 20-49/50-199/200+, вне обучения (data/model/split/)."""
+    """Отложенная выборка: тест и валидация поровну из этапов 20-39/40-79/80-159/160-319/320-999 оценок, вне обучения (data/model/split/)."""
     import json
 
     from booksengine.model import split as s

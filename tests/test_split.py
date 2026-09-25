@@ -39,10 +39,18 @@ def users_path(tmp_path):
 
 
 def test_bucket_of_edges():
-    assert split.bucket_of(np.array([20, 49, 50, 199, 200, 3000])).tolist() == [
-        "20-49", "20-49", "50-199", "50-199", "200+", "200+"]
+    assert split.bucket_of(np.array([20, 39, 40, 79, 80, 159, 160, 319, 320, 999, 1000, 3000])).tolist() == [
+        "20-39", "20-39", "40-79", "40-79", "80-159", "80-159", "160-319", "160-319", "320-999", "320-999",
+        "1000+", "1000+"]
     with pytest.raises(ValueError):
         split.bucket_of(np.array([19]))
+
+
+def test_1000_plus_never_drawn():
+    ids = np.array([f"ext-{i}" for i in range(5000)])
+    a = split.assign_groups(ids, np.full(len(ids), split.OUTSIDE), seed=7)
+    assert not a["val"].any() and not a["test"].any()
+    assert split.OUTSIDE not in split.BUCKET_ORDER
 
 
 def test_hash01_deterministic_and_order_independent():
@@ -57,8 +65,8 @@ def test_hash01_deterministic_and_order_independent():
 
 def test_assign_groups_disjoint_and_order_independent():
     ids = np.array([f"ext-{i}" for i in range(2000)])
-    bucket = np.full(len(ids), "20-49")
-    test_q, val_q = {"20-49": 200}, {"20-49": 100}
+    bucket = np.full(len(ids), "20-39")
+    test_q, val_q = {"20-39": 200}, {"20-39": 100}
     a = split.assign_groups(ids, bucket, seed=7, test_per_bucket=test_q, val_per_bucket=val_q)
     perm = np.random.default_rng(0).permutation(len(ids))
     b = split.assign_groups(ids[perm], bucket[perm], seed=7, test_per_bucket=test_q, val_per_bucket=val_q)
@@ -66,14 +74,14 @@ def test_assign_groups_disjoint_and_order_independent():
     assert set(ids[a["val"]]) == set(ids[perm][b["val"]])
     assert set(ids[a["test"]]) == set(ids[perm][b["test"]])
     # доля близка к запрошенной (test_per_bucket / BUCKET_POOL_SIZE), с допуском на случайность хэша
-    assert abs(a["test"].sum() / len(ids) - 200 / split.BUCKET_POOL_SIZE["20-49"]) < 0.01
+    assert abs(a["test"].sum() / len(ids) - 200 / split.BUCKET_POOL_SIZE["20-39"]) < 0.01
 
 
 def test_assign_groups_membership_stable_when_pool_shrinks():
     """Кто-то выпал из ядра (другая очистка) — оставшиеся не меняют группу."""
     ids = np.array([f"ext-{i}" for i in range(3000)])
-    bucket = np.full(len(ids), "20-49")
-    kw = dict(seed=7, test_per_bucket={"20-49": 300}, val_per_bucket={"20-49": 150})
+    bucket = np.full(len(ids), "20-39")
+    kw = dict(seed=7, test_per_bucket={"20-39": 300}, val_per_bucket={"20-39": 150})
     full = split.assign_groups(ids, bucket, **kw)
     kept = np.arange(0, len(ids), 2)  # половина пула ушла из ядра
     shrunk = split.assign_groups(ids[kept], bucket[kept], **kw)
@@ -95,7 +103,7 @@ def test_hide_sizes_and_partition():
 
 def test_build_writes_split_and_excludes_nothing(tmp_path, ratings_path, users_path):
     out = tmp_path / "split"
-    test_q, val_q, pool = {"20-49": 16}, {"20-49": 8}, {"20-49": 40}
+    test_q, val_q, pool = {"20-39": 16}, {"20-39": 8}, {"20-39": 40}
     meta = split.build(ratings_path, users_path, out, "fp1", test_per_bucket=test_q, val_per_bucket=val_q,
                         bucket_pool_size=pool, seed=11, share=0.2)
     users = pd.read_parquet(out / "holdout_users.parquet")
@@ -114,7 +122,7 @@ def test_build_writes_split_and_excludes_nothing(tmp_path, ratings_path, users_p
 
 def test_build_reuses_and_rebuilds_by_fingerprint(tmp_path, ratings_path, users_path):
     out = tmp_path / "split"
-    q = dict(test_per_bucket={"20-49": 16}, val_per_bucket={"20-49": 8}, bucket_pool_size={"20-49": 40})
+    q = dict(test_per_bucket={"20-39": 16}, val_per_bucket={"20-39": 8}, bucket_pool_size={"20-39": 40})
     split.build(ratings_path, users_path, out, "fp1", **q, seed=11, share=0.2)
     mtime = (out / "test_hidden.parquet").stat().st_mtime_ns
     split.build(ratings_path, users_path, out, "fp1", **q, seed=11, share=0.2)
@@ -125,7 +133,7 @@ def test_build_reuses_and_rebuilds_by_fingerprint(tmp_path, ratings_path, users_
 
 def test_build_same_seed_same_content(tmp_path, ratings_path, users_path):
     a, b = tmp_path / "a", tmp_path / "b"
-    q = dict(test_per_bucket={"20-49": 16}, val_per_bucket={"20-49": 8}, bucket_pool_size={"20-49": 40})
+    q = dict(test_per_bucket={"20-39": 16}, val_per_bucket={"20-39": 8}, bucket_pool_size={"20-39": 40})
     split.build(ratings_path, users_path, a, "fp", **q, seed=11, share=0.2)
     split.build(ratings_path, users_path, b, "fp", **q, seed=11, share=0.2)
     for f in ("holdout_users", "val_input", "val_hidden", "test_input", "test_hidden"):

@@ -14,7 +14,7 @@ def test_report_contains_numbers_from_json(tmp_path):
     ed, sd = tmp_path / "eval", tmp_path / "split"
     ed.mkdir(); sd.mkdir()
     (sd / "split.json").write_text(json.dumps({"seed": 1, "share": 0.2, "groups": {
-        "val": {"users": 5000, "buckets": {}}, "test": {"users": 20000, "buckets": {"20-49": 1800}}}}))
+        "val": {"users": 5000, "buckets": {}}, "test": {"users": 20000, "buckets": {"20-39": 1800}}}}))
     (ed / "popularity_val.json").write_text(json.dumps([
         {"fit_params": {"formula": "count", "m": 0.0}, "score_params": {}, "fit_seconds": 1.0,
          "coverage": 0.001, "summary": _summary(0.05)}]))
@@ -25,4 +25,4 @@ def test_report_contains_numbers_from_json(tmp_path):
     out = report_3a.write(ed, sd, tmp_path / "r.md")
     text = out.read_text()
     assert "0.0512" in text and "Популярность" in text and "20 000" in text and "1 800" in text
-    assert "вне начатых серий" in text and "50–199 и 200+" in text
+    assert "вне начатых серий" in text and "вдвое больше" in text

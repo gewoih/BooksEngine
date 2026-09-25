@@ -105,7 +105,7 @@ def test_run_core_refuses_saved_model_with_other_params(data):
 def test_report_renders_sections():
     from booksengine import report_exp
     s = {m: {"mean": 0.25, "lo": 0.24, "hi": 0.26, "n": 10} for m in ("ndcg20", "ndcg10", "recall20", "map20", "low20")}
-    summ = {k: s for k in ("all", "10-19", "20-49", "50-199", "200+")}
+    summ = {k: s for k in ("all", "20-39", "40-79")}
     ev = {"n_users": 10, "models": {"als": {"fit_seconds": 1.0, "summary": summ, "coverage": 0.01, "profile": ["1984"]}}}
     man = {"outputs": {"ratings": {"rows": 100}, "users": {"rows": 10}},
            "cleaning_log": [{"rule": "nonbooks", "rows_removed": 5, "reason": "не книги", "detail": {}}]}
@@ -132,7 +132,7 @@ def test_report_three_cores_compared_to_old():
     from booksengine import report_exp
     def summ(v):
         s = {m: {"mean": v, "lo": v - 0.01, "hi": v + 0.01, "n": 10} for m in ("ndcg20", "ndcg10", "recall20", "map20", "low20")}
-        return {k: s for k in ("all", "10-19", "20-49", "50-199", "200+")}
+        return {k: s for k in ("all", "20-39", "40-79")}
     ev = lambda v: {"n_users": 10, "models": {"als": {"fit_seconds": 1.0, "summary": summ(v), "coverage": 0.01,
                                                       "profile": ["1984"]}}}
     man = lambda k: {"outputs": {"ratings": {"rows": 100}, "users": {"rows": 10}}, "config": {"kcore": {"min_work_ratings": k}},

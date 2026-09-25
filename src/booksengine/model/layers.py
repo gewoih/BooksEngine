@@ -405,13 +405,14 @@ def report(res: dict) -> str:
     if len(shown) < len(rows):
         lines += ["", f"Остальные варианты ({len(rows) - len(shown)}) — в models/eval/layers_{stage}.json."]
     groups = [b for b in BUCKET_ORDER if b in rows[0]["groups"]]
-    pair = [by_variant[v] for v in dict.fromkeys([current, chosen])]
-    lines += ["", "По группам активности, оценок у человека (качество / угадано / известность):", "",
-              "| вариант | " + " | ".join(groups) + " |", "|---|" + "---|" * len(groups)]
-    for r in pair:
-        cells = [f"{_f(r['groups'][b]['quality'])} / {r['groups'][b]['hits']['mean']:.2f} / {_known(r['groups'][b])}"
-                 for b in groups]
-        lines.append(f"| {short(Variant(**r['variant']))} | " + " | ".join(cells) + " |")
+    changed = chosen != current
+    lines += ["", f"По этапам — числу оценок у человека ({short(chosen)}):", "",
+              "| оценок | людей | качество" + (" | разница" if changed else "") + " | угадано | известность |",
+              "|---|---|---|" + ("---|" if changed else "") + "---|---|"]
+    for b in groups:
+        g = by_variant[chosen]["groups"][b]
+        diff = f" | {_f(g['quality_diff'], True)}{_ci(g['quality_diff'])}" if changed else ""
+        lines.append(f"| {b} | {g['hits']['n']} | {_f(g['quality'])}{diff} | {g['hits']['mean']:.2f} | {_known(g)} |")
     lines += ["", "**Как читать.** " + HOW_TO_READ + " Варианты толпы «ценность»: ALS — вес ALS в толпе, вкус — вес "
               "модели вкуса, первые N — вкус переставляет только первые N книг толпы. **Общих книг** — сколько книг из "
               f"20 совпадает со списком {was[:-2]}ей выдачи. **Известность** — медиана числа оценок у книг списка "
