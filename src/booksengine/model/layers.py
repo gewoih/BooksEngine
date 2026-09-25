@@ -304,6 +304,11 @@ def run(stage: str, *, clean_dir: Path, split_dir: Path, models_dir: Path, eval_
         a = anchor(summary)
         res["anchor"] = a["label"]
         best = choose(summary, a)
+        # нынешний вариант меняется, только если новый лучше уверенно (парная разность выше нуля по всему интервалу):
+        # иначе выбор идёт по шуму — так «из первых 500» сменил вариант без отсечения при разнице 0.000 и испортил шанс
+        d = best["groups"]["all"]["quality_diff"]
+        if saved and _mean(summary[0], "hits") >= GUARD * _mean(a, "hits") and not (d["lo"] is not None and d["lo"] > 0):
+            best = summary[0]
         res["chosen"] = best["variant"]
         res["chosen_by_value"] = max(summary, key=lambda r: _mean(r, "value20"))["label"]
         res["chosen_by_share"] = choose(summary, a, "five_minus_low")["label"]

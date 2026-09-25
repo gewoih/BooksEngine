@@ -119,6 +119,12 @@ def test_run_val_test_and_profiles(world):
     assert val["chosen"] == ly.choose(val["summary"], cur)["variant"]
     saved = json.loads((md / "layers" / "params.json").read_text())
     assert saved["variant"] == val["chosen"] and saved["baseline"] == val["current"]
+    # нынешний вариант держится, пока другой не лучше уверенно: равный по качеству его не сменяет
+    json.dump(saved | {"variant": val["summary"][1]["variant"]}, (md / "layers" / "params.json").open("w"))
+    again = ly.run("val", clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=ed)
+    d = next(r for r in again["summary"] if r["variant"] == val["chosen"])["groups"]["all"]["quality_diff"]
+    assert (again["chosen"] == val["summary"][1]["variant"]) == (d["lo"] <= 0 or val["chosen"] == val["summary"][1]["variant"])
+    json.dump(saved, (md / "layers" / "params.json").open("w"))
     text = ly.report(val)
     assert "← выбран" in text and "Качество списка" in text and "Прежние судьи" in text
     test = ly.run("test", clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=ed)
