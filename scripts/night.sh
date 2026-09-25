@@ -36,4 +36,4 @@ echo; echo "=== ИТОГ $(date +%T)"
 grep -h "^Выбрано:" reports/ease_like_tune.md 2>/dev/null || true
 grep -h "Выбран:" reports/layers_val.md 2>/dev/null | sed 's/.*\*\*Выбран:/Выбран:/' || true
 if ((${#FAILED[@]})); then printf 'Упало: %s\n' "${FAILED[@]}"; else echo "Все шаги прошли."; fi
-echo "Отчёты: reports/ease_like_tune.md, layers_val.md, layers_test.md, layers_profiles.md, profile_check.md; лог: $LOG"
+echo "Отчёты: reports/ease_like_tune.md, layers_val.md, layers_test.md, layers_profiles.md, chance_layers.md, profile_check.md; лог: $LOG"

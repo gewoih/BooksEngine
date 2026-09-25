@@ -16,7 +16,6 @@
 которые такие люди не читают, и проверить его нечем. Для сравнения в отчёте — прежние судьи: доля 5★ минус доля 1–2★
 (четвёрку приравнивала к тройке) и сумма (оценка − 3) угаданных (награждала «угадал, что человек и так прочтёт» —
 вкус при ней получал вес 0).
-Проверка плотнее — пятёрки в верхней трети прочитанного (`read_first`).
 Топ-20 в замере собирается правилами выдачи (`filters.ListPicker`): судья видит тот же список, что и человек.
 """
 import json
@@ -41,9 +40,12 @@ CUTOFFS = (None, 100, 300, 500, 1000)
 REFERENCE = ("mix", 0.0, None)     # прежняя смесь — для сведения
 LIKE_ALS = (0.0, 0.1, 0.25, 0.5, 0.75)   # вес ALS в толпе «ценность»: ALS находит прочитанное, «ценность» — отсеивает плохое
 GUARD = 0.9                        # угадано в топ-20 — не меньше этой доли от опоры (`anchor`)
-TOP_SHARE, TOP_MAX = 3, 10         # «первые по мнению модели» среди спрятанных книг: треть, но не больше 10
 JUDGE_STARS = np.array([-1.0, -0.5, 0.5, 1.0, 2.0])   # ценность угаданной книги с оценкой 1★ … 5★
-CHECKED = ("quality", "five_minus_low", "five_share", "low_share", "hits", "fives_top", "value20")   # разница — парно
+STARS = tuple(f"s{k}" for k in range(1, 6))           # доля угаданных с оценкой k★
+BASE = tuple(f"b{k}" for k in range(1, 6))            # то же среди всего прочитанного — «случайные из прочитанного»
+CHECKED = ("quality", "hits")                          # среднее с интервалом и парная разность с нынешней
+# только среднее: распределение по звёздам, прежние судьи, сколько книг списка общие с нынешней выдачей
+MEANS = STARS + BASE + ("base_quality", "five_minus_low", "value20", "same", "known")
 
 
 @dataclass(frozen=True)
@@ -167,16 +169,25 @@ class Layers:
         return s
 
 
-def evaluate(layers: Layers, hold, info: pd.DataFrame, variants: list[Variant], batch: int = 500) -> dict:
+def popularity(ratings_path: Path, work_ids: np.ndarray) -> np.ndarray:
+    """Число оценок каждой книги ядра (по столбцам матрицы) — насколько книга известна."""
+    import duckdb
+    c = duckdb.execute("SELECT work_id, count(*) AS n FROM read_parquet(?) GROUP BY 1", [str(ratings_path)]).df()
+    return c.set_index("work_id").n.reindex(work_ids).fillna(0).to_numpy(dtype=np.float64)
+
+
+def evaluate(layers: Layers, hold, info: pd.DataFrame, variants: list[Variant], batch: int = 500,
+             pop: np.ndarray | None = None) -> dict:
     """Метрики по людям для каждого варианта (баллы толпы и вкуса считаются один раз на пачку). Топ-20 — по правилам
-    выдачи (`filters.ListPicker`), «уже оценено по сути» — по входу человека."""
+    выдачи (`filters.ListPicker`), «уже оценено по сути» — по входу человека. `same` — сколько книг списка общие
+    со списком первого варианта (нынешней выдачи); `known` — медиана числа оценок книг списка (pop — `popularity`):
+    растёт ли доля менее известных книг с профилем."""
     from booksengine.model.filters import ListPicker, RatedFilter, pick_top
     from booksengine.model.series import SeriesIndex
     top = layers.mix.ease.top_cols
     pos_of = np.full(hold.inputs.shape[1], -1)
     pos_of[top] = np.arange(len(top))
     picker = ListPicker(info, SeriesIndex(info.title.tolist()))
-    author = picker.books.author
     exclude = (hold.inputs if hold.exclude is None else hold.exclude).tocsr()
     rows = {v: [] for v in variants}
     for s in range(0, len(hold.user_ids), batch):
@@ -189,31 +200,29 @@ def evaluate(layers: Layers, hold, info: pd.DataFrame, variants: list[Variant], 
         taste = layers.taste_z(X)
         excl = (exclude[s:s + batch][:, top].toarray() != 0)
         rated = [RatedFilter(picker.books, X.indices[X.indptr[i]:X.indptr[i + 1]]) for i in range(X.shape[0])]
+        first = None
         for v in variants:
             sc = layers.combine(crowds[("like", v.als_weight) if v.crowd == "like" else v.crowd], taste, excl, v)
             lists = pick_top(sc, top, pos_of, picker, rated, metrics.K)
+            first = lists if first is None else first
             for i in range(sc.shape[0]):
                 u = s + i
                 t = lists[i]
                 hc, hr = hold.hidden_cols[u], hold.hidden_ratings[u]
-                hp = pos_of[hc]
-                keep = hp >= 0
-                a = author[t]
-                a = a[a >= 0]
-                hs, hk = sc[i, hp[keep]], hr[keep]
-                got, base, first = metrics.rounded(hr[np.isin(hc, t)]), metrics.rounded(hk), read_first(hs, hk)
+                got = np.clip(metrics.rounded(hr[np.isin(hc, t)]), 1, 5).astype(int)
+                base = np.clip(metrics.rounded(hr[pos_of[hc] >= 0]), 1, 5).astype(int)
                 seen = len(got) > 0          # в списке есть книги, которые человек прочёл сам
-                rows[v].append({
-                    "user_id": hold.user_ids[u], "bucket": hold.buckets[u], "hits": float(len(got)),
-                    "five_share": float((got >= 5).mean()) if seen else np.nan,
-                    "low_share": float((got <= 2).mean()) if seen else np.nan,
-                    "quality": float(JUDGE_STARS[np.clip(got, 1, 5).astype(int) - 1].mean()) if seen else np.nan,
-                    "five_minus_low": float((got >= 5).mean() - (got <= 2).mean()) if seen else np.nan,
-                    "five_base": float((base >= 5).mean()) if seen else np.nan,
-                    "low_base": float((base <= 2).mean()) if seen else np.nan,
-                    "fives_top": float((first >= 5).mean()) if len(first) else np.nan,
-                    "value20": float((got - 3).sum()),
-                    "max_author": float(np.bincount(np.unique(a, return_inverse=True)[1]).max()) if len(a) else 0.0})
+                row = {"user_id": hold.user_ids[u], "bucket": hold.buckets[u], "hits": float(len(got)),
+                       "quality": float(JUDGE_STARS[got - 1].mean()) if seen else np.nan,
+                       "five_minus_low": float((got == 5).mean() - (got <= 2).mean()) if seen else np.nan,
+                       "base_quality": float(JUDGE_STARS[base - 1].mean()) if len(base) else np.nan,
+                       "value20": float((got - 3).sum()),
+                       "same": float(len(np.intersect1d(t, first[i]))),
+                       "known": float(np.median(pop[t])) if pop is not None and len(t) else np.nan}
+                for k in range(1, 6):
+                    row[f"s{k}"] = float((got == k).mean()) if seen else np.nan
+                    row[f"b{k}"] = float((base == k).mean()) if len(base) else np.nan
+                rows[v].append(row)
     return {v: pd.DataFrame(r) for v, r in rows.items()}
 
 
@@ -226,22 +235,18 @@ def summarize(per_user: dict[Variant, pd.DataFrame], reference: Variant, n_boot:
         row = {"variant": asdict(v), "label": v.label(), "groups": {}}
         for name, idx in parts:
             g = {}
-            for m in CHECKED + ("five_base", "low_base", "max_author"):
+            for m in CHECKED:
                 g[m] = metrics.bootstrap(d.loc[idx, m].to_numpy(dtype=np.float64), np.random.default_rng(0), n_boot)
+            for m in MEANS:
+                x = d.loc[idx, m].to_numpy(dtype=np.float64)
+                x = x[~np.isnan(x)]
+                g[m] = {"mean": float(x.mean()) if len(x) else None, "n": int(len(x))}
             for m in CHECKED:
                 diff = (d.loc[idx, m] - ref.loc[idx, m]).to_numpy(dtype=np.float64)
                 g[f"{m}_diff"] = metrics.bootstrap(diff, np.random.default_rng(0), n_boot)
             row["groups"][name] = g
         out.append(row)
     return out
-
-
-def read_first(scores: np.ndarray, ratings: np.ndarray) -> np.ndarray:
-    """Оценки (округлённые) спрятанных книг, которые модель ставит выше всех: треть, но не больше TOP_MAX, по убыванию
-    балла, при равенстве — в порядке входа. Балл −∞ (не кандидат) не считается; меньше трёх книг — пусто."""
-    ok = np.isfinite(scores)
-    s, r = scores[ok], metrics.rounded(ratings[ok])
-    return r[np.argsort(-s, kind="stable")[:min(TOP_MAX, len(s) // TOP_SHARE)]]
 
 
 def _mean(row: dict, metric: str) -> float:
@@ -298,7 +303,7 @@ def run(stage: str, *, clean_dir: Path, split_dir: Path, models_dir: Path, eval_
     else:
         current = Variant(**saved.get("baseline", asdict(ref)))
         variants = list(dict.fromkeys([current, ref, Variant(**saved["variant"])]))
-    summary = summarize(evaluate(layers, hold, info, variants), current)
+    summary = summarize(evaluate(layers, hold, info, variants, pop=popularity(ratings_path, work_ids)), current)
     res = {"stage": stage, "n_users": int(len(hold.user_ids)), "current": asdict(current), "summary": summary}
     if stage == "val":
         a = anchor(summary)
@@ -338,61 +343,89 @@ def _ci(x: dict, pct=False) -> str:
 
 
 SHOWN = 12   # сколько лучших вариантов показывать в отчёте `layers val`
+HOW_TO_READ = ("Судится список из 20 книг по тем его книгам, которые человек прочёл сам (**угаданные**); порядок "
+               "внутри двадцати не важен. **Качество** — средняя ценность угаданных: 5★ = 2, 4★ = 1, 3★ = 0.5, "
+               "2★ = −0.5, 1★ = −1 (сначала по человеку, потом по людям). **5★ … 1★** — как угаданные распределены по "
+               "оценкам. **Разница** — с нынешним на тех же людях, в скобках 95% интервал: новое сменяет нынешнее, только "
+               "если интервал целиком выше нуля. **Угадано** — книг из списка, прочитанных человеком; ограничение — не "
+               f"меньше {GUARD:.0%} от толпы без вкуса.")
+
+
+def short(v: Variant) -> str:
+    """Короткое имя варианта для таблиц: у толпы «ценность» — только веса, остальные толпы — словом."""
+    parts = ([f"ALS {v.als_weight:g}"] if v.crowd == "like"
+             else [{"mix": "старая смесь", "read": "толпа «прочитал»"}[v.crowd]])
+    parts.append(f"вкус {v.taste_weight:g}")
+    if v.cutoff:
+        parts.append(f"первые {v.cutoff}")
+    return " · ".join(parts)
+
+
+def _stars(g: dict, keys=STARS) -> str:
+    return " | ".join(_f(g[k], pct=True) for k in reversed(keys))
 
 
 def report(res: dict) -> str:
     rows, stage = res["summary"], res["stage"]
     current, chosen = Variant(**res["current"]), Variant(**res["chosen"])
-    g0 = rows[0]["groups"]["all"]
-    floor = GUARD * anchor(rows)["groups"]["all"]["hits"]["mean"] if stage == "val" else 0.0
+    by_variant = {Variant(**r["variant"]): r for r in rows}
+    gc, gn = by_variant[current]["groups"]["all"], by_variant[chosen]["groups"]["all"]
     was = "нынешняя" if stage == "val" else "прежняя"      # в тесте выбранный вариант уже стал выдачей
-    lines = [f"# Слои «толпа + вкус» ({'валидация' if stage == 'val' else 'тест'})", "",
-             f"{res['n_users']} человек. Судится сам список из 20 книг: человек выбирает из него по настроению, поэтому "
-             f"порядок внутри двадцати не важен — важно, чтобы было как можно больше пятёрок и не было единиц и двоек. "
-             f"Проверить можно только книги списка, которые человек прочёл сам (**угаданные**). **Качество списка** — "
-             f"средняя ценность угаданных (5★ = 2, 4★ = 1, 3★ = 0.5, 2★ = −0.5, 1★ = −1), сначала по человеку, потом "
-             f"по людям. Рядом — прежний судья «доля 5★ − доля 1–2★». Будь список случайной выборкой из "
-             f"прочитанного, пятёрок было бы {_f(g0['five_base'], pct=True)}, единиц и двоек — "
-             f"{_f(g0['low_base'], pct=True)}. Разницы — с {was[:-2]}ей выдачей («{current.label()}») на тех же людях, "
-             f"в скобках 95% интервал.", ""]
+    floor = GUARD * anchor(rows)["groups"]["all"]["hits"]["mean"] if stage == "val" else None
+    if chosen == current:
+        verdict = f"**Оставлен {was[:-2]}ий вариант: {short(chosen)}** — качество {_f(gn['quality'])}."
+    else:
+        verdict = (f"**{'Выбран' if stage == 'val' else 'Выбранный'}: {short(chosen)}** — качество {_f(gn['quality'])} "
+                   f"против {_f(gc['quality'])} у {was[:-2]}его ({short(current)}), разница "
+                   f"{_f(gn['quality_diff'], True)}{_ci(gn['quality_diff'])}.")
+    verdict += f" Угадано {gn['hits']['mean']:.2f} книги на человека" + (
+        f" (порог {floor:.2f})." if floor is not None else f" ({gc['hits']['mean']:.2f} у {was[:-2]}его).")
+    lines = [f"# Слои «толпа + вкус» — {'валидация' if stage == 'val' else 'тест'}, {res['n_users']} человек", "",
+             verdict]
     if stage == "val":
-        lines += [f"Выбор — наибольшее качество среди вариантов, которые угадывают не меньше {GUARD:.0%} от толпы без "
-                  f"вкуса («{anchor(rows)['label']}», {floor:.2f} книги на человека): иначе список уходит в книги, которые такие люди не читают, и проверить "
-                  f"его нечем. **Выбран: {chosen.label()}.** Прежние судьи выбрали бы: «доля 5★ − доля 1–2★» — "
-                  f"{res.get('chosen_by_share', '—')}; сумма (оценка − 3) угаданных книг — {res['chosen_by_value']}.", ""]
-    lines += ["| вариант | качество списка | разница | доля 5★ − доля 1–2★ | разница | пятёрок среди угаданных | "
-              "1–2★ среди угаданных | угадано на человека | разница | пятёрки в верхней трети прочитанного | "
-              "книг одного автора (макс.) |", "|---|---|---|---|---|---|---|---|---|---|---|"]
+        lines.append(f"Прежние судьи выбрали бы: «доля 5★ − доля 1–2★» — {short(Variant(**_by_label(rows, res.get('chosen_by_share'))))}; "
+                     f"сумма (оценка − 3) угаданных — {short(Variant(**_by_label(rows, res['chosen_by_value'])))}.")
+    lines += ["", "| вариант | качество | разница | 5★ | 4★ | 3★ | 2★ | 1★ | угадано | общих книг | известность |",
+              "|---|---|---|---|---|---|---|---|---|---|---|",
+              f"| *случайные из прочитанного* | {_f(gc['base_quality'])} | | {_stars(gc, BASE)} | | | |"]
     by_quality = sorted(rows, key=lambda r: -_mean(r, "quality"))
     if stage == "val":
         best = {r["label"] for r in [r for r in by_quality if _mean(r, "hits") >= floor][:SHOWN]}
-        must = {current.label(), chosen.label(), Variant(*REFERENCE).label()}
+        must = {current.label(), chosen.label(), Variant(*REFERENCE).label(), anchor(rows)["label"]}
         shown = [r for r in by_quality if r["label"] in best | must]
     else:
         shown = by_quality
     for r in shown:
         g, v = r["groups"]["all"], Variant(**r["variant"])
         mark = (" **← выбран**" if v == chosen else "") + (f" ({was})" if v == current else "")
-        if stage == "val" and g["hits"]["mean"] < floor:
+        if floor is not None and g["hits"]["mean"] < floor:
             mark += " (мало угадывает)"
-        lines.append(f"| {r['label']}{mark} | {_f(g['quality'])} | {_f(g['quality_diff'], True)}{_ci(g['quality_diff'])} | "
-                     f"{_f(g['five_minus_low'], pct=True)} | "
-                     f"{_f(g['five_minus_low_diff'], True, pct=True)}{_ci(g['five_minus_low_diff'], pct=True)} | "
-                     f"{_f(g['five_share'], pct=True)} | {_f(g['low_share'], pct=True)} | "
-                     f"{g['hits']['mean']:.2f} | {_f(g['hits_diff'], True)} | {_f(g['fives_top'], pct=True)} | "
-                     f"{g['max_author']['mean']:.2f} |")
+        lines.append(f"| {short(v)}{mark} | {_f(g['quality'])} | {_f(g['quality_diff'], True)}{_ci(g['quality_diff'])} | "
+                     f"{_stars(g)} | {g['hits']['mean']:.2f} | {g['same']['mean']:.1f} | {_known(g)} |")
     if len(shown) < len(rows):
         lines += ["", f"Остальные варианты ({len(rows) - len(shown)}) — в models/eval/layers_{stage}.json."]
-    lines += ["", f"Пятёрки в верхней трети прочитанного — проверка плотнее: у человека спрятанные книги, которые модель "
-                  f"ставит выше всех (треть, но не больше {TOP_MAX}), и доля пятёрок среди них."]
     groups = [b for b in BUCKET_ORDER if b in rows[0]["groups"]]
-    pair = [r for r in rows if Variant(**r["variant"]) in (current, chosen)]
-    lines += ["", "По группам активности (качество списка / угадано на человека):", "",
+    pair = [by_variant[v] for v in dict.fromkeys([current, chosen])]
+    lines += ["", "По группам активности, оценок у человека (качество / угадано / известность):", "",
               "| вариант | " + " | ".join(groups) + " |", "|---|" + "---|" * len(groups)]
     for r in pair:
-        cells = [f"{_f(r['groups'][b]['quality'])} / {r['groups'][b]['hits']['mean']:.2f}" for b in groups]
-        lines.append(f"| {r['label']} | " + " | ".join(cells) + " |")
+        cells = [f"{_f(r['groups'][b]['quality'])} / {r['groups'][b]['hits']['mean']:.2f} / {_known(r['groups'][b])}"
+                 for b in groups]
+        lines.append(f"| {short(Variant(**r['variant']))} | " + " | ".join(cells) + " |")
+    lines += ["", "**Как читать.** " + HOW_TO_READ + " Варианты толпы «ценность»: ALS — вес ALS в толпе, вкус — вес "
+              "модели вкуса, первые N — вкус переставляет только первые N книг толпы. **Общих книг** — сколько книг из "
+              f"20 совпадает со списком {was[:-2]}ей выдачи. **Известность** — медиана числа оценок у книг списка "
+              "(в ядре, среднее по людям): чем меньше, тем менее известные книги советуются."]
     return "\n".join(lines) + "\n"
+
+
+def _known(g: dict) -> str:
+    k = g.get("known", {}).get("mean")
+    return "—" if k is None else f"{k:,.0f}".replace(",", " ")
+
+
+def _by_label(rows: list[dict], label: str | None) -> dict:
+    return next(r["variant"] for r in rows if r["label"] == label)
 
 
 def profiles(*, clean_dir: Path, models_dir: Path, profiles_dir: Path, top: int = 20) -> str:
@@ -509,8 +542,12 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
     path = eval_dir / "ease_like_tune.json"
     users = [int(u) for u in hold.user_ids]
     prev_run = json.loads(path.read_text()) if path.exists() else {}
-    prev = ({_setting(r): r for r in prev_run.get("results", []) if "per_user" in r}
-            if prev_run.get("user_ids") == users else {})         # без качества по людям парно не сравнить
+    # без качества по людям парно не сравнить, без распределения по звёздам — не показать
+    prev = ({_setting(r): r for r in prev_run.get("results", [])
+             if "per_user" in r and all("s5" in g for g in r["variants"].values())}
+            if prev_run.get("user_ids") == users else {})
+    names = {v.label(): short(v) for v in judged}
+    pop = popularity(ratings_path, train.work_ids)
     reuse = False
     results, best, best_model, baseline, ref_q = [], None, None, None, None
     eval_dir.mkdir(parents=True, exist_ok=True)
@@ -531,14 +568,12 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
             like.als, like.ease = base.mix.als, ease
             like.configure(als_weight=0.5, ease_input=weights)
             layers = Layers(base.mix, base.taste, like_mix=like)
-            per = evaluate(layers, hold, info, judged)
+            per = evaluate(layers, hold, info, judged, pop=pop)
             summ = summarize(per, judged[0])
             baseline = baseline or anchor(summ)       # опора — сохранённая толпа (первая настройка) без вкуса
             row = {"lam": lam, "weights": list(weights), "min_user": mu, "fit_seconds": fit_s, "saved": is_saved,
                    "variants": {r["label"]: {k: r["groups"]["all"][k] for k in
-                                             ("quality", "five_minus_low", "five_share", "low_share", "hits")}
-                                | {"by_group": {b: g["quality"]["mean"] for b, g in r["groups"].items()}}
-                                for r in summ},
+                                             ("quality", "hits", "five_minus_low", *STARS)} for r in summ},
                    "per_user": {v.label(): [None if np.isnan(x) else round(float(x), 5) for x in per[v]["quality"]]
                                 for v in judged}}
             if is_saved:
@@ -546,7 +581,7 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
         top = choose([{"label": lab, "groups": {"all": g}} for lab, g in row["variants"].items()], baseline)
         row["best_variant"] = None if top is None else top["label"]
         row["quality"] = None if top is None else row["variants"][top["label"]]["quality"]
-        row["quality_by_group"] = {} if top is None else row["variants"][top["label"]].get("by_group", {})
+        row["best_short"] = None if top is None else names.get(top["label"], top["label"])
         q = None if top is None else np.array([np.nan if x is None else x for x in row["per_user"][top["label"]]])
         if is_saved:
             ref_q = q
@@ -559,7 +594,7 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
         how = ("уже посчитано в прошлый прогон" if row.get("reused")
                else f"обучение {row['fit_seconds']} с")
         print(f"«ценность» λ = {lam:g}, веса {weights}, люди с ≥ {mu} оценок: "
-              + (f"качество списка {v:.3f} ({top['label']})" if top is not None
+              + (f"качество списка {v:.3f} ({row['best_short']})" if top is not None
                  else f"не подходит — ни один вариант не угадывает {GUARD:.0%} от сохранённой толпы без вкуса")
               + ("" if d is None or is_saved else f", разница с сохранённой {_f(d, True)}{_ci(d)}")
               + f", {how}", flush=True)
@@ -581,47 +616,41 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
         mix.configure(als_weight=0.5, ease_input=weights)
         mix.save(models_dir / "mix_like")
     return {"results": results, "floor": GUARD * _mean(baseline, "hits"),
-            "best": {"lam": lam, "weights": list(weights), "min_user": mu}}
+            "best": {"lam": lam, "weights": list(weights), "min_user": mu},
+            "kept": bool(saved) and cur == (lam, weights, mu)}
+
+
+def _setting_name(r: dict) -> str:
+    who = "" if r.get("min_user", 20) == 20 else f", люди с ≥ {r['min_user']} оценок"
+    return f"λ {r['lam']:g}, веса {'/'.join(f'{w:g}' for w in r['weights'])}{who}"
 
 
 def report_like(res: dict) -> str:
-    lines = ["# Подбор толпы «ценность» (валидация)", "",
-             "Каждая настройка (λ, веса звёзд 1★ … 5★, на ком учится) судится тем же судьёй, что `layers val`: "
-             "**качество списка** — средняя ценность книг топ-20, которые человек прочёл сам (5★ = 2, 4★ = 1, "
-             "3★ = 0.5, 2★ = −0.5, 1★ = −1), — у лучшего варианта из тех, что угадывают не меньше "
-             f"{GUARD:.0%} от сохранённой толпы без вкуса ({res['floor']:.2f} книги на человека). Сохранённую толпу настройка "
-             "сменяет, только если разница с ней на тех же людях выше нуля по всему 95% интервалу.", "",
-             "| λ | веса звёзд | людей с ≥ N оценок | вариант | качество списка | доля 5★ − доля 1–2★ | "
-             "пятёрок среди угаданных | 1–2★ среди угаданных | угадано |", "|---|---|---|---|---|---|---|---|---|"]
-    for r in res["results"]:
-        for lab, g in r["variants"].items():
-            mark = " **← лучший**" if lab == r["best_variant"] else ""
-            mark += " (из прошлого прогона)" if r.get("reused") else ""
-            lines.append(f"| {r['lam']:g} | {'/'.join(f'{w:g}' for w in r['weights'])} | {r.get('min_user', 20)} | "
-                         f"{lab}{mark} | {_f(g['quality'])} | {_f(g['five_minus_low'], pct=True)} | "
-                         f"{_f(g['five_share'], pct=True)} | "
-                         f"{_f(g['low_share'], pct=True)} | {g['hits']['mean']:.2f} |")
-    groups = [g for g in BUCKET_ORDER if any(g in r["quality_by_group"] for r in res["results"])]
-    if groups:
-        lines += ["", "Лучший вариант настройки: разница с сохранённой толпой на тех же людях (в скобках 95% интервал) "
-                  "и качество списка по группам:", "",
-                  "| λ | веса звёзд | людей с ≥ N | разница | " + " | ".join(groups) + " |",
-                  "|---|---|---|---|" + "---|" * len(groups)]
-        for r in res["results"]:
-            d = r.get("quality_diff")
-            diff = "сохранённая" if r.get("saved") else ("—" if d is None else f"{_f(d, True)}{_ci(d)}")
-            lines.append(f"| {r['lam']:g} | {'/'.join(f'{w:g}' for w in r['weights'])} | {r.get('min_user', 20)} | "
-                         f"{diff} | "
-                         + " | ".join("—" if r["quality_by_group"].get(g) is None else f"{r['quality_by_group'][g]:.3f}"
-                                      for g in groups) + " |")
-    bad = [r for r in res["results"] if r["best_variant"] is None]
-    if bad:
-        lines += ["", "Не подходят — ни один вариант не угадывает столько, сколько нужно: "
-                  + "; ".join(f"λ = {r['lam']:g}, веса {'/'.join(f'{w:g}' for w in r['weights'])}" for r in bad) + "."]
     b = res["best"]
-    lines += ["", f"Выбрано: λ = {b['lam']:g}, веса {'/'.join(f'{w:g}' for w in b['weights'])}, "
-                  f"люди с ≥ {b.get('min_user', 20)} оценок. Дальше — "
-                  "`booksengine layers val` и `layers test` (вес ALS и вкуса подбираются заново под новую толпу)."]
+    best = next(r for r in res["results"] if _setting(r) == (b["lam"], tuple(b["weights"]), b.get("min_user", 20)))
+    if res.get("kept", best.get("saved")):
+        verdict = f"**Сохранённая толпа осталась: {_setting_name(best)}** — ни одна настройка не лучше уверенно."
+    else:
+        d = best.get("quality_diff")
+        verdict = (f"**Выбрана: {_setting_name(best)}**" + (f" — разница с сохранённой {_f(d, True)}{_ci(d)}."
+                                                          if d else "."))
+    lines = ["# Подбор толпы «ценность» — валидация", "", verdict,
+             "Дальше — `booksengine layers val` и `layers test`: вес ALS и вкуса подбираются заново под толпу.", "",
+             "| настройка | лучший вариант | качество | разница с сохранённой | 5★ | 4★ | 3★ | 2★ | 1★ | угадано |",
+             "|---|---|---|---|---|---|---|---|---|---|"]
+    for r in res["results"]:
+        name = _setting_name(r) + (" (сохранённая)" if r.get("saved") else "") + (
+            " (из прошлого прогона)" if r.get("reused") else "")
+        if r["best_variant"] is None:
+            lines.append(f"| {name} | не подходит — мало угадывает | | | | | | | | |")
+            continue
+        g, d = r["variants"][r["best_variant"]], r.get("quality_diff")
+        diff = "" if r.get("saved") or d is None else f"{_f(d, True)}{_ci(d)}"
+        lines.append(f"| {name} | {r.get('best_short') or r['best_variant']} | {_f(g['quality'])} | {diff} | "
+                     f"{_stars(g)} | {g['hits']['mean']:.2f} |")
+    lines += ["", "**Как читать.** " + HOW_TO_READ + f" Порог угаданного здесь — {res['floor']:.2f} книги на человека. "
+              "У каждой настройки (λ — регуляризация, веса звёзд 1★ … 5★ на входе) показан лучший из нескольких "
+              "вариантов слоёв; полный перебор веса вкуса и ALS — в `layers val`."]
     return "\n".join(lines) + "\n"
 
 

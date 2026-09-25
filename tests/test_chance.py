@@ -55,3 +55,5 @@ def test_calibrate_end_to_end(tmp_path):
     saved = chance.Chance.load(md / "popularity" / "chance.json", fingerprint(md / "popularity"))
     assert saved.coef == out["chance"]["coef"]
     assert "место + щедрость" in json.loads((ed / "chance_popularity.json").read_text())["test"]
+    text = chance.report(out)
+    assert "обещано" in text and "← шанс" in text and "Как читать" in text

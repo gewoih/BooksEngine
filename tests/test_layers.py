@@ -27,13 +27,7 @@ def test_combine_excludes_input_and_orders_cutoff_without_ties():
     assert np.argsort(-s[0])[:4].tolist() == [2, 1, 3, 4]        # внутри первых 2 порядок решает вкус
 
 
-def test_read_first_takes_top_third_and_choose_keeps_hits():
-    scores = np.array([0.9, 0.1, 0.8, 0.3, 0.7, 0.2, -np.inf, 0.5, 0.4, 0.6])
-    ratings = np.array([5, 3, 5, 4, 4, 2, 5, 3, 4, 3], dtype=float)
-    np.testing.assert_array_equal(ly.read_first(scores, ratings), [5, 5, 4])   # 9 кандидатов → первые 3 по баллу
-    assert len(ly.read_first(scores[:2], ratings[:2])) == 0                    # меньше трёх — не судим
-    assert len(ly.read_first(np.arange(60.0), np.full(60, 4.0))) == ly.TOP_MAX  # треть, но не больше 10
-
+def test_choose_keeps_hits():
     def row(label, quality, hits):
         return {"label": label, "groups": {"all": {"quality": {"mean": quality}, "hits": {"mean": hits}}}}
     now, sharp, niche = row("нынешняя", 0.40, 2.0), row("лучше", 0.50, 1.9), row("редкие книги", 0.70, 1.0)
@@ -112,10 +106,15 @@ def test_run_val_test_and_profiles(world):
     cur = val["summary"][0]
     assert cur["label"] == ly.Variant(*ly.REFERENCE).label() and cur["groups"]["all"]["quality_diff"]["mean"] == 0.0
     g = cur["groups"]["all"]
-    assert g["quality"]["n"] > 0 and g["fives_top"]["n"] > 0
-    assert abs(g["five_minus_low"]["mean"] - (g["five_share"]["mean"] - g["low_share"]["mean"])) < 1e-9
+    assert g["quality"]["n"] > 0
+    stars = [g[f"s{k}"]["mean"] for k in range(1, 6)]
+    assert abs(sum(stars) - 1) < 1e-9 and abs(sum(g[f"b{k}"]["mean"] for k in range(1, 6)) - 1) < 1e-9
+    assert abs(g["five_minus_low"]["mean"] - (stars[4] - stars[0] - stars[1])) < 1e-9
+    assert abs(g["quality"]["mean"] - float(ly.JUDGE_STARS @ np.array(stars))) < 0.2   # среднее по людям ≈ по долям
     assert -1 <= g["quality"]["mean"] <= 2 and val["chosen_by_share"]
-    assert all(r["groups"]["all"]["max_author"]["mean"] <= 2 for r in val["summary"])   # топ-20 — по правилам выдачи
+    same = [r["groups"]["all"]["same"]["mean"] for r in val["summary"]]    # у нынешней — весь свой список
+    assert g["same"]["mean"] == max(same) and min(same) >= 0
+    assert g["known"]["mean"] > 0 and "известность" in ly.report(val)
     assert val["chosen"] == ly.choose(val["summary"], cur)["variant"]
     saved = json.loads((md / "layers" / "params.json").read_text())
     assert saved["variant"] == val["chosen"] and saved["baseline"] == val["current"]
@@ -126,10 +125,11 @@ def test_run_val_test_and_profiles(world):
     assert (again["chosen"] == val["summary"][1]["variant"]) == (d["lo"] <= 0 or val["chosen"] == val["summary"][1]["variant"])
     json.dump(saved, (md / "layers" / "params.json").open("w"))
     text = ly.report(val)
-    assert "← выбран" in text and "Качество списка" in text and "Прежние судьи" in text
+    assert "Как читать" in text and "случайные из прочитанного" in text and "Прежние судьи" in text
+    assert "5★ | 4★ | 3★ | 2★ | 1★" in text
     test = ly.run("test", clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=ed)
     assert 1 <= len(test["summary"]) <= 3 and test["current"] == val["current"] and (ed / "layers_test.json").exists()
-    assert "Качество списка" in ly.report(test)
+    assert "Как читать" in ly.report(test)
     prof = tp / "profiles"
     prof.mkdir()
     pd.DataFrame({"goodreads_work_id": [100, 101, 102, 125], "rating": [5, 5, 4, 1]}).to_csv(prof / "p.csv", index=False)
@@ -177,7 +177,7 @@ def test_val_includes_value_crowd_when_trained(world):
     assert len(val["summary"]) == 1 + len(ly.grid(L))            # прежняя смесь + перебор толпы «ценность»
     assert all(v.crowd == "like" for v in ly.grid(L)) and any(v.cutoff for v in ly.grid(L))
     g = val["summary"][0]["groups"]["all"]
-    assert g["hits"]["mean"] > 0 and -1 <= g["quality"]["mean"] <= 2 and 0 <= g["five_base"]["mean"] <= 1
+    assert g["hits"]["mean"] > 0 and -1 <= g["quality"]["mean"] <= 2 and 0 <= g["b5"]["mean"] <= 1
     assert "mix_like" in json.loads((md / "layers" / "params.json").read_text())["components"]
     assert ly.Layers.load(md / "layers").like_mix is not None
 
@@ -194,7 +194,7 @@ def test_tune_like_trains_grid_and_saves_best(world):
     assert saved["lam"] == best["lam"] and saved["weights"] == best["weights"]
     L = ly.Layers.from_models(md)                       # mix_like подаёт в «ценность» те же веса звёзд
     assert list(L.like_mix.ease_input) == best["weights"]
-    assert "Выбрано: λ" in ly.report_like(res)
+    assert "Выбрана" in ly.report_like(res) or "осталась" in ly.report_like(res)
     again = ly.tune_like(clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval",
                          grid=[(best["lam"], tuple(best["weights"]))], fit_kw={"topk": 20})
     assert again["results"][0]["saved"]                 # сохранённая настройка не переобучается
@@ -302,7 +302,7 @@ def test_tune_like_skips_setting_that_guesses_too_little(world, monkeypatch):
     res = ly.tune_like(grid=[(5.0, ly.W1)], **kw)
     assert [r["best_variant"] for r in res["results"]] == [None, None]
     assert read_params(md / "ease_like")["lam"] == 10.0     # сохранённая толпа осталась
-    assert "Не подходят" in ly.report_like(res)
+    assert "не подходит" in ly.report_like(res)
 
 
 def test_tune_like_reuses_previous_run_and_trains_reused_best_to_save(world, monkeypatch):
