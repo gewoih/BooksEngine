@@ -55,6 +55,9 @@ def _data(tmp_path, n_users=90, n_works=40, seed=3):
         tmp_path / "work_authors.parquet")
     pd.DataFrame({"author_id": np.arange(7), "name": [f"A{i}" for i in range(7)]}).to_parquet(
         tmp_path / "authors.parquet")
+    nf = ids % 5 == 0                                                     # 100, 105, … — нон-фикшн
+    pd.DataFrame({"work_id": ids, "genre": np.where(nf, "non-fiction", "fiction"), "votes": 10,
+                  "share": 0.9}).to_parquet(tmp_path / "work_genres.parquet")
     pd.DataFrame({"shadow_work_id": pd.Series([], dtype="int64"),
                   "main_work_id": pd.Series([], dtype="int64")}).to_parquet(tmp_path / "work_merges.parquet")
     synthetic_users(r.user_id.unique()).to_parquet(tmp_path / "users.parquet", index=False)
@@ -299,21 +302,29 @@ def test_recommend_uses_layers_with_chance_and_writes_history(world):
         rec.recommend(prof, clean_dir=tp, models_dir=md, top=5)
     chance.calibrate("layers", ratings_path=tp / "ratings.parquet", split_dir=sd, models_dir=md, eval_dir=tp / "eval")
     res = rec.recommend(prof, clean_dir=tp, models_dir=md, top=5, history_dir=tp / "history")
-    assert len(res.recs) == 5 and all(0 <= r.chance <= 100 for r in res.recs)
+    fic = [r for r in res.recs if r.section == rec.FICTION]
+    nonfic = [r for r in res.recs if r.section == rec.NONFICTION]
+    assert len(fic) == 5 and 0 < len(nonfic) <= 5 and len(fic) + len(nonfic) == len(res.recs)
+    assert all(r.work_id % 5 == 0 for r in nonfic) and not any(r.work_id % 5 == 0 for r in fic)
+    assert all(0 <= r.chance <= 100 for r in res.recs)
     assert not any("Saga" in r.title for r in res.recs)             # поздние тома без первой книги — не в списке
-    assert len({r.author for r in res.recs}) == 5                    # список из 5 — одна книга на автора
+    assert len({r.author for r in fic}) == 5                         # список из 5 — одна книга на автора
+    assert "## Художественная литература" in rec.format_result(res) and "## Нон-фикшн" in rec.format_result(res)
+    one = rec.recommend(prof, clean_dir=tp, models_dir=md, top=5, sections=False)
+    assert len(one.recs) == 5 and {r.section for r in one.recs} == {""}
     assert all(set(r.because) <= {"А", "Б", "В", "Г"} for r in res.recs)
     hist = list((tp / "history").glob("p-*.csv"))
     h = pd.read_csv(hist[0])
-    assert len(hist) == 1 and (h["list"] == "main").sum() == 5 and (h["list"] == "bold").sum() == 5
     main = h[h["list"] == "main"]
+    assert len(hist) == 1 and len(main) == len(res.recs) and (h["list"] == "bold").sum() > 0
+    assert list(main.groupby("section")["rank"].max().sort_index()) == sorted([len(fic), len(nonfic)])
     assert main.known.gt(0).all() and main.crowd_place.ge(1).all() and main.by_taste.isin([0, 1]).all()
     assert main.why.str.startswith(("читатели: ", "по профилю в целом")).all()
     assert all(set(r.rated) <= {"А", "Б", "В", "Г"} and all(v.endswith("★") for v in r.rated.values())
                for r in res.recs)
     chance.calibrate("mix", ratings_path=tp / "ratings.parquet", split_dir=sd, models_dir=md, eval_dir=tp / "eval")
     mix_res = rec.recommend(prof, clean_dir=tp, models_dir=md, top=5, model="mix")  # приложение — смесь
-    assert len(mix_res.recs) == 5
+    assert len([r for r in mix_res.recs if r.section == rec.FICTION]) == 5
 
 
 def test_tune_like_skips_setting_that_guesses_too_little(world, monkeypatch):

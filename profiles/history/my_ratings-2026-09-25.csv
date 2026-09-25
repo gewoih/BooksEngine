@@ -1,41 +1,81 @@
-list,rank,goodreads_work_id,title,author,chance,model,why,n_ratings,known,crowd_place,by_taste,crowd_z,taste_z
-main,1,2766512,Lord of the Flies,William Golding,87.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Скотный двор 5★, О мышах и людях 5★, Гроздья гнева 5★ | вкус за: Белые ночи 1★ (у всех 4.0) — не похожа",46.0,116075.0,2.0,0.0,37.747,4.633
-main,2,3204877,Brave New World,Aldous Huxley,84.0,18a974459d312aa53c7e3232b8a12df7,"читатели: 1984 5★, Скотный двор 5★, 451 по фаренгейту 4★ | вкус за: Белые ночи 1★ (у всех 4.0) — не похожа",46.0,78938.0,1.0,0.0,37.842,3.135
-main,3,2574991,East of Eden,John Steinbeck,83.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Гроздья гнева 5★, О мышах и людях 5★ | вкус за: эту книгу обычно ставят 4.3",46.0,24135.0,4.0,0.0,27.097,9.124
-main,4,3275794,To Kill a Mockingbird,Harper Lee,82.0,18a974459d312aa53c7e3232b8a12df7,"читатели: О мышах и людях 5★, Скотный двор 5★ | вкус за: эту книгу обычно ставят 4.3",46.0,193844.0,3.0,0.0,28.77,4.261
-main,5,2370171,How to Win Friends and Influence People,Dale Carnegie,81.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Думай и богатей 4★, Самый богатый человек в Вавилоне 5★, Богатый папа бедный папа 4★ | вкус за: Норвежский лес 2★ (у всех 4.0) — не похожа",46.0,13968.0,5.0,0.0,23.703,7.733
-main,6,45087110,Homo Deus: A Brief History of Tomorrow,Yuval Noah Harari,80.0,18a974459d312aa53c7e3232b8a12df7,читатели: Sapiens. Краткая история человечества 5★ | вкус за: эту книгу обычно ставят 4.3,46.0,1627.0,7.0,0.0,19.473,7.412
-main,7,4835472,The Alchemist,Paulo Coelho,80.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Сиддхартха 5★, Самый богатый человек в Вавилоне 5★, Думай и богатей 4★ | вкус за: Сиддхартха 5★ (у всех 3.9) — похожа",46.0,101803.0,6.0,0.0,22.883,3.404
-main,8,6277,The 7 Habits of Highly Effective People: Powerful Lessons in Personal Change,Stephen R. Covey,79.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Думай и богатей 4★, Богатый папа бедный папа 4★, Самый богатый человек в Вавилоне 5★ | вкус за: Норвежский лес 2★ (у всех 4.0) — не похожа",46.0,14249.0,9.0,0.0,13.294,6.259
-main,9,93900,Letters from a Stoic,Seneca,79.0,18a974459d312aa53c7e3232b8a12df7,читатели: Радость жизни 5★ | вкус за: эту книгу обычно ставят 4.2,46.0,796.0,11.0,0.0,13.08,5.664
-main,10,3230869,Misery,Stephen King,78.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Кладбище домашних животных 4★, Сияние 4★ | вкус за: эту книгу обычно ставят 4.0",46.0,30616.0,10.0,0.0,13.17,5.488
-main,11,1840987,As a Man Thinketh,James Allen,78.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Самый богатый человек в Вавилоне 5★, Думай и богатей 4★ | вкус за: эту книгу обычно ставят 4.1",46.0,2048.0,24.0,1.0,10.276,7.544
-main,12,150259,It,Stephen King,78.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Кладбище домашних животных 4★, Сияние 4★ | вкус за: эту книгу обычно ставят 4.0",46.0,37321.0,8.0,0.0,16.588,1.113
-main,13,347061,The Greatest Salesman in the World,Og Mandino,77.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Самый богатый человек в Вавилоне 5★, Думай и богатей 4★ | вкус за: Ужин 2★ (у всех 3.4) — не похожа",46.0,1674.0,18.0,0.0,11.364,5.731
-main,14,2949952,White Fang,Jack London,77.0,18a974459d312aa53c7e3232b8a12df7,читатели: Мартин Иден 5★ | вкус за: Белые ночи 1★ (у всех 4.0) — не похожа,46.0,11124.0,14.0,0.0,12.461,3.47
-main,15,746042,The Magic of Thinking Big,David J. Schwartz,77.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Самый богатый человек в Вавилоне 5★, Думай и богатей 4★, Радость жизни 5★ | вкус за: Белые ночи 1★ (у всех 4.0) — не похожа",46.0,1830.0,23.0,0.0,10.487,4.58
-main,16,3389674,Man's Search for Meaning,Viktor E. Frankl,76.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Радость жизни 5★, Sapiens. Краткая история человечества 5★, Сиддхартха 5★ | вкус за: эту книгу обычно ставят 4.3",46.0,13954.0,16.0,0.0,11.542,2.688
-main,17,3252320,The Call of the Wild,Jack London,76.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Мартин Иден 5★, Странник по звёздам 4★ | вкус за: Белые ночи 1★ (у всех 4.0) — не похожа",46.0,22443.0,21.0,1.0,10.609,3.601
-main,18,13155899,"Divergent (Divergent, #1)",Veronica Roth,75.0,18a974459d312aa53c7e3232b8a12df7,читатели: Голодные игры 4★ | вкус за: эту книгу обычно ставят 4.1,46.0,152246.0,30.0,1.0,7.617,6.424
-main,19,31010,Meditations,Marcus Aurelius,75.0,18a974459d312aa53c7e3232b8a12df7,читатели: Радость жизни 5★ | вкус за: эту книгу обычно ставят 4.1,46.0,3890.0,15.0,0.0,11.973,2.066
-main,20,195832,The Pearl,John Steinbeck,75.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Гроздья гнева 5★, О мышах и людях 5★, Старик и море 4★ | вкус за: О мышах и людях 5★ (у всех 3.9) — похожа",46.0,14398.0,34.0,1.0,7.298,6.553
-bold,1,2766512,Lord of the Flies,William Golding,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
-bold,2,3204877,Brave New World,Aldous Huxley,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
-bold,3,2574991,East of Eden,John Steinbeck,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
-bold,4,3275794,To Kill a Mockingbird,Harper Lee,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
-bold,5,2370171,How to Win Friends and Influence People,Dale Carnegie,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
-bold,6,45087110,Homo Deus: A Brief History of Tomorrow,Yuval Noah Harari,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
-bold,7,4835472,The Alchemist,Paulo Coelho,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
-bold,8,6277,The 7 Habits of Highly Effective People: Powerful Lessons in Personal Change,Stephen R. Covey,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
-bold,9,93900,Letters from a Stoic,Seneca,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
-bold,10,3230869,Misery,Stephen King,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
-bold,11,1840987,As a Man Thinketh,James Allen,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
-bold,12,347061,The Greatest Salesman in the World,Og Mandino,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
-bold,13,150259,It,Stephen King,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
-bold,14,2949952,White Fang,Jack London,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
-bold,15,746042,The Magic of Thinking Big,David J. Schwartz,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
-bold,16,13155899,"Divergent (Divergent, #1)",Veronica Roth,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
-bold,17,195832,The Pearl,John Steinbeck,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
-bold,18,3252320,The Call of the Wild,Jack London,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
-bold,19,3389674,Man's Search for Meaning,Viktor E. Frankl,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
-bold,20,165384,Arch of Triumph: A Novel of a Man Without a Country,Erich Maria Remarque,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+list,section,rank,goodreads_work_id,title,author,chance,model,why,n_ratings,known,crowd_place,by_taste,crowd_z,taste_z
+main,Художественная литература,1,2766512,Lord of the Flies,William Golding,87.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Скотный двор 5★, О мышах и людях 5★, Гроздья гнева 5★ | вкус за: Белые ночи 1★ (у всех 4.0) — не похожа",46.0,116075.0,2.0,0.0,37.747,4.633
+main,Художественная литература,2,3204877,Brave New World,Aldous Huxley,84.0,18a974459d312aa53c7e3232b8a12df7,"читатели: 1984 5★, Скотный двор 5★, 451 по фаренгейту 4★ | вкус за: Белые ночи 1★ (у всех 4.0) — не похожа",46.0,78938.0,1.0,0.0,37.842,3.135
+main,Художественная литература,3,2574991,East of Eden,John Steinbeck,83.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Гроздья гнева 5★, О мышах и людях 5★ | вкус за: эту книгу обычно ставят 4.3",46.0,24135.0,4.0,0.0,27.097,9.124
+main,Художественная литература,4,3275794,To Kill a Mockingbird,Harper Lee,82.0,18a974459d312aa53c7e3232b8a12df7,"читатели: О мышах и людях 5★, Скотный двор 5★ | вкус за: эту книгу обычно ставят 4.3",46.0,193844.0,3.0,0.0,28.77,4.261
+main,Художественная литература,5,4835472,The Alchemist,Paulo Coelho,80.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Сиддхартха 5★, Самый богатый человек в Вавилоне 5★, Думай и богатей 4★ | вкус за: Сиддхартха 5★ (у всех 3.9) — похожа",46.0,101803.0,6.0,0.0,22.883,3.404
+main,Художественная литература,6,3230869,Misery,Stephen King,78.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Кладбище домашних животных 4★, Сияние 4★ | вкус за: эту книгу обычно ставят 4.0",46.0,30616.0,10.0,0.0,13.17,5.488
+main,Художественная литература,7,150259,It,Stephen King,78.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Кладбище домашних животных 4★, Сияние 4★ | вкус за: эту книгу обычно ставят 4.0",46.0,37321.0,8.0,0.0,16.588,1.113
+main,Художественная литература,8,2949952,White Fang,Jack London,77.0,18a974459d312aa53c7e3232b8a12df7,читатели: Мартин Иден 5★ | вкус за: Белые ночи 1★ (у всех 4.0) — не похожа,46.0,11124.0,14.0,0.0,12.461,3.47
+main,Художественная литература,9,3252320,The Call of the Wild,Jack London,76.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Мартин Иден 5★, Странник по звёздам 4★ | вкус за: Белые ночи 1★ (у всех 4.0) — не похожа",46.0,22443.0,21.0,1.0,10.609,3.601
+main,Художественная литература,10,13155899,"Divergent (Divergent, #1)",Veronica Roth,75.0,18a974459d312aa53c7e3232b8a12df7,читатели: Голодные игры 4★ | вкус за: эту книгу обычно ставят 4.1,46.0,152246.0,30.0,0.0,7.617,6.424
+main,Художественная литература,11,195832,The Pearl,John Steinbeck,75.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Гроздья гнева 5★, О мышах и людях 5★, Старик и море 4★ | вкус за: О мышах и людях 5★ (у всех 3.9) — похожа",46.0,14398.0,34.0,0.0,7.298,6.553
+main,Художественная литература,12,2682802,The White Guard,Mikhail Bulgakov,75.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Роковые яйца 4★, Собачье сердце 4★, Записки юного врача 4★",46.0,664.0,13.0,0.0,13.0,0.474
+main,Художественная литература,13,165384,Arch of Triumph: A Novel of a Man Without a Country,Erich Maria Remarque,74.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Мартин Иден 5★, Морфий 4★ | вкус за: эту книгу обычно ставят 4.2",46.0,1181.0,37.0,0.0,7.093,5.974
+main,Художественная литература,14,14863741,Ready Player One,Ernest Cline,74.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Тёмная материя 4★, Марсианин 3★ | вкус за: эту книгу обычно ставят 4.3",46.0,47878.0,28.0,0.0,8.172,4.705
+main,Художественная литература,15,2784253,Three Comrades,Erich Maria Remarque,74.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Мартин Иден 5★, 12 стульев 3★, На западном фронте без перемен 4★ | вкус за: эту книгу обычно ставят 4.2",46.0,1466.0,26.0,0.0,8.54,3.874
+main,Художественная литература,16,1438893,"Memed, My Hawk (İnce Memed, #1)",Yasar Kemal,73.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Мартин Иден 5★, Sapiens. Краткая история человечества 5★; несмотря на: Записки юного врача 4★ | вкус за: Белые ночи 1★ (у всех 4.0) — не похожа",46.0,528.0,706.0,1.0,0.647,10.692
+main,Художественная литература,17,2543234,"The Giver (The Giver, #1)",Lois Lowry,73.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Цветы для Элджернона 5★, 451 по фаренгейту 4★ | вкус за: эту книгу обычно ставят 4.1",46.0,95146.0,44.0,1.0,6.612,4.526
+main,Художественная литература,18,2335257,The Man Who Laughs,Victor Hugo,73.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Мартин Иден 5★, Странник по звёздам 4★, Морфий 4★ | вкус за: эту книгу обычно ставят 4.1",46.0,922.0,42.0,1.0,6.651,4.264
+main,Художественная литература,19,245494,The Great Gatsby,F. Scott Fitzgerald,73.0,18a974459d312aa53c7e3232b8a12df7,"читатели: О мышах и людях 5★, Портрет Дориана Грея 4★, Старик и море 4★ | вкус против: Норвежский лес 2★ (у всех 4.0) — похожа",46.0,170293.0,17.0,0.0,11.507,-0.712
+main,Художественная литература,20,3324344,The Stranger,Albert Camus,73.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Сиддхартха 5★, Странник по звёздам 4★, Старик и море 4★ | вкус за: Остров сокровищ 2★ (у всех 3.8) — не похожа",46.0,41952.0,36.0,0.0,7.097,3.677
+main,Нон-фикшн,1,2370171,How to Win Friends and Influence People,Dale Carnegie,81.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Думай и богатей 4★, Самый богатый человек в Вавилоне 5★, Богатый папа бедный папа 4★ | вкус за: Норвежский лес 2★ (у всех 4.0) — не похожа",46.0,13968.0,5.0,0.0,23.703,7.733
+main,Нон-фикшн,2,45087110,Homo Deus: A Brief History of Tomorrow,Yuval Noah Harari,80.0,18a974459d312aa53c7e3232b8a12df7,читатели: Sapiens. Краткая история человечества 5★ | вкус за: эту книгу обычно ставят 4.3,46.0,1627.0,7.0,0.0,19.473,7.412
+main,Нон-фикшн,3,6277,The 7 Habits of Highly Effective People: Powerful Lessons in Personal Change,Stephen R. Covey,79.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Думай и богатей 4★, Богатый папа бедный папа 4★, Самый богатый человек в Вавилоне 5★ | вкус за: Норвежский лес 2★ (у всех 4.0) — не похожа",46.0,14249.0,9.0,0.0,13.294,6.259
+main,Нон-фикшн,4,93900,Letters from a Stoic,Seneca,79.0,18a974459d312aa53c7e3232b8a12df7,читатели: Радость жизни 5★ | вкус за: эту книгу обычно ставят 4.2,46.0,796.0,11.0,0.0,13.08,5.664
+main,Нон-фикшн,5,1840987,As a Man Thinketh,James Allen,78.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Самый богатый человек в Вавилоне 5★, Думай и богатей 4★ | вкус за: эту книгу обычно ставят 4.1",46.0,2048.0,24.0,0.0,10.276,7.544
+main,Нон-фикшн,6,347061,The Greatest Salesman in the World,Og Mandino,77.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Самый богатый человек в Вавилоне 5★, Думай и богатей 4★ | вкус за: Ужин 2★ (у всех 3.4) — не похожа",46.0,1674.0,18.0,0.0,11.364,5.731
+main,Нон-фикшн,7,746042,The Magic of Thinking Big,David J. Schwartz,77.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Самый богатый человек в Вавилоне 5★, Думай и богатей 4★, Радость жизни 5★ | вкус за: Белые ночи 1★ (у всех 4.0) — не похожа",46.0,1830.0,23.0,0.0,10.487,4.58
+main,Нон-фикшн,8,3389674,Man's Search for Meaning,Viktor E. Frankl,76.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Радость жизни 5★, Sapiens. Краткая история человечества 5★, Сиддхартха 5★ | вкус за: эту книгу обычно ставят 4.3",46.0,13954.0,16.0,0.0,11.542,2.688
+main,Нон-фикшн,9,31010,Meditations,Marcus Aurelius,75.0,18a974459d312aa53c7e3232b8a12df7,читатели: Радость жизни 5★ | вкус за: эту книгу обычно ставят 4.1,46.0,3890.0,15.0,0.0,11.973,2.066
+main,Нон-фикшн,10,5210,The Millionaire Next Door: The Surprising Secrets of Americas Wealthy,Thomas J. Stanley,75.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Самый богатый человек в Вавилоне 5★, Богатый папа бедный папа 4★",46.0,2306.0,12.0,0.0,13.055,0.423
+main,Нон-фикшн,11,2946399,The Minds of Billy Milligan,Daniel Keyes,74.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Мартин Иден 5★, Морфий 4★, Цветы для Элджернона 5★ | вкус за: Белые ночи 1★ (у всех 4.0) — не похожа",46.0,1101.0,32.0,0.0,7.532,4.95
+main,Нон-фикшн,12,16029496,The Better Angels of Our Nature: Why Violence Has Declined,Steven Pinker,73.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Радость жизни 5★, Sapiens. Краткая история человечества 5★ | вкус за: Белые ночи 1★ (у всех 4.0) — не похожа",46.0,967.0,234.0,1.0,1.844,9.321
+main,Нон-фикшн,13,771090,Secrets of the Millionaire Mind: Mastering the Inner Game of Wealth,T. Harv Eker,72.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Самый богатый человек в Вавилоне 5★, Думай и богатей 4★, Богатый папа бедный папа 4★ | вкус за: Белые ночи 1★ (у всех 4.0) — не похожа",46.0,1117.0,29.0,0.0,7.77,2.904
+main,Нон-фикшн,14,41987016,Elon Musk: Inventing the Future,Ashlee Vance,72.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Sapiens. Краткая история человечества 5★, Богатый папа бедный папа 4★ | вкус за: эту книгу обычно ставят 4.2",46.0,3661.0,73.0,1.0,4.608,5.956
+main,Нон-фикшн,15,577412,The Slight Edge: Secret to a Successful Life,Jeff Olson,72.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Думай и богатей 4★, Эссенциализм 4★, Квадрант денежного потока 3★ | вкус за: эту книгу обычно ставят 4.2",46.0,580.0,209.0,1.0,2.108,8.374
+main,Нон-фикшн,16,29303,Influence: The Psychology of Persuasion,Robert B. Cialdini,72.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Sapiens. Краткая история человечества 5★, Самый богатый человек в Вавилоне 5★, Радость жизни 5★; несмотря на: Эссенциализм 4★ | вкус за: Белые ночи 1★ (у всех 4.0) — не похожа",46.0,2571.0,95.0,1.0,3.974,6.442
+main,Нон-фикшн,17,16402639,"Thinking, Fast and Slow",Daniel Kahneman,71.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Sapiens. Краткая история человечества 5★, Думай и богатей 4★ | вкус за: эту книгу обычно ставят 4.1",46.0,6071.0,114.0,1.0,3.555,6.512
+main,Нон-фикшн,18,3332594,Who Moved My Cheese?,Spencer Johnson,71.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Самый богатый человек в Вавилоне 5★, Богатый папа бедный папа 4★ | вкус за: Белые ночи 1★ (у всех 4.0) — не похожа",46.0,15257.0,25.0,0.0,8.566,1.32
+main,Нон-фикшн,19,79122,The E-Myth Revisited: Why Most Small Businesses Don't Work and What to Do About It,Michael E. Gerber,71.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Самый богатый человек в Вавилоне 5★, Квадрант денежного потока 3★, Думай и богатей 4★ | вкус за: Ужин 2★ (у всех 3.4) — не похожа",46.0,1485.0,43.0,0.0,6.628,3.245
+main,Нон-фикшн,20,45502249,Deep Work: Rules for Focused Success in a Distracted World,Cal Newport,70.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Эссенциализм 4★, Радость жизни 5★ | вкус за: эту книгу обычно ставят 4.2",46.0,1327.0,45.0,0.0,6.596,2.839
+bold,Художественная литература,1,2766512,Lord of the Flies,William Golding,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Художественная литература,2,3204877,Brave New World,Aldous Huxley,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Художественная литература,3,2574991,East of Eden,John Steinbeck,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Художественная литература,4,3275794,To Kill a Mockingbird,Harper Lee,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Художественная литература,5,4835472,The Alchemist,Paulo Coelho,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Художественная литература,6,3230869,Misery,Stephen King,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Художественная литература,7,150259,It,Stephen King,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Художественная литература,8,2949952,White Fang,Jack London,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Художественная литература,9,13155899,"Divergent (Divergent, #1)",Veronica Roth,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Художественная литература,10,195832,The Pearl,John Steinbeck,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Художественная литература,11,3252320,The Call of the Wild,Jack London,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Художественная литература,12,165384,Arch of Triumph: A Novel of a Man Without a Country,Erich Maria Remarque,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Художественная литература,13,1438893,"Memed, My Hawk (İnce Memed, #1)",Yasar Kemal,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Художественная литература,14,14863741,Ready Player One,Ernest Cline,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Художественная литература,15,2749418,McTeague,Frank Norris,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Художественная литература,16,2784253,Three Comrades,Erich Maria Remarque,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Художественная литература,17,2682802,The White Guard,Mikhail Bulgakov,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Художественная литература,18,3331807,The Fountainhead,Ayn Rand,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Художественная литература,19,2543234,"The Giver (The Giver, #1)",Lois Lowry,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Художественная литература,20,1711534,We the Living,Ayn Rand,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Нон-фикшн,1,2370171,How to Win Friends and Influence People,Dale Carnegie,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Нон-фикшн,2,45087110,Homo Deus: A Brief History of Tomorrow,Yuval Noah Harari,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Нон-фикшн,3,6277,The 7 Habits of Highly Effective People: Powerful Lessons in Personal Change,Stephen R. Covey,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Нон-фикшн,4,93900,Letters from a Stoic,Seneca,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Нон-фикшн,5,1840987,As a Man Thinketh,James Allen,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Нон-фикшн,6,347061,The Greatest Salesman in the World,Og Mandino,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Нон-фикшн,7,746042,The Magic of Thinking Big,David J. Schwartz,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Нон-фикшн,8,3389674,Man's Search for Meaning,Viktor E. Frankl,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Нон-фикшн,9,31010,Meditations,Marcus Aurelius,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Нон-фикшн,10,16029496,The Better Angels of Our Nature: Why Violence Has Declined,Steven Pinker,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Нон-фикшн,11,2946399,The Minds of Billy Milligan,Daniel Keyes,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Нон-фикшн,12,5210,The Millionaire Next Door: The Surprising Secrets of Americas Wealthy,Thomas J. Stanley,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Нон-фикшн,13,577412,The Slight Edge: Secret to a Successful Life,Jeff Olson,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Нон-фикшн,14,29303,Influence: The Psychology of Persuasion,Robert B. Cialdini,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Нон-фикшн,15,41987016,Elon Musk: Inventing the Future,Ashlee Vance,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Нон-фикшн,16,16402639,"Thinking, Fast and Slow",Daniel Kahneman,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Нон-фикшн,17,17129429,"Why Nations Fail: The Origins of Power, Prosperity, and Poverty",Daron Acemoglu,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Нон-фикшн,18,771090,Secrets of the Millionaire Mind: Mastering the Inner Game of Wealth,T. Harv Eker,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Нон-фикшн,19,19092611,Antifragile: Things That Gain from Disorder,Nassim Nicholas Taleb,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,Нон-фикшн,20,79122,The E-Myth Revisited: Why Most Small Businesses Don't Work and What to Do About It,Michael E. Gerber,,18a974459d312aa53c7e3232b8a12df7,,,,,,,

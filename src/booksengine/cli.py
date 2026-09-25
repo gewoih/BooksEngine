@@ -78,14 +78,16 @@ def calibrate(model: str = typer.Argument("mix", help="сохранённая м
 
 @app.command()
 def recommend(ratings: str = typer.Option(..., "--ratings", help="CSV: goodreads_work_id, rating 1–5, status, title"),
-              top: int = typer.Option(20, "--top", help="сколько книг показать")) -> None:
-    """Оценки из CSV → рекомендации с шансом «понравится» и объяснением; выдача пишется в profiles/history/."""
+              top: int = typer.Option(20, "--top", help="сколько книг в каждом списке"),
+              one_list: bool = typer.Option(False, "--one-list", help="один общий список вместо двух")) -> None:
+    """Оценки из CSV → два списка (художественная литература и нон-фикшн) с шансом «понравится» и объяснением;
+    выдача пишется в profiles/history/."""
     from pathlib import Path
 
     from booksengine import recommend as rec
     from booksengine.paths import CLEAN_DIR, MODELS_DIR, PROJECT_ROOT
     print(rec.format_result(rec.recommend(Path(ratings), clean_dir=CLEAN_DIR, models_dir=MODELS_DIR, top=top,
-                                          history_dir=PROJECT_ROOT / "profiles" / "history")))
+                                          history_dir=PROJECT_ROOT / "profiles" / "history", sections=not one_list)))
 
 
 @app.command()

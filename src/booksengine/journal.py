@@ -18,20 +18,31 @@ import pandas as pd
 
 
 def save(recs, profile: str, model_fp: str, history_dir: Path,
-         bold: list[tuple[int, str, str]] | None = None) -> Path:
+         bold: list[tuple[int, str, str, str]] | None = None) -> Path:
     """Выдача в журнал: место, книга, шанс, отпечаток модели, подпись и отладка слоёв (`Rec.debug`); строки
-    `list = bold` — «смелая» выдача (id, название, автор), не показанная человеку. Одна выдача в день на профиль —
+    `list = bold` — «смелая» выдача (id, название, автор, список), не показанная человеку. `section` — список
+    (художественная / нон-фикшн), место — внутри него. Одна выдача в день на профиль —
     повторный запуск перезаписывает. recs — `recommend.Rec`."""
     from booksengine.recommend import why_text
     history_dir.mkdir(parents=True, exist_ok=True)
     path = history_dir / f"{profile}-{date.today().isoformat()}.csv"
-    rows = [{"list": "main", "rank": i, "goodreads_work_id": r.work_id, "title": r.title, "author": r.author,
-             "chance": r.chance, "model": model_fp, "why": " | ".join(why_text(r)), **r.debug}
-            for i, r in enumerate(recs, 1)]
-    rows += [{"list": "bold", "rank": i, "goodreads_work_id": w, "title": t, "author": a, "model": model_fp}
-             for i, (w, t, a) in enumerate(bold or [], 1)]
+    rows = [{"list": "main", "section": r.section, "rank": k, "goodreads_work_id": r.work_id, "title": r.title,
+             "author": r.author, "chance": r.chance, "model": model_fp, "why": " | ".join(why_text(r)), **r.debug}
+            for r, k in zip(recs, _ranks([r.section for r in recs]))]
+    bold = [b if len(b) == 4 else (*b, "") for b in bold or []]
+    rows += [{"list": "bold", "section": sec, "rank": k, "goodreads_work_id": w, "title": t, "author": a,
+              "model": model_fp} for (w, t, a, sec), k in zip(bold, _ranks([b[3] for b in bold]))]
     pd.DataFrame(rows).to_csv(path, index=False)
     return path
+
+
+def _ranks(sections: list[str]) -> list[int]:
+    """Место внутри своего списка: 1, 2, … заново в каждом."""
+    out, seen = [], {}
+    for sec in sections:
+        seen[sec] = seen.get(sec, 0) + 1
+        out.append(seen[sec])
+    return out
 
 
 def files(history_dir: Path, profile: str) -> list[Path]:
