@@ -59,9 +59,9 @@ def test_coverage_ignores_empty_slots():
 def test_summarize_skips_nan_and_splits_buckets():
     per_user = pd.DataFrame({
         "ndcg20": [1.0, 0.0, np.nan], "ndcg10": [1.0, 0.0, np.nan], "recall20": [1.0, 0.0, np.nan],
-        "map20": [1.0, 0.0, np.nan], "low20": [np.nan, np.nan, 0.5], "bucket": ["20-49", "200+", "200+"]})
+        "map20": [1.0, 0.0, np.nan], "low20": [np.nan, np.nan, 0.5], "bucket": ["20-39", "320-999", "320-999"]})
     s = metrics.summarize(per_user, n_boot=50, seed=0)
     assert s["all"]["ndcg20"]["mean"] == pytest.approx(0.5) and s["all"]["ndcg20"]["n"] == 2
-    assert s["20-49"]["ndcg20"]["mean"] == 1.0
-    assert s["50-199"]["ndcg20"]["n"] == 0 and s["50-199"]["ndcg20"]["mean"] is None
+    assert s["20-39"]["ndcg20"]["mean"] == 1.0
+    assert s["40-79"]["ndcg20"]["n"] == 0 and s["40-79"]["ndcg20"]["mean"] is None
     assert s["all"]["ndcg20"]["lo"] <= 0.5 <= s["all"]["ndcg20"]["hi"]

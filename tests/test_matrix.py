@@ -26,8 +26,8 @@ def test_train_excludes_holdout_and_holdout_aligns(tmp_path):
     up = tmp_path / "users.parquet"
     synthetic_users(r.user_id.unique()).to_parquet(up, index=False)
     out = tmp_path / "split"
-    split.build(rp, up, out, "fp", test_per_bucket={"20-49": 16}, val_per_bucket={"20-49": 8},
-                bucket_pool_size={"20-49": 40}, seed=11, share=0.2)
+    split.build(rp, up, out, "fp", test_per_bucket={"20-39": 16}, val_per_bucket={"20-39": 8},
+                bucket_pool_size={"20-39": 40}, seed=11, share=0.2)
     train = matrix.load_train(rp, out / "holdout_users.parquet")
     held = set(pd.read_parquet(out / "holdout_users.parquet").user_id)
     assert not held & set(train.user_ids.tolist())

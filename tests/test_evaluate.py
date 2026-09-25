@@ -20,10 +20,10 @@ def test_run_eval_counts_hidden_book_without_train_ratings_as_miss():
     model.fit(train)
     inp = np.zeros((1, 25), dtype=np.float32)
     inp[0, 0] = 5.0
-    hold = Holdout(np.array([7]), np.array(["20-49"]), sp.csr_matrix(inp), [np.array([24])], [np.array([5.0])])
+    hold = Holdout(np.array([7]), np.array(["20-39"]), sp.csr_matrix(inp), [np.array([24])], [np.array([5.0])])
     per_user, cov = evaluate.run_eval(model, hold)
     assert per_user.loc[0, "ndcg20"] == 0.0
-    assert per_user.loc[0, "bucket"] == "20-49" and per_user.loc[0, "user_id"] == 7
+    assert per_user.loc[0, "bucket"] == "20-39" and per_user.loc[0, "user_id"] == 7
     assert cov == 0.8  # 20 из 25 книг, прочитанная книга 0 в топ не попала
 
 
@@ -33,7 +33,7 @@ def _write_works(r, tmp_path):
     pd.DataFrame({"work_id": ids, "title": [f"Book {i}" for i in ids]}).to_parquet(tmp_path / "works.parquet")
 
 
-_QUOTA = dict(test_per_bucket={"20-49": 10}, val_per_bucket={"20-49": 5}, bucket_pool_size={"20-49": 60})
+_QUOTA = dict(test_per_bucket={"20-39": 10}, val_per_bucket={"20-39": 5}, bucket_pool_size={"20-39": 60})
 
 
 def test_tune_and_test_end_to_end(tmp_path):

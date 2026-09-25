@@ -47,8 +47,8 @@ def test_run_on_synthetic_world(tmp_path, monkeypatch):
     up = tmp_path / "users.parquet"
     synthetic_users(r.user_id.unique()).to_parquet(up, index=False)
     out = tmp_path / "split"
-    split.build(clean / "ratings.parquet", up, out, "fp", test_per_bucket={"20-49": 16}, val_per_bucket={"20-49": 8},
-                bucket_pool_size={"20-49": 40}, seed=11, share=0.2)
+    split.build(clean / "ratings.parquet", up, out, "fp", test_per_bucket={"20-39": 16}, val_per_bucket={"20-39": 8},
+                bucket_pool_size={"20-39": 40}, seed=11, share=0.2)
     train = load_train(clean / "ratings.parquet", out / "holdout_users.parquet")
     als = ALS(factors=4, iterations=3)
     als.fit(train)

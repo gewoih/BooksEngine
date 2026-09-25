@@ -118,9 +118,9 @@ def test_report_puts_groups_under_their_headers_whatever_the_stored_order():
     out = {"stars": {"star_share": {str(i): 0.2 for i in range(1, 6)}, "users_without_1": 0.5,
                      "users_without_1_2": 0.2, "user_like_share_quartiles": [0.6, 0.7, 0.8]},
            "results": [{"factors": 32, "reg": 0.05, "fit_seconds": 1, "rmse_hidden": 0.9,
-                        "personal_auc": {"all": 0.7, "20-49": 0.1, "200+": 0.3, "50-199": 0.2}},
+                        "personal_auc": {"all": 0.7, "20-39": 0.1, "80-159": 0.3, "40-79": 0.2}},
                        {"factors": 64, "reg": 0.03, "fit_seconds": 1, "rmse_hidden": 0.9,
-                        "personal_auc": {"all": 0.7, "20-49": 0.4, "50-199": 0.5, "200+": 0.6}}]}
+                        "personal_auc": {"all": 0.7, "20-39": 0.4, "40-79": 0.5, "80-159": 0.6}}]}
     text = taste_report(out)
-    assert "| 20-49 | 50-199 | 200+ |" in text
+    assert "| 20-39 | 40-79 | 80-159 |" in text
     assert "| 0.1000 | 0.2000 | 0.3000 |" in text and "| 0.4000 | 0.5000 | 0.6000 |" in text
