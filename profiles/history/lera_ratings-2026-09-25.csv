@@ -1,21 +1,41 @@
-rank,goodreads_work_id,title,author,chance,model
-1,3331807,The Fountainhead,Ayn Rand,95,130c5f428c18837eb61397b081e1f9cc
-2,3275794,To Kill a Mockingbird,Harper Lee,94,130c5f428c18837eb61397b081e1f9cc
-3,3393910,The Brothers Karamazov,Fyodor Dostoyevsky,93,130c5f428c18837eb61397b081e1f9cc
-4,2574991,East of Eden,John Steinbeck,93,130c5f428c18837eb61397b081e1f9cc
-5,41364467,Hard to Be a God,Arkady Strugatsky,93,130c5f428c18837eb61397b081e1f9cc
-6,2207778,Animal Farm,George Orwell,92,130c5f428c18837eb61397b081e1f9cc
-7,18160093,1Q84,Haruki Murakami,92,130c5f428c18837eb61397b081e1f9cc
-8,153313,1984,George Orwell,92,130c5f428c18837eb61397b081e1f9cc
-9,1172473,Like Water for Chocolate,Laura Esquivel,92,130c5f428c18837eb61397b081e1f9cc
-10,1243896,Roadside Picnic,Arkady Strugatsky,91,130c5f428c18837eb61397b081e1f9cc
-11,3285349,Love in the Time of Cholera,Gabriel Garcia Marquez,91,130c5f428c18837eb61397b081e1f9cc
-12,3036731,The Catcher in the Rye,J.D. Salinger,91,130c5f428c18837eb61397b081e1f9cc
-13,16827462,The Fault in Our Stars,John Green,91,130c5f428c18837eb61397b081e1f9cc
-14,69741,The Old Man and the Sea,Ernest Hemingway,91,130c5f428c18837eb61397b081e1f9cc
-15,166902,A Hero of Our Time,Mikhail Lermontov,91,130c5f428c18837eb61397b081e1f9cc
-16,2531870,Hard-Boiled Wonderland and the End of the World,Haruki Murakami,90,130c5f428c18837eb61397b081e1f9cc
-17,2977639,Jane Eyre,Charlotte Bronte,90,130c5f428c18837eb61397b081e1f9cc
-18,3346751,"The Lightning Thief (Percy Jackson and the Olympians, #1)",Rick Riordan,90,130c5f428c18837eb61397b081e1f9cc
-19,1272463,Fahrenheit 451,Ray Bradbury,90,130c5f428c18837eb61397b081e1f9cc
-20,3204327,"The Fellowship of the Ring (The Lord of the Rings, #1)",J.R.R. Tolkien,90,130c5f428c18837eb61397b081e1f9cc
+list,rank,goodreads_work_id,title,author,chance,model,why,n_ratings,known,crowd_place,by_taste,crowd_z,taste_z
+main,1,3331807,The Fountainhead,Ayn Rand,95.0,130c5f428c18837eb61397b081e1f9cc,читатели: Атлант расправил плечи 5★ | вкус за: Атлант расправил плечи 5★ (у всех 3.7) — похожа,58.0,18810.0,1.0,0.0,38.716,2.437
+main,2,3275794,To Kill a Mockingbird,Harper Lee,94.0,130c5f428c18837eb61397b081e1f9cc,"читатели: О мышах и людях 5★, Понедельник начинается в субботу 5★, Гарри Поттер 5★ | вкус за: эту книгу обычно ставят 4.3",58.0,193844.0,3.0,0.0,26.927,2.944
+main,3,3393910,The Brothers Karamazov,Fyodor Dostoyevsky,93.0,130c5f428c18837eb61397b081e1f9cc,"читатели: Бесы 4★, Идиот 3★, Преступление и наказание 4★",58.0,14595.0,2.0,0.0,27.401,-0.049
+main,4,2574991,East of Eden,John Steinbeck,93.0,130c5f428c18837eb61397b081e1f9cc,"читатели: Гроздья гнева 5★, О мышах и людях 5★ | вкус за: эту книгу обычно ставят 4.3",58.0,24135.0,4.0,0.0,24.803,2.381
+main,5,41364467,Hard to Be a God,Arkady Strugatsky,93.0,130c5f428c18837eb61397b081e1f9cc,читатели: Понедельник начинается в субботу 5★ | вкус за: эту книгу обычно ставят 4.1,58.0,591.0,5.0,0.0,19.829,1.879
+main,6,2207778,Animal Farm,George Orwell,92.0,130c5f428c18837eb61397b081e1f9cc,"читатели: О мышах и людях 5★, Повелитель мух 4★, Превращение 4★ | вкус за: О мышах и людях 5★ (у всех 3.9) — похожа",58.0,141045.0,6.0,0.0,19.826,0.885
+main,7,18160093,1Q84,Haruki Murakami,92.0,130c5f428c18837eb61397b081e1f9cc,"читатели: Хроники заводной птицы 5★, Кафка на пляже 4★, Бесцветный Цкуру Тадзаки и годы его странствий 3★ | вкус против: Бесцветный Цкуру Тадзаки и годы его странствий 3★ (у всех 3.9) — похожа",58.0,13841.0,7.0,0.0,19.534,-0.606
+main,8,153313,1984,George Orwell,92.0,130c5f428c18837eb61397b081e1f9cc,"читатели: Странник по звездам 5★, Повелитель мух 4★, Портрет Дориана Грея 4★ | вкус за: эту книгу обычно ставят 4.1",58.0,144578.0,12.0,0.0,15.07,2.118
+main,9,1172473,Like Water for Chocolate,Laura Esquivel,92.0,130c5f428c18837eb61397b081e1f9cc,"читатели: Шоколад 4★, Сто лет одиночества 5★ | вкус за: Сто лет одиночества 5★ (у всех 4.0) — похожа",58.0,21318.0,15.0,0.0,12.681,4.259
+main,10,1243896,Roadside Picnic,Arkady Strugatsky,91.0,130c5f428c18837eb61397b081e1f9cc,читатели: Понедельник начинается в субботу 5★,58.0,2540.0,9.0,0.0,16.451,0.431
+main,11,3285349,Love in the Time of Cholera,Gabriel Garcia Marquez,91.0,130c5f428c18837eb61397b081e1f9cc,читатели: Сто лет одиночества 5★,58.0,29011.0,10.0,0.0,16.444,0.108
+main,12,3036731,The Catcher in the Rye,J.D. Salinger,91.0,130c5f428c18837eb61397b081e1f9cc,"читатели: О мышах и людях 5★, Повелитель мух 4★, Посторонний 4★",58.0,139267.0,8.0,0.0,16.965,-0.45
+main,13,16827462,The Fault in Our Stars,John Green,91.0,130c5f428c18837eb61397b081e1f9cc,"читатели: Дивергент 4★, Голодные игры 5★ | вкус за: эту книгу обычно ставят 4.2",58.0,161559.0,14.0,0.0,12.949,2.205
+main,14,69741,The Old Man and the Sea,Ernest Hemingway,91.0,130c5f428c18837eb61397b081e1f9cc,"читатели: Жемчужина 4★, Гроздья гнева 5★, Фауст 5★",58.0,49045.0,11.0,0.0,15.272,-0.317
+main,15,166902,A Hero of Our Time,Mikhail Lermontov,91.0,130c5f428c18837eb61397b081e1f9cc,"читатели: Отцы и дети 4★, Обломов 4★, Евгений Онегин 3★ | вкус против: Евгений Онегин 3★ (у всех 4.0) — похожа",58.0,2805.0,13.0,0.0,14.949,-0.838
+main,16,2531870,Hard-Boiled Wonderland and the End of the World,Haruki Murakami,90.0,130c5f428c18837eb61397b081e1f9cc,"читатели: Хроники заводной птицы 5★, Кафка на пляже 4★ | вкус за: эту книгу обычно ставят 4.1",58.0,7815.0,16.0,0.0,12.499,1.368
+main,17,2977639,Jane Eyre,Charlotte Bronte,90.0,130c5f428c18837eb61397b081e1f9cc,читатели: Грозовой перевал 4★ | вкус за: эту книгу обычно ставят 4.1,58.0,101787.0,17.0,0.0,12.476,0.978
+main,18,3346751,"The Lightning Thief (Percy Jackson and the Olympians, #1)",Rick Riordan,90.0,130c5f428c18837eb61397b081e1f9cc,"читатели: Гарри Поттер 5★, Голодные игры 5★, Хроники Нарнии 5★ | вкус за: эту книгу обычно ставят 4.0",58.0,91863.0,21.0,0.0,11.132,1.958
+main,19,1272463,Fahrenheit 451,Ray Bradbury,90.0,130c5f428c18837eb61397b081e1f9cc,"читатели: Понедельник начинается в субботу 5★, Цветы для Элджернона 5★, Повелитель мух 4★ | вкус за: эту книгу обычно ставят 4.0",58.0,91205.0,25.0,1.0,10.568,1.862
+main,20,3204327,"The Fellowship of the Ring (The Lord of the Rings, #1)",J.R.R. Tolkien,90.0,130c5f428c18837eb61397b081e1f9cc,"читатели: Гарри Поттер 5★, Хроники Нарнии 5★ | вкус за: эту книгу обычно ставят 4.3",58.0,113685.0,22.0,1.0,11.052,0.937
+bold,1,3331807,The Fountainhead,Ayn Rand,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,2,3275794,To Kill a Mockingbird,Harper Lee,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,3,2574991,East of Eden,John Steinbeck,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,4,3393910,The Brothers Karamazov,Fyodor Dostoyevsky,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,5,41364467,Hard to Be a God,Arkady Strugatsky,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,6,2207778,Animal Farm,George Orwell,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,7,1172473,Like Water for Chocolate,Laura Esquivel,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,8,153313,1984,George Orwell,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,9,18160093,1Q84,Haruki Murakami,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,10,16827462,The Fault in Our Stars,John Green,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,11,1243896,Roadside Picnic,Arkady Strugatsky,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,12,3285349,Love in the Time of Cholera,Gabriel Garcia Marquez,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,13,3036731,The Catcher in the Rye,J.D. Salinger,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,14,2531870,Hard-Boiled Wonderland and the End of the World,Haruki Murakami,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,15,3346751,"The Lightning Thief (Percy Jackson and the Olympians, #1)",Rick Riordan,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,16,69741,The Old Man and the Sea,Ernest Hemingway,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,17,2977639,Jane Eyre,Charlotte Bronte,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,18,1272463,Fahrenheit 451,Ray Bradbury,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,19,166902,A Hero of Our Time,Mikhail Lermontov,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,20,3356006,The Odyssey,Homer,,130c5f428c18837eb61397b081e1f9cc,,,,,,,

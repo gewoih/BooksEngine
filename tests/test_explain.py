@@ -41,3 +41,20 @@ def test_reason_names_leaders_and_despite():
     r = explain.reason(np.array([4.0, 0.9, -1.0]))       # 0.9 < 0.25·4 — не называется; −1 < 0.5·4
     assert r == explain.Reason([0], None)
     assert explain.reason(np.array([-1.0, -2.0])) == explain.Reason([], None)
+
+
+def test_taste_note_names_book_or_typical_rating():
+    assert explain.taste_note(np.array([0.1, -0.2]), 0.2) is None                      # сдвиг 0.1 — молчит
+    assert explain.taste_note(np.array([0.2, 0.9]), 0.1) == explain.TasteNote(1, 1)
+    assert explain.taste_note(np.array([-0.7, 0.1]), 0.0) == explain.TasteNote(-1, 0)
+    assert explain.taste_note(np.array([0.2, 0.1]), 0.8) == explain.TasteNote(1, None)   # «обычно ставят»
+    assert explain.taste_note(np.array([]), -0.9) == explain.TasteNote(-1, None)
+
+
+def test_why_text_shows_each_rating():
+    from booksengine.recommend import Rec, why_text
+    r = Rec(1, "T", "A", 50, ["Тёмная материя", "Марсианин"], "Сумерки",
+            {"Тёмная материя": "4★", "Марсианин": "3★", "Сумерки": "не дочитал"}, "против: Марсианин 3★ (у всех 4.1) — похожа")
+    assert why_text(r) == ["читатели: Тёмная материя 4★, Марсианин 3★; несмотря на: Сумерки не дочитал",
+                           "вкус против: Марсианин 3★ (у всех 4.1) — похожа"]
+    assert why_text(Rec(1, "T", "A", 50, [], None)) == ["по профилю в целом"]

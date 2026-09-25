@@ -268,6 +268,10 @@ def test_layers_contributions_sum_to_score(world):
         in_cols, c, const = explain.layers_contributions(L, x, cols)
         assert np.array_equal(in_cols, x.indices)
         np.testing.assert_allclose(c.sum(axis=0) + const, L.score(x)[0, cols], atol=1e-4)
+        _, crowd, taste, const2 = explain.layers_parts(L, x, cols)
+        np.testing.assert_allclose(crowd + taste, c, atol=1e-6)
+        np.testing.assert_allclose(const2, const, atol=1e-9)
+        assert v.taste_weight or not taste.any()
 
 
 def test_recommend_uses_layers_with_chance_and_writes_history(world):
@@ -287,7 +291,13 @@ def test_recommend_uses_layers_with_chance_and_writes_history(world):
     assert len({r.author for r in res.recs}) == 5                    # список из 5 — одна книга на автора
     assert all(set(r.because) <= {"А", "Б", "В", "Г"} for r in res.recs)
     hist = list((tp / "history").glob("p-*.csv"))
-    assert len(hist) == 1 and len(pd.read_csv(hist[0])) == 5
+    h = pd.read_csv(hist[0])
+    assert len(hist) == 1 and (h["list"] == "main").sum() == 5 and (h["list"] == "bold").sum() == 5
+    main = h[h["list"] == "main"]
+    assert main.known.gt(0).all() and main.crowd_place.ge(1).all() and main.by_taste.isin([0, 1]).all()
+    assert main.why.str.startswith(("читатели: ", "по профилю в целом")).all()
+    assert all(set(r.rated) <= {"А", "Б", "В", "Г"} and all(v.endswith("★") for v in r.rated.values())
+               for r in res.recs)
     chance.calibrate("mix", ratings_path=tp / "ratings.parquet", split_dir=sd, models_dir=md, eval_dir=tp / "eval")
     mix_res = rec.recommend(prof, clean_dir=tp, models_dir=md, top=5, model="mix")  # приложение — смесь
     assert len(mix_res.recs) == 5

@@ -1,21 +1,41 @@
-rank,goodreads_work_id,title,author,chance,model
-1,2766512,Lord of the Flies,William Golding,88,130c5f428c18837eb61397b081e1f9cc
-2,3204877,Brave New World,Aldous Huxley,86,130c5f428c18837eb61397b081e1f9cc
-3,2574991,East of Eden,John Steinbeck,84,130c5f428c18837eb61397b081e1f9cc
-4,3275794,To Kill a Mockingbird,Harper Lee,84,130c5f428c18837eb61397b081e1f9cc
-5,150259,It,Stephen King,83,130c5f428c18837eb61397b081e1f9cc
-6,3230869,Misery,Stephen King,82,130c5f428c18837eb61397b081e1f9cc
-7,4835472,The Alchemist,Paulo Coelho,82,130c5f428c18837eb61397b081e1f9cc
-8,2949952,White Fang,Jack London,81,130c5f428c18837eb61397b081e1f9cc
-9,245494,The Great Gatsby,F. Scott Fitzgerald,80,130c5f428c18837eb61397b081e1f9cc
-10,3252320,The Call of the Wild,Jack London,80,130c5f428c18837eb61397b081e1f9cc
-11,57612,Steppenwolf,Hermann Hesse,79,130c5f428c18837eb61397b081e1f9cc
-12,2682802,The White Guard,Mikhail Bulgakov,79,130c5f428c18837eb61397b081e1f9cc
-13,3324344,The Stranger,Albert Camus,78,130c5f428c18837eb61397b081e1f9cc
-14,195832,The Pearl,John Steinbeck,78,130c5f428c18837eb61397b081e1f9cc
-15,2252079,For Whom the Bell Tolls,Ernest Hemingway,78,130c5f428c18837eb61397b081e1f9cc
-16,2373750,The Metamorphosis,Franz Kafka,77,130c5f428c18837eb61397b081e1f9cc
-17,14863741,Ready Player One,Ernest Cline,77,130c5f428c18837eb61397b081e1f9cc
-18,13155899,"Divergent (Divergent, #1)",Veronica Roth,77,130c5f428c18837eb61397b081e1f9cc
-19,2784253,Three Comrades,Erich Maria Remarque,77,130c5f428c18837eb61397b081e1f9cc
-20,2543234,"The Giver (The Giver, #1)",Lois Lowry,77,130c5f428c18837eb61397b081e1f9cc
+list,rank,goodreads_work_id,title,author,chance,model,why,n_ratings,known,crowd_place,by_taste,crowd_z,taste_z
+main,1,2766512,Lord of the Flies,William Golding,88.0,130c5f428c18837eb61397b081e1f9cc,"читатели: О мышах и людях 5★, Скотный двор 5★, Гроздья гнева 5★ | вкус за: Белые ночи 1★ (у всех 4.0) — не похожа",37.0,116075.0,2.0,0.0,40.657,3.78
+main,2,3204877,Brave New World,Aldous Huxley,86.0,130c5f428c18837eb61397b081e1f9cc,"читатели: 1984 5★, Скотный двор 5★, 451 по фаренгейту 4★ | вкус за: Белые ночи 1★ (у всех 4.0) — не похожа",37.0,78938.0,1.0,0.0,40.766,2.225
+main,3,2574991,East of Eden,John Steinbeck,84.0,130c5f428c18837eb61397b081e1f9cc,"читатели: Гроздья гнева 5★, О мышах и людях 5★ | вкус за: эту книгу обычно ставят 4.3",37.0,24135.0,4.0,0.0,28.492,4.119
+main,4,3275794,To Kill a Mockingbird,Harper Lee,84.0,130c5f428c18837eb61397b081e1f9cc,"читатели: О мышах и людях 5★, Скотный двор 5★ | вкус за: эту книгу обычно ставят 4.3",37.0,193844.0,3.0,0.0,30.817,0.573
+main,5,150259,It,Stephen King,83.0,130c5f428c18837eb61397b081e1f9cc,"читатели: Кладбище домашних животных 4★, Сияние 4★ | вкус за: эту книгу обычно ставят 4.0",37.0,37321.0,5.0,0.0,18.022,0.945
+main,6,3230869,Misery,Stephen King,82.0,130c5f428c18837eb61397b081e1f9cc,"читатели: Кладбище домашних животных 4★, Сияние 4★ | вкус за: Путешествие к земле Востока 2★ (у всех 3.6) — не похожа",37.0,30616.0,6.0,0.0,14.502,2.839
+main,7,4835472,The Alchemist,Paulo Coelho,82.0,130c5f428c18837eb61397b081e1f9cc,"читатели: Сиддхартха 5★, Старик и море 4★ | вкус за: Сиддхартха 5★ (у всех 3.9) — похожа",37.0,101803.0,7.0,0.0,14.202,1.76
+main,8,2949952,White Fang,Jack London,81.0,130c5f428c18837eb61397b081e1f9cc,читатели: Мартин Иден 5★ | вкус за: Белые ночи 1★ (у всех 4.0) — не похожа,37.0,11124.0,10.0,0.0,13.223,1.654
+main,9,245494,The Great Gatsby,F. Scott Fitzgerald,80.0,130c5f428c18837eb61397b081e1f9cc,"читатели: О мышах и людях 5★, Портрет Дориана Грея 4★, Старик и море 4★ | вкус за: Марсианин 3★ (у всех 4.4) — не похожа",37.0,170293.0,8.0,0.0,13.422,0.531
+main,10,3252320,The Call of the Wild,Jack London,80.0,130c5f428c18837eb61397b081e1f9cc,"читатели: Мартин Иден 5★, Странник по звёздам 4★ | вкус за: Белые ночи 1★ (у всех 4.0) — не похожа",37.0,22443.0,12.0,0.0,11.724,1.896
+main,11,57612,Steppenwolf,Hermann Hesse,79.0,130c5f428c18837eb61397b081e1f9cc,"читатели: Сиддхартха 5★, Мартин Иден 5★ | вкус за: Горе от ума не дочитал (у всех 4.0) — не похожа",37.0,9154.0,18.0,0.0,9.467,4.134
+main,12,2682802,The White Guard,Mikhail Bulgakov,79.0,130c5f428c18837eb61397b081e1f9cc,"читатели: Роковые яйца 4★, Собачье сердце 4★, Записки юного врача 4★",37.0,664.0,9.0,0.0,13.337,-0.263
+main,13,3324344,The Stranger,Albert Camus,78.0,130c5f428c18837eb61397b081e1f9cc,"читатели: Сиддхартха 5★, Старик и море 4★, Странник по звёздам 4★ | вкус за: Остров сокровищ 2★ (у всех 3.8) — не похожа",37.0,41952.0,19.0,0.0,9.375,2.762
+main,14,195832,The Pearl,John Steinbeck,78.0,130c5f428c18837eb61397b081e1f9cc,"читатели: Гроздья гнева 5★, О мышах и людях 5★, Старик и море 4★ | вкус за: О мышах и людях 5★ (у всех 3.9) — похожа",37.0,14398.0,24.0,1.0,8.151,3.944
+main,15,2252079,For Whom the Bell Tolls,Ernest Hemingway,78.0,130c5f428c18837eb61397b081e1f9cc,"читатели: Старик и море 4★, Гроздья гнева 5★, На западном фронте без перемен 4★ | вкус за: Путешествие к земле Востока 2★ (у всех 3.6) — не похожа",37.0,15486.0,16.0,0.0,10.031,1.908
+main,16,2373750,The Metamorphosis,Franz Kafka,77.0,130c5f428c18837eb61397b081e1f9cc,"читатели: Сиддхартха 5★, Старик и море 4★, Роковые яйца 4★ | вкус за: Марсианин 3★ (у всех 4.4) — не похожа",37.0,41015.0,17.0,0.0,9.518,2.382
+main,17,14863741,Ready Player One,Ernest Cline,77.0,130c5f428c18837eb61397b081e1f9cc,"читатели: Тёмная материя 4★, Марсианин 3★ | вкус за: эту книгу обычно ставят 4.3",37.0,47878.0,21.0,0.0,9.049,2.81
+main,18,13155899,"Divergent (Divergent, #1)",Veronica Roth,77.0,130c5f428c18837eb61397b081e1f9cc,читатели: Голодные игры 4★ | вкус за: Вино из одуванчиков не дочитал (у всех 4.0) — не похожа,37.0,152246.0,25.0,1.0,7.924,3.392
+main,19,2784253,Three Comrades,Erich Maria Remarque,77.0,130c5f428c18837eb61397b081e1f9cc,"читатели: Мартин Иден 5★, На западном фронте без перемен 4★, 12 стульев 3★ | вкус за: эту книгу обычно ставят 4.2",37.0,1466.0,20.0,0.0,9.122,1.638
+main,20,2543234,"The Giver (The Giver, #1)",Lois Lowry,77.0,130c5f428c18837eb61397b081e1f9cc,"читатели: Цветы для Элджернона 5★, 451 по фаренгейту 4★ | вкус за: эту книгу обычно ставят 4.1",37.0,95146.0,23.0,0.0,8.165,2.387
+bold,1,2766512,Lord of the Flies,William Golding,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,2,3204877,Brave New World,Aldous Huxley,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,3,2574991,East of Eden,John Steinbeck,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,4,3275794,To Kill a Mockingbird,Harper Lee,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,5,3230869,Misery,Stephen King,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,6,150259,It,Stephen King,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,7,57612,Steppenwolf,Hermann Hesse,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,8,4835472,The Alchemist,Paulo Coelho,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,9,2949952,White Fang,Jack London,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,10,195832,The Pearl,John Steinbeck,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,11,3252320,The Call of the Wild,Jack London,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,12,3324344,The Stranger,Albert Camus,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,13,13155899,"Divergent (Divergent, #1)",Veronica Roth,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,14,14863741,Ready Player One,Ernest Cline,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,15,245494,The Great Gatsby,F. Scott Fitzgerald,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,16,2373750,The Metamorphosis,Franz Kafka,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,17,2252079,For Whom the Bell Tolls,Ernest Hemingway,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,18,2946399,The Minds of Billy Milligan,Daniel Keyes,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,19,2543234,"The Giver (The Giver, #1)",Lois Lowry,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
+bold,20,2682802,The White Guard,Mikhail Bulgakov,,130c5f428c18837eb61397b081e1f9cc,,,,,,,
