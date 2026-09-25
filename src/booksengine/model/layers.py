@@ -12,7 +12,7 @@
 человек прочёл сам (скрытые оценки, «угаданные»): качество — средняя ценность угаданных (`JUDGE_STARS`: 5★ = 2,
 4★ = 1, 3★ = 0.5, 2★ = −0.5, 1★ = −1 — смысл оценок пользователя), сначала по человеку, потом по людям. Учитывает
 все оценки: четвёрка лучше тройки, одна плохая книга не перечёркивает отличную.
-Ограничение (`GUARD`) — угадано не меньше 90% того, что угадывает нынешняя выдача: иначе список уходит в книги,
+Ограничение (`GUARD`) — угадано не меньше 90% того, что угадывает толпа без вкуса (`anchor`): иначе список уходит в книги,
 которые такие люди не читают, и проверить его нечем. Для сравнения в отчёте — прежние судьи: доля 5★ минус доля 1–2★
 (четвёрку приравнивала к тройке) и сумма (оценка − 3) угаданных (награждала «угадал, что человек и так прочтёт» —
 вкус при ней получал вес 0).
@@ -40,7 +40,7 @@ WEIGHTS = (0.0, 0.1, 0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0, 8.0)
 CUTOFFS = (None, 100, 300, 500, 1000)
 REFERENCE = ("mix", 0.0, None)     # прежняя смесь — для сведения
 LIKE_ALS = (0.0, 0.1, 0.25, 0.5, 0.75)   # вес ALS в толпе «ценность»: ALS находит прочитанное, «ценность» — отсеивает плохое
-GUARD = 0.9                        # угадано в топ-20 — не меньше этой доли от нынешней выдачи
+GUARD = 0.9                        # угадано в топ-20 — не меньше этой доли от опоры (`anchor`)
 TOP_SHARE, TOP_MAX = 3, 10         # «первые по мнению модели» среди спрятанных книг: треть, но не больше 10
 JUDGE_STARS = np.array([-1.0, -0.5, 0.5, 1.0, 2.0])   # ценность угаданной книги с оценкой 1★ … 5★
 CHECKED = ("quality", "five_minus_low", "five_share", "low_share", "hits", "fives_top", "value20")   # разница — парно
@@ -59,6 +59,11 @@ class Variant:
         else:
             c = {"mix": "толпа по оценкам", "read": "толпа «прочитал»"}[self.crowd]
         return f"{c}, вкус {self.taste_weight:g}" + (f", из первых {self.cutoff}" if self.cutoff else "")
+
+
+# Опора ограничения — толпа «ценность» без вкуса: порог не зависит от выбранного прежде варианта. От нынешней выдачи
+# он сползал: выбор упирается в порог, и каждый прогон разрешал терять ещё 10% угаданного.
+ANCHOR_LIKE = Variant("like", 0.0, None, 0.25)
 
 
 class Layers:
@@ -244,10 +249,16 @@ def _mean(row: dict, metric: str) -> float:
     return -np.inf if m is None else m
 
 
+def anchor(summary: list[dict]) -> dict:
+    """Строка опоры ограничения: толпа «ценность» без вкуса, если она в переборе, иначе прежняя смесь без вкуса."""
+    by = {r["label"]: r for r in summary}
+    return by.get(ANCHOR_LIKE.label()) or by[Variant(*REFERENCE).label()]
+
+
 def choose(summary: list[dict], baseline: dict, metric: str = "quality") -> dict | None:
     """Наибольшее качество списка (или другой metric — прежние судьи для сравнения) среди вариантов, которые угадывают
-    в топ-20 не меньше GUARD от baseline — строки нынешней выдачи. None — ни один не угадывает столько: так бывает
-    у чужой толпы в `tune_like`; в `layers val` нынешняя выдача сама в summary и проходит всегда."""
+    в топ-20 не меньше GUARD от baseline — строки опоры (`anchor`). None — ни один не угадывает столько: так бывает
+    у чужой толпы в `tune_like`; в `layers val` опора сама в summary и проходит всегда."""
     floor = GUARD * _mean(baseline, "hits")
     ok = [r for r in summary if _mean(r, "hits") >= floor]
     return max(ok, key=lambda r: _mean(r, metric)) if ok else None
@@ -282,17 +293,20 @@ def run(stage: str, *, clean_dir: Path, split_dir: Path, models_dir: Path, eval_
     saved = json.loads(params.read_text()) if params.exists() else {}
     if stage == "val":
         current = Variant(**saved["variant"]) if saved else ref
-        variants = list(dict.fromkeys([current, ref, *grid(layers)]))
+        extra = [ANCHOR_LIKE] if layers.like_mix is not None else []
+        variants = list(dict.fromkeys([current, ref, *extra, *grid(layers)]))
     else:
         current = Variant(**saved.get("baseline", asdict(ref)))
         variants = list(dict.fromkeys([current, ref, Variant(**saved["variant"])]))
     summary = summarize(evaluate(layers, hold, info, variants), current)
     res = {"stage": stage, "n_users": int(len(hold.user_ids)), "current": asdict(current), "summary": summary}
     if stage == "val":
-        best = choose(summary, summary[0])
+        a = anchor(summary)
+        res["anchor"] = a["label"]
+        best = choose(summary, a)
         res["chosen"] = best["variant"]
         res["chosen_by_value"] = max(summary, key=lambda r: _mean(r, "value20"))["label"]
-        res["chosen_by_share"] = choose(summary, summary[0], "five_minus_low")["label"]
+        res["chosen_by_share"] = choose(summary, a, "five_minus_low")["label"]
         params.parent.mkdir(parents=True, exist_ok=True)
         params.write_text(json.dumps(
             {"variant": best["variant"], "label": best["label"], "baseline": asdict(current),
@@ -325,7 +339,7 @@ def report(res: dict) -> str:
     rows, stage = res["summary"], res["stage"]
     current, chosen = Variant(**res["current"]), Variant(**res["chosen"])
     g0 = rows[0]["groups"]["all"]
-    floor = GUARD * g0["hits"]["mean"]
+    floor = GUARD * anchor(rows)["groups"]["all"]["hits"]["mean"] if stage == "val" else 0.0
     was = "нынешняя" if stage == "val" else "прежняя"      # в тесте выбранный вариант уже стал выдачей
     lines = [f"# Слои «толпа + вкус» ({'валидация' if stage == 'val' else 'тест'})", "",
              f"{res['n_users']} человек. Судится сам список из 20 книг: человек выбирает из него по настроению, поэтому "
@@ -337,8 +351,8 @@ def report(res: dict) -> str:
              f"{_f(g0['low_base'], pct=True)}. Разницы — с {was[:-2]}ей выдачей («{current.label()}») на тех же людях, "
              f"в скобках 95% интервал.", ""]
     if stage == "val":
-        lines += [f"Выбор — наибольшее качество среди вариантов, которые угадывают не меньше {GUARD:.0%} от нынешней "
-                  f"({floor:.2f} книги на человека): иначе список уходит в книги, которые такие люди не читают, и проверить "
+        lines += [f"Выбор — наибольшее качество среди вариантов, которые угадывают не меньше {GUARD:.0%} от толпы без "
+                  f"вкуса («{anchor(rows)['label']}», {floor:.2f} книги на человека): иначе список уходит в книги, которые такие люди не читают, и проверить "
                   f"его нечем. **Выбран: {chosen.label()}.** Прежние судьи выбрали бы: «доля 5★ − доля 1–2★» — "
                   f"{res.get('chosen_by_share', '—')}; сумма (оценка − 3) угаданных книг — {res['chosen_by_value']}.", ""]
     lines += ["| вариант | качество списка | разница | доля 5★ − доля 1–2★ | разница | пятёрок среди угаданных | "
@@ -456,7 +470,7 @@ def _same_numbers(old: dict, new: dict) -> bool:
 def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: Path, grid=LIKE_GRID,
               fit_kw: dict | None = None, force: bool = False, min_user: int = 20) -> dict:
     """Обучает толпу «ценность» с каждой настройкой и судит её вариантами LIKE_JUDGED тем же судьёй, что `layers val`:
-    качество списка у лучшего варианта из тех, что угадывают не меньше GUARD от нынешней выдачи; если не угадывает
+    качество списка у лучшего варианта из тех, что угадывают не меньше GUARD от сохранённой толпы без вкуса; если не угадывает
     ни один — настройка не подходит. Нынешняя — сохранённая толпа (первая в переборе) с вариантом из models/layers,
     без него — первый из LIKE_JUDGED. Лучшая настройка записывается в models/ease_like и models/mix_like; force —
     записать последнюю настройку сетки, даже если она хуже (решение пользователя); min_user — обучать новые настройки
@@ -481,7 +495,7 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
     base = Layers.from_models(models_dir)
     chosen = read_params(models_dir / "layers").get("variant") if (models_dir / "layers" / "params.json").exists() else None
     now = Variant(**chosen) if chosen and chosen["crowd"] == "like" else LIKE_JUDGED[0]
-    judged = list(dict.fromkeys([now, *LIKE_JUDGED]))
+    judged = list(dict.fromkeys([now, *LIKE_JUDGED, ANCHOR_LIKE]))
     grid = [(float(lam), normalize_weights(w), int(min_user)) for lam, w in grid]
     saved = read_params(models_dir / "ease_like") if (models_dir / "ease_like" / "params.json").exists() else {}
     if saved:  # сохранённая толпа — всегда точка сравнения: без неё прогон из одной настройки записал бы худшую
@@ -514,7 +528,7 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
             layers = Layers(base.mix, base.taste, like_mix=like)
             per = evaluate(layers, hold, info, judged)
             summ = summarize(per, judged[0])
-            baseline = baseline or summ[0]            # нынешняя выдача: первая настройка — сохранённая толпа
+            baseline = baseline or anchor(summ)       # опора — сохранённая толпа (первая настройка) без вкуса
             row = {"lam": lam, "weights": list(weights), "min_user": mu, "fit_seconds": fit_s, "saved": is_saved,
                    "variants": {r["label"]: {k: r["groups"]["all"][k] for k in
                                              ("quality", "five_minus_low", "five_share", "low_share", "hits")}
@@ -541,7 +555,7 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
                else f"обучение {row['fit_seconds']} с")
         print(f"«ценность» λ = {lam:g}, веса {weights}, люди с ≥ {mu} оценок: "
               + (f"качество списка {v:.3f} ({top['label']})" if top is not None
-                 else f"не подходит — ни один вариант не угадывает {GUARD:.0%} от нынешней выдачи")
+                 else f"не подходит — ни один вариант не угадывает {GUARD:.0%} от сохранённой толпы без вкуса")
               + ("" if d is None or is_saved else f", разница с сохранённой {_f(d, True)}{_ci(d)}")
               + f", {how}", flush=True)
         path.write_text(json.dumps({"user_ids": users, "results": results}, ensure_ascii=False))
@@ -570,7 +584,7 @@ def report_like(res: dict) -> str:
              "Каждая настройка (λ, веса звёзд 1★ … 5★, на ком учится) судится тем же судьёй, что `layers val`: "
              "**качество списка** — средняя ценность книг топ-20, которые человек прочёл сам (5★ = 2, 4★ = 1, "
              "3★ = 0.5, 2★ = −0.5, 1★ = −1), — у лучшего варианта из тех, что угадывают не меньше "
-             f"{GUARD:.0%} от нынешней выдачи ({res['floor']:.2f} книги на человека). Сохранённую толпу настройка "
+             f"{GUARD:.0%} от сохранённой толпы без вкуса ({res['floor']:.2f} книги на человека). Сохранённую толпу настройка "
              "сменяет, только если разница с ней на тех же людях выше нуля по всему 95% интервалу.", "",
              "| λ | веса звёзд | людей с ≥ N оценок | вариант | качество списка | доля 5★ − доля 1–2★ | "
              "пятёрок среди угаданных | 1–2★ среди угаданных | угадано |", "|---|---|---|---|---|---|---|---|---|"]
