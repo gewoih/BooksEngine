@@ -119,7 +119,7 @@ class Layers:
         top = self.mix.ease.top_cols
         excl = np.zeros((inputs.shape[0], len(top)), dtype=bool)
         c = self.crowd(self.variant.crowd, inputs, dnf, self.variant.als_weight)
-        s = self.combine(c, self.taste_z(inputs), excl, self.variant)
+        s = self.combine(c, self.taste_z(inputs, dnf), excl, self.variant)
         out = np.full(inputs.shape, -np.inf, dtype=np.float32)
         out[:, top] = s
         return out
@@ -149,8 +149,9 @@ class Layers:
             self.mix.configure(als_weight=w, ease_input=ein)
             self.mix.als.configure(rule, beta)
 
-    def taste_z(self, inputs: sp.csr_matrix) -> np.ndarray:
-        return _z(self.taste.score(inputs)[:, self.mix.ease.top_cols].astype(np.float64))
+    def taste_z(self, inputs: sp.csr_matrix, dnf: sp.csr_matrix | None = None) -> np.ndarray:
+        """z-балл вкуса по книгам EASE; недочитанные (dnf) во вкус не подаются (`without_dnf`)."""
+        return _z(self.taste.score(without_dnf(inputs, dnf))[:, self.mix.ease.top_cols].astype(np.float64))
 
     @staticmethod
     def combine(crowd: np.ndarray, taste: np.ndarray, excl: np.ndarray, v: Variant) -> np.ndarray:
@@ -169,6 +170,19 @@ class Layers:
             s = np.where(out, crowd + np.where(ok, floor - best_out - 1.0, 0.0), s)
         s[excl] = -np.inf
         return s
+
+
+def without_dnf(inputs: sp.csr_matrix, dnf: sp.csr_matrix | None) -> sp.csr_matrix:
+    """Вход вкуса без недочитанных книг. Вкус читает отклонение оценки от обычной для книги, и недочитанная как 1★
+    при обычных ~4 давала самый сильный сигнал профиля: одна брошенная книга поднимала «её противоположность»
+    («Цветы на чердаке» у пользователя — от «Вина из одуванчиков»). «Не дочитал» — мягкий негатив (решение
+    пользователя): во входе EASE такая книга тоже весит 0 (`mix.DNF_INPUT`). В датасете недочитанных нет."""
+    if dnf is None or dnf.nnz == 0:
+        return inputs
+    x = inputs.tocsr().copy()
+    x = (x - x.multiply(dnf != 0)).tocsr()
+    x.eliminate_zeros()
+    return x
 
 
 def popularity(ratings_path: Path, work_ids: np.ndarray) -> np.ndarray:
@@ -458,7 +472,7 @@ def profiles(*, clean_dir: Path, models_dir: Path, profiles_dir: Path, top: int 
             continue
         excl = exclusion(prof.x, series)[:, top_cols].toarray() != 0
         crowds = {v: layers.crowd(v.crowd, prof.x, prof.dnf, v.als_weight) for v in (ref, chosen)}
-        taste = layers.taste_z(prof.x)
+        taste = layers.taste_z(prof.x, prof.dnf)
         rated = RatedFilter(picker.books, prof.x.indices)
         lists = {v: pick_top(layers.combine(crowds[v], taste, excl, v), top_cols, pos_of, picker, [rated], top)[0].tolist()
                  for v in (ref, chosen)}
@@ -695,7 +709,7 @@ def profile_check(*, clean_dir: Path, models_dir: Path, profiles_dir: Path) -> s
             dnf_rows.append(sp.csr_matrix(d[None, :]))
         X, D = sp.vstack(rows).tocsr(), sp.vstack(dnf_rows).tocsr()
         excl = exclusion(X, series)[:, top].toarray() != 0
-        taste = layers.taste_z(X)
+        taste = layers.taste_z(X, D)
         places = {}
         for name, v in variants.items():
             sc = layers.combine(layers.crowd(v.crowd, X, D, v.als_weight), taste, excl, v)
@@ -768,7 +782,7 @@ def why(*, clean_dir: Path, models_dir: Path, profile_csv: Path, query: str, top
     series = SeriesIndex(info.title.tolist())
     excl = exclusion(x, series)[:, top_cols].toarray()[0] != 0
     za, ze = layers.like_parts(x, dnf)
-    tz = layers.taste_z(x)
+    tz = layers.taste_z(x, dnf)
     parts = {"ALS": za[0], "EASE «ценность»": ze[0], "вкус": tz[0],
              "итог": layers.combine(v.als_weight * za + (1 - v.als_weight) * ze, tz, excl[None, :], v)[0]}
 

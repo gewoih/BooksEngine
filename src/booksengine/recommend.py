@@ -40,9 +40,9 @@ class Profile:
     outside: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))  # оценённые книги каталога вне ядра
 
 
-# «Смелая» выдача для журнала: вес вкуса смелее выбранного (при 3 угадано ~78% от толпы, порог — `layers.GUARD`).
-# Не показывается, пишется рядом — прочитанное из неё покажет, не слишком ли осторожен порог.
-BOLD_TASTE = 3.0
+# «Смелая» выдача для журнала: вкус 4 при том же отсечении, что у выбранного варианта, — смелее порога
+# `layers.GUARD`. Не показывается, пишется рядом — прочитанное из неё покажет, не слишком ли осторожен порог.
+BOLD_TASTE = 4.0
 
 
 @dataclass
@@ -193,7 +193,7 @@ def _debug(layers, prof: Profile, recs: list[Rec], picked: np.ndarray, ex: sp.cs
     top_cols = layers.mix.ease.top_cols
     v = layers.variant
     crowd = layers.crowd(v.crowd, prof.x, prof.dnf, v.als_weight)[0]
-    taste = layers.taste_z(prof.x)[0]
+    taste = layers.taste_z(prof.x, prof.dnf)[0]
 
     def full(s: np.ndarray) -> np.ndarray:
         out = np.full(len(work_ids), -np.inf)
