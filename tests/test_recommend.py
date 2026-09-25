@@ -27,6 +27,7 @@ def test_profile_maps_shadows_averages_and_reports_skipped(clean):
     assert prof.dnf.toarray().tolist() == [[0.0, 0.0, 1.0]]
     assert prof.names == {0: "Дюна", 1: "Эмма", 2: "Бросил"}
     assert prof.skipped == [("Новая", rec.NO_ID), ("Редкая", rec.NOT_IN_CORE), ("Чужая", rec.NOT_IN_CATALOG)]
+    assert prof.outside.tolist() == [50]                              # вне ядра — для «уже оценено»
 
 
 def test_work_is_dnf_only_if_every_row_is_dnf(clean):

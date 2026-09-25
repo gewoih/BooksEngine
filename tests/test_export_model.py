@@ -32,7 +32,7 @@ def world(components, tmp_path):  # noqa: F811
     pd.DataFrame({"work_id": np.repeat(ids, 2), "user_id": np.tile([1, 2], len(ids)),
                   "rating": 4.0}).to_parquet(clean / "ratings.parquet")
     titles = [TITLES.get(int(w), f"Book {w}") for w in ids]
-    pd.DataFrame({"work_id": ids, "title": titles, "best_edition_title": titles,
+    pd.DataFrame({"work_id": ids, "title": titles, "original_title": titles, "best_edition_title": titles,
                   "is_collection": [int(w) == 102 for w in ids]}).to_parquet(clean / "works.parquet")
     pd.DataFrame({"work_id": ids, "author_id": [AUTHOR.get(int(w), 10 + int(w)) for w in ids],
                   "role": None, "position": 0}).to_parquet(clean / "work_authors.parquet")

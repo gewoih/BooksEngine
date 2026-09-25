@@ -37,6 +37,7 @@ class Profile:
     dnf: sp.csr_matrix            # 1 × книги ядра, 1 — недочитана (все строки книги в CSV — dnf)
     names: dict[int, str]         # столбец входа → как книга названа у человека
     skipped: list[tuple[str, str]]  # (книга, почему не учтена)
+    outside: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))  # оценённые книги каталога вне ядра
 
 
 @dataclass
@@ -86,7 +87,8 @@ def read_profile(path: Path, work_ids: np.ndarray, clean_dir: Path) -> Profile:
     x, d = (sp.csr_matrix((v, (np.zeros(len(cols), dtype=int), cols)), shape=(1, len(work_ids)))
             for v in (g.rating.to_numpy(np.float32), g.dnf.to_numpy(np.float32)))
     d.eliminate_zeros()
-    return Profile(x, d, dict(zip(cols.tolist(), g.name)), skipped)
+    outside = np.unique(p.work_id[why == NOT_IN_CORE].to_numpy(dtype=np.int64))
+    return Profile(x, d, dict(zip(cols.tolist(), g.name)), skipped, outside)
 
 
 def load_model(models_dir: Path, model: str | None = None):
@@ -112,18 +114,21 @@ def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int 
     if prof.x.nnz == 0:
         return Result([], skipped=prof.skipped)
     model, chance, model_fp = load_model(models_dir, model)
-    info = work_info(clean_dir, work_ids)
+    # оценённые книги вне ядра — строками после ядра: в модель не входят, но их издания в ядре — «уже оценено»
+    info = work_info(clean_dir, np.concatenate([work_ids, prof.outside]))
+    n = len(work_ids)
 
     # как при калибровке шанса: вход и начатые серии — не кандидаты
-    series = SeriesIndex(info.title.tolist())
+    series = SeriesIndex(info.title[:n].tolist())
     sc = model.score(prof.x, prof.dnf)[0].astype(np.float64)
     ex = exclusion(prof.x, series)
     sc[ex.indices] = -np.inf
     order = np.argsort(-sc, kind="stable")
     order = order[np.isfinite(sc[order])]
 
-    picked, removed = ListPicker(info, series).pick(order, lambda c: sc[c], top, RatedFilter(info, prof.x.indices),
-                                                    rules=rules)
+    picker = ListPicker(info, series)
+    rated = RatedFilter(picker.books, np.concatenate([prof.x.indices, np.arange(n, len(info))]))
+    picked, removed = picker.pick(order, lambda c: sc[c], top, rated, rules=rules)
     picked = np.array(picked, dtype=np.int64)
 
     r = metrics.rounded(prof.x.data)

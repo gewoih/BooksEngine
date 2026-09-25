@@ -48,7 +48,7 @@ def _data(tmp_path, n_users=90, n_works=40, seed=3):
     r.to_parquet(tmp_path / "ratings.parquet", index=False)
     ids = np.arange(100, 100 + n_works)
     title = [f"Book {i} (Saga {i}, #2)" if i >= 130 else f"Book {i}" for i in ids]
-    pd.DataFrame({"work_id": ids, "title": title, "best_edition_title": title,
+    pd.DataFrame({"work_id": ids, "title": title, "original_title": title, "best_edition_title": title,
                   "is_collection": False}).to_parquet(tmp_path / "works.parquet")
     pd.DataFrame({"work_id": ids, "author_id": ids % 7, "position": 0, "role": ""}).to_parquet(
         tmp_path / "work_authors.parquet")
