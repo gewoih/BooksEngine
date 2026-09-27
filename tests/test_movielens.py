@@ -64,3 +64,41 @@ def test_export_writes_ratings_users_works_and_trivial_author_tables(con, tmp_pa
     authors = pd.read_parquet(tmp_path / "authors.parquet")
     assert list(authors.columns) == ["author_id", "name"]
     assert len(authors) == 0
+
+
+def _synthetic_ml_csvs(tmp_path) -> "Path":
+    raw = tmp_path / "raw"
+    (raw / "ml-32m").mkdir(parents=True)
+    (raw / "ml-32m" / "ratings.csv").write_text(
+        "userId,movieId,rating,timestamp\n"
+        "1,10,5.0,100\n1,20,4.0,101\n1,30,3.0,102\n"
+        "2,10,4.5,110\n2,20,3.5,111\n2,30,2.0,112\n"
+        "3,10,5.0,120\n3,20,5.0,121\n3,30,5.0,122\n"
+    )
+    (raw / "ml-32m" / "movies.csv").write_text(
+        "movieId,title,genres\n"
+        "10,Toy Story (1995),Adventure\n20,Heat (1995),Action\n30,Se7en (1995),Thriller\n"
+    )
+    return raw
+
+
+MOVIES_CFG = {"low_variance_max_sd": 0.2, "low_variance_min_ratings": 10, "monotone_max_mode_share": 0.9,
+              "max_ratings": 3000}
+
+
+def test_prepare_end_to_end_with_synthetic_dataset(tmp_path):
+    raw = _synthetic_ml_csvs(tmp_path)
+    manifest = movielens.prepare(raw, tmp_path / "clean", MOVIES_CFG, min_user=1, min_work=1)
+    assert manifest["outputs"] == {"ratings": 9, "users": 3, "works": 3}
+    ratings = pd.read_parquet(tmp_path / "clean" / "ratings.parquet")
+    assert set(ratings.rating.unique()) <= {1, 2, 3, 4, 5}
+    assert (tmp_path / "clean" / "works.parquet").exists()
+
+
+def test_prepare_drops_hyperactive_users_per_movies_cfg(tmp_path):
+    raw = _synthetic_ml_csvs(tmp_path)
+    cfg = MOVIES_CFG | {"max_ratings": 2}   # у всех троих по 3 оценки — «гиперактивны» при пороге 2
+    manifest = movielens.prepare(raw, tmp_path / "clean", cfg, min_user=1, min_work=1)
+    assert manifest["outputs"]["users"] == 0
+    dropped = next(s for s in manifest["cleaning_log"] if s["rule"] == "users_hyperactive")
+    assert dropped["users_after"] == 0

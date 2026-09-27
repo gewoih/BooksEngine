@@ -53,3 +53,20 @@ def export(con: duckdb.DuckDBPyConnection, out_dir: Path) -> dict:
     counts = con.execute(
         "SELECT count(*), count(DISTINCT user_id), count(DISTINCT work_id) FROM ratings_w").fetchone()
     return {"ratings": counts[0], "users": counts[1], "works": counts[2]}
+
+
+def prepare(raw_dir: Path, out_dir: Path, cfg: dict, min_user: int = 20, min_work: int = 100) -> dict:
+    """Загрузка → округление и дедуп → очистка пользователей (`cfg` — раздел movies: cleaning.yaml) →
+    k-core (min_user/min_work — фиксированные решением из TODO, не в конфиге) → экспорт."""
+    from booksengine.data import clean
+
+    con = duckdb.connect()
+    load(con, raw_dir / "ml-32m" / "ratings.csv", raw_dir / "ml-32m" / "movies.csv")
+    to_ratings_w(con)
+    log = clean.CleaningLog()
+    clean.filter_users(con, log, cfg["low_variance_max_sd"], cfg["low_variance_min_ratings"], cfg["max_ratings"],
+                       max_mode_share=cfg["monotone_max_mode_share"])
+    clean.apply_kcore(con, log, min_user, min_work)
+    outputs = export(con, out_dir)
+    con.close()
+    return {"cleaning_log": log.records(), "outputs": outputs}
