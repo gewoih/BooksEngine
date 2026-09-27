@@ -82,8 +82,8 @@ uv run booksengine load-db                                  # каталог и�
 | `report-3a` | `reports/stage3a_report.md` — сравнение моделей стенда |
 | `calibrate [model]` | шанс «понравится» → `models/<model>/chance.json`, отчёт `reports/chance_<model>.md` |
 | `taste [--factors … --reg …]` | модель вкуса → `models/taste` |
-| `ease-like-tune [--lam … --weights … --force --min-user N]` | подбор толпы «ценность» → `models/ease_like`, `models/mix_like` |
-| `layers val\|test\|profiles [--top N]` | слои «толпа + вкус»: выбор по качеству списка (средняя ценность угаданных книг топ-20: 5★ = 2 … 1★ = −1) → `models/layers`, замер на тесте, топ профилей рядом с прежней выдачей |
+| `ease-like-tune [--lam … --weights … --force --min-user N --min-support N]` | подбор толпы «ценность» → `models/ease_like`, `models/mix_like`; связь книг — только при ≥ N общих читателях (по умолчанию 25) |
+| `layers val\|test\|profiles [--top N]` | слои «толпа + вкус»: выбор по качеству списка (средняя ценность угаданных книг топ-20: 5★ = 2 … 1★ = −1) → `models/layers`, замер на тесте с контролем «шум вместо вкуса» («сверх шума» — честный вклад вкуса), топ профилей рядом с прежней выдачей |
 | `profile-check` | каждая книга `profiles/*.csv` по очереди прячется — на каком месте её поставит выдача |
 | `why [--profile имя] "<книга>"` | почему книга стоит на своём месте: части модели и вклады книг профиля |
 | `taste-gap` | личная точность моделей: понравившиеся скрытые книги выше непонравившихся? |
