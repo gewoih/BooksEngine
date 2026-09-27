@@ -2,10 +2,17 @@
 работает с матрицей «человек × произведение × оценка», книжная специфика (сборники, дубли произведений,
 не-книги) фильмам не нужна — переиспользует только очистку пользователей и k-core из `booksengine.data.clean`.
 Дизайн: docs/superpowers/specs/2026-09-27-movies-crowd-taste-check-design.md.
+
+Профиль фильмов: канонический формат `profiles/<имя>_movies.csv` — `imdb_id, rating, title` (imdb_id — как в
+IMDb, без «tt» и ведущих нулей). `import_letterboxd` строит его из экспорта Letterboxd. `materialize_profile`
+сопоставляет imdb_id -> movieId через `links.csv` MovieLens и пишет CSV, который понимает
+`recommend.read_profile(id_col="movie_id")` — так же, как read_profile понимает goodreads_work_id у книг.
 """
+import math
 from pathlib import Path
 
 import duckdb
+import pandas as pd
 
 
 def load(con: duckdb.DuckDBPyConnection, ratings_csv: Path, movies_csv: Path) -> None:
@@ -94,3 +101,33 @@ def prepare(raw_dir: Path, out_dir: Path, cfg: dict, min_user: int = 20, min_wor
     outputs = export(con, out_dir)
     con.close()
     return {"cleaning_log": log.records(), "outputs": outputs}
+
+
+def import_letterboxd(export_csv: Path) -> pd.DataFrame:
+    """Экспорт Letterboxd (tmdbID, imdbID, Title, Year, Rating10, ...) -> канонический профиль фильмов
+    (imdb_id, rating, title). Rating10 — шаг 1 из 10 — делится пополам и округляется вверх (та же половина-вверх,
+    что у самих оценок MovieLens). Без imdbID или без оценки (только «просмотрено» в Letterboxd) — не входит."""
+    df = pd.read_csv(export_csv)
+    df = df.dropna(subset=["imdbID", "Rating10"]).copy()
+    df["imdb_id"] = df.imdbID.str.removeprefix("tt").astype("int64")
+    df["rating"] = df.Rating10.apply(lambda r: min(5, math.ceil(r / 2)))
+    return df[["imdb_id", "rating", "Title"]].rename(columns={"Title": "title"})
+
+
+def materialize_profile(profile_csv: Path, links_csv: Path, out_csv: Path) -> dict:
+    """Канонический профиль (imdb_id, rating[, title]) -> movie_id через links.csv MovieLens (movieId, imdbId,
+    tmdbId) -> CSV для `recommend.read_profile(id_col="movie_id")`, как goodreads_work_id у книг. imdb_id без
+    movieId в links.csv (фильм новее среза MovieLens или не входил в него) — не попадает, считается в отчёте."""
+    prof = pd.read_csv(profile_csv)
+    for col in ("imdb_id", "rating"):
+        if col not in prof.columns:
+            raise ValueError(f"{profile_csv}: нет колонки {col}")
+    links = pd.read_csv(links_csv)
+    links["imdbId"] = links.imdbId.astype("int64")
+    merged = prof.merge(links[["movieId", "imdbId"]], left_on="imdb_id", right_on="imdbId", how="left")
+    matched = merged.dropna(subset=["movieId"]).copy()
+    matched["movie_id"] = matched.movieId.astype("int64")
+    cols = ["movie_id", "rating"] + (["title"] if "title" in matched.columns else [])
+    out_csv.parent.mkdir(parents=True, exist_ok=True)
+    matched[cols].to_csv(out_csv, index=False)
+    return {"total": len(prof), "matched": len(matched), "unmatched": len(prof) - len(matched)}

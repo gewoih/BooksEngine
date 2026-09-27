@@ -70,9 +70,12 @@ class Result:
     n_used: int = 0
 
 
-def read_profile(path: Path, work_ids: np.ndarray, clean_dir: Path) -> Profile:
-    p = pd.read_csv(path, dtype={"goodreads_work_id": "Int64"})
-    for col in ("goodreads_work_id", "rating"):
+def read_profile(path: Path, work_ids: np.ndarray, clean_dir: Path, id_col: str = "goodreads_work_id") -> Profile:
+    """id_col — колонка с id в пространстве work_id (для книг это сам goodreads_work_id; для фильмов —
+    предварительно сопоставленный movieId, не imdb_id: канонический профиль фильмов хранит imdb_id, но
+    read_profile работает с уже сопоставленным id, как и для книг — `movielens.materialize_profile`)."""
+    p = pd.read_csv(path, dtype={id_col: "Int64"})
+    for col in (id_col, "rating"):
         if col not in p.columns:
             raise ValueError(f"{path}: нет колонки {col}")
     if "title" not in p.columns:
@@ -84,10 +87,10 @@ def read_profile(path: Path, work_ids: np.ndarray, clean_dir: Path) -> Profile:
         raise ValueError(f"{path}: оценка — целое 1–5 (строки {', '.join(str(i + 2) for i in bad.index)})")
 
     merges = pd.read_parquet(clean_dir / "work_merges.parquet").set_index("shadow_work_id").main_work_id
-    p["work_id"] = p.goodreads_work_id.map(lambda w: merges.get(w, w) if pd.notna(w) else w).astype("Int64")
+    p["work_id"] = p[id_col].map(lambda w: merges.get(w, w) if pd.notna(w) else w).astype("Int64")
     catalog = set(duckdb.execute("SELECT work_id FROM read_parquet(?)",
                                  [str(clean_dir / "works.parquet")]).fetchnumpy()["work_id"].tolist())
-    name = p.title.fillna(p.goodreads_work_id.astype(str))
+    name = p.title.fillna(p[id_col].astype(str))
     why = np.select([p.work_id.isna(), ~p.work_id.isin(catalog), ~p.work_id.isin(work_ids)],
                     [NO_ID, NOT_IN_CATALOG, NOT_IN_CORE], "")
     skipped = [(n, w) for n, w in zip(name, why) if w]

@@ -132,3 +132,33 @@ def test_prepare_drops_hyperactive_users_per_movies_cfg(tmp_path):
     assert manifest["outputs"]["users"] == 0
     dropped = next(s for s in manifest["cleaning_log"] if s["rule"] == "users_hyperactive")
     assert dropped["users_after"] == 0
+
+
+def test_import_letterboxd_rounds_rating10_and_drops_unrated_or_missing_imdb(tmp_path):
+    csv = tmp_path / "letterboxd.csv"
+    csv.write_text(
+        "tmdbID,imdbID,Title,Year,Rating10,WatchedDate,Review\n"
+        "1,tt0111161,Movie A,1994,9,2020-01-01,\n"      # 9 -> ceil(4.5) = 5
+        "2,tt0068646,Movie B,1972,6,2020-01-01,\n"       # 6 -> ceil(3.0) = 3
+        "3,,Movie C,2020,8,2020-01-01,\n"                # без imdbID -> не входит
+        "4,tt9999999,Movie D,2021,,2020-01-01,\n"        # без оценки -> не входит
+    )
+    out = movielens.import_letterboxd(csv)
+    assert list(out.columns) == ["imdb_id", "rating", "title"]
+    assert out.imdb_id.tolist() == [111161, 68646]
+    assert out.rating.tolist() == [5, 3]
+
+
+def test_materialize_profile_maps_imdb_id_to_movie_id_and_reports_unmatched(tmp_path):
+    profile = tmp_path / "my_movies.csv"
+    profile.write_text("imdb_id,rating,title\n111161,5,Movie A\n424242,4,Unknown To MovieLens\n")
+    links = tmp_path / "links.csv"
+    links.write_text("movieId,imdbId,tmdbId\n318,0111161,278\n")
+    out = tmp_path / "materialized.csv"
+
+    report = movielens.materialize_profile(profile, links, out)
+    assert report == {"total": 2, "matched": 1, "unmatched": 1}
+    result = pd.read_csv(out)
+    assert list(result.columns) == ["movie_id", "rating", "title"]
+    assert result.movie_id.tolist() == [318]
+    assert result.rating.tolist() == [5]
