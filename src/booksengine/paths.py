@@ -1,4 +1,8 @@
-"""Пути к сырым и производным данным. Переопределяются через RAW_DIR / DATA_DIR (или .env)."""
+"""Пути к сырым и производным данным. Переопределяются через RAW_DIR / DATA_DIR (или .env).
+
+Домен (`--domain` в CLI, книги по умолчанию) — данные и модели разных доменов не смешиваются:
+`data/<domain>/`, `models/<domain>/`; сырые файлы — общий RAW_DIR (у них разные имена/подпапки).
+"""
 import os
 from pathlib import Path
 
@@ -19,14 +23,22 @@ def _load_dotenv() -> None:
 _load_dotenv()
 
 RAW_DIR = Path(os.environ.get("RAW_DIR", "~/Downloads")).expanduser()
-DATA_DIR = Path(os.environ.get("DATA_DIR", PROJECT_ROOT / "data")).expanduser()
+DOMAIN = os.environ.get("BOOKSENGINE_DOMAIN", "books")
+
+
+def domain_dirs(project_root: Path, domain: str) -> tuple[Path, Path]:
+    """(data_dir, models_dir) для домена — чистая функция, без чтения окружения (тестируется без .env/env)."""
+    return project_root / "data" / domain, project_root / "models" / domain
+
+
+_DATA_DIR, MODELS_DIR = domain_dirs(PROJECT_ROOT, DOMAIN)
+DATA_DIR = Path(os.environ.get("DATA_DIR", _DATA_DIR)).expanduser()
 STAGING_DIR = DATA_DIR / "staging"
 CLEAN_DIR = DATA_DIR / "clean"
 TMP_DIR = DATA_DIR / "tmp"
 REPORTS_DIR = PROJECT_ROOT / "reports"
 CONFIG_PATH = PROJECT_ROOT / "config" / "cleaning.yaml"
 SPLIT_DIR = DATA_DIR / "model" / "split"
-MODELS_DIR = PROJECT_ROOT / "models"
 EVAL_DIR = MODELS_DIR / "eval"
 EXP_DIR = DATA_DIR / "exp"                 # копия старого ядра и общий тест сравнения очистки
 EXP_MODELS_DIR = MODELS_DIR / "exp"

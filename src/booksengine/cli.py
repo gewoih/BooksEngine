@@ -3,9 +3,31 @@ import typer
 app = typer.Typer(help="BooksEngine: офлайн-часть рекомендательной системы книг", no_args_is_help=True)
 
 
+@app.callback()
+def main(domain: str = typer.Option("books", "--domain", help="books | movies — данные и модели домена "
+                                     "(data/<domain>/, models/<domain>/)")) -> None:
+    import os
+    if domain not in ("books", "movies"):
+        raise typer.BadParameter("domain: books | movies")
+    os.environ["BOOKSENGINE_DOMAIN"] = domain
+
+
 @app.command()
-def prepare(force: bool = typer.Option(False, "--force", help="пересобрать всё, игнорируя кэш")) -> None:
-    """Staging → профилирование → очистка → валидация → отчёт (reports/stage1_report.md)."""
+def prepare(force: bool = typer.Option(False, "--force", help="пересобрать всё, игнорируя кэш (только books)")) -> None:
+    """books: staging → профилирование → очистка → валидация → отчёт (reports/stage1_report.md).
+    movies: MovieLens → очистка (округление звёзд, k-core) → data/movies/clean/."""
+    from booksengine.paths import DOMAIN
+    if DOMAIN == "movies":
+        import json
+
+        import yaml
+
+        from booksengine.data import movielens
+        from booksengine.paths import CLEAN_DIR, CONFIG_PATH, RAW_DIR
+        cfg = yaml.safe_load(CONFIG_PATH.read_text())["movies"]
+        manifest = movielens.prepare(RAW_DIR, CLEAN_DIR, cfg)
+        print(json.dumps(manifest["outputs"], ensure_ascii=False, indent=1))
+        return
     from booksengine.data import pipeline
     pipeline.prepare(force=force)
 
@@ -38,14 +60,21 @@ def report() -> None:
 
 @app.command()
 def split(force: bool = typer.Option(False, "--force", help="пересобрать сплит")) -> None:
-    """Отложенная выборка: тест и валидация поровну из этапов 20-39/40-79/80-159/160-319/320-999 оценок, вне обучения (data/model/split/)."""
+    """Отложенная выборка: тест и валидация поровну из этапов 20-39/40-79/80-159/160-319/320-999 оценок, вне обучения (data/<domain>/model/split/)."""
     import json
 
     from booksengine.model import split as s
-    from booksengine.paths import CLEAN_DIR, SPLIT_DIR
-    manifest = json.loads((CLEAN_DIR / "manifest.json").read_text())
+    from booksengine.paths import CLEAN_DIR, DOMAIN, SPLIT_DIR
+    kw = {}
+    if DOMAIN == "movies":
+        from booksengine.data import movielens
+        kw["bucket_pool_size"] = movielens.bucket_pool_size(CLEAN_DIR / "ratings.parquet")
+        data_fp = str((CLEAN_DIR / "ratings.parquet").stat().st_mtime_ns)
+    else:
+        manifest = json.loads((CLEAN_DIR / "manifest.json").read_text())
+        data_fp = manifest["outputs"]["ratings"]["checksum"]
     meta = s.build(CLEAN_DIR / "ratings.parquet", CLEAN_DIR / "users.parquet", SPLIT_DIR,
-                   manifest["outputs"]["ratings"]["checksum"], force=force)
+                   data_fp, force=force, **kw)
     print(json.dumps(meta["groups"], ensure_ascii=False, indent=1))
 
 
