@@ -9,6 +9,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+import pandas as pd
+
 
 class NotFound(Exception):
     """TMDB не знает такой tmdbId (404) — устаревшая или ошибочная ссылка в links.csv."""
@@ -53,6 +55,58 @@ def fetch_all(tmdb_ids: list[int], api_key: str, cache_dir: Path, fetch=fetch_on
             stats["errors"].append((tmdb_id, str(e)))
         time.sleep(rate_limit_s)
     return stats
+
+
+def export(clean_dir: Path, cache_dir: Path, links_csv: Path) -> dict:
+    """Обогащает works/work_authors/authors/work_genres.parquet данными TMDB (по кэшу — сеть не трогает) и
+    пишет work_collections.parquet (франшиза, пока не используется правилами выдачи — задел для шага
+    «правила списка»). Работы без tmdbId в links.csv или без кэша — остаются как были (английское название,
+    без режиссёра). original_title — прежний title (английский, MovieLens), если сейчас пуст."""
+    works = pd.read_parquet(clean_dir / "works.parquet")
+    links = pd.read_csv(links_csv)[["movieId", "tmdbId"]].dropna(subset=["tmdbId"])
+    links["tmdbId"] = links.tmdbId.astype("int64")
+    tmdb_id_of = links.set_index("movieId").tmdbId
+
+    rows = []
+    for work_id in works.work_id:
+        tmdb_id = tmdb_id_of.get(work_id)
+        raw, path = None, None
+        if tmdb_id is not None:
+            path = cache_dir / f"{int(tmdb_id)}.json"
+            if path.exists():
+                raw = json.loads(path.read_text())
+        rows.append({"work_id": work_id, "tmdb_id": tmdb_id, **extract(raw)})
+    d = pd.DataFrame(rows).set_index("work_id")
+
+    has_ru = d.title_ru.notna()
+    works = works.set_index("work_id")
+    works.loc[has_ru, "original_title"] = works.loc[has_ru, "original_title"].fillna(works.loc[has_ru, "title"])
+    works.loc[has_ru, "title"] = d.loc[has_ru, "title_ru"]
+    works.loc[has_ru, "best_edition_title"] = d.loc[has_ru, "title_ru"]
+    works.reset_index().to_parquet(clean_dir / "works.parquet")
+
+    has_director = d.director_id.notna()
+    work_authors = pd.DataFrame({
+        "work_id": d.index[has_director], "author_id": d.director_id[has_director].astype("int64"),
+        "role": "", "position": 0}).astype({"position": "int16"})
+    work_authors.to_parquet(clean_dir / "work_authors.parquet")
+    authors = (d.loc[has_director, ["director_id", "director_name"]]
+               .rename(columns={"director_id": "author_id", "director_name": "name"})
+               .astype({"author_id": "int64"}).drop_duplicates("author_id"))
+    authors.to_parquet(clean_dir / "authors.parquet")
+
+    is_doc = d.is_documentary.fillna(False)
+    genres = pd.DataFrame({"work_id": d.index[is_doc], "genre": "non-fiction", "votes": 1, "share": 1.0})
+    genres.to_parquet(clean_dir / "work_genres.parquet")
+
+    has_coll = d.collection_id.notna()
+    collections = pd.DataFrame({
+        "work_id": d.index[has_coll], "collection_id": d.collection_id[has_coll].astype("int64"),
+        "collection_name": d.collection_name[has_coll]})
+    collections.to_parquet(clean_dir / "work_collections.parquet")
+
+    return {"works": len(works), "with_director": int(has_director.sum()), "with_russian_title": int(has_ru.sum()),
+            "documentary": int(is_doc.sum()), "with_collection": int(has_coll.sum())}
 
 
 def extract(raw: dict | None) -> dict:
