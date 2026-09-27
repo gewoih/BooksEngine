@@ -52,6 +52,15 @@ def export(con: duckdb.DuckDBPyConnection, out_dir: Path) -> dict:
                 f"TO '{out_dir / 'authors.parquet'}' {opts}")
     con.execute(f"COPY (SELECT NULL::BIGINT AS shadow_work_id, NULL::BIGINT AS main_work_id WHERE false) "
                 f"TO '{out_dir / 'work_merges.parquet'}' {opts}")
+    # «Documentary» в жанрах MovieLens -> 'non-fiction' книжного механизма (filters.nonfiction, NONFICTION_SHARE):
+    # тот же порог, тот же второй список (игровое/документальное), без изменений filters.py
+    con.execute(f"""
+        COPY (SELECT r.work_id, 'non-fiction'::VARCHAR AS genre, 1::INTEGER AS votes, 1.0::DOUBLE AS share
+              FROM (SELECT DISTINCT work_id FROM ratings_w) r JOIN _ml_movies m ON m.movieId = r.work_id
+              WHERE list_contains(string_split(m.genres, '|'), 'Documentary')
+              ORDER BY r.work_id)
+        TO '{out_dir / 'work_genres.parquet'}' {opts}
+    """)
     counts = con.execute(
         "SELECT count(*), count(DISTINCT user_id), count(DISTINCT work_id) FROM ratings_w").fetchone()
     return {"ratings": counts[0], "users": counts[1], "works": counts[2]}

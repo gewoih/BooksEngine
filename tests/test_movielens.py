@@ -57,16 +57,22 @@ def test_export_raises_when_ratings_reference_missing_movie(con, tmp_path):
 
 def test_export_writes_ratings_users_works_and_trivial_author_tables(con, tmp_path):
     con.execute("CREATE TEMP TABLE ratings_w AS SELECT * FROM (VALUES "
-                "(1, 10, 5), (1, 20, 3), (2, 10, 4)) t(user_id, work_id, rating)")
+                "(1, 10, 5), (1, 20, 3), (2, 10, 4), (2, 30, 5)) t(user_id, work_id, rating)")
     con.execute("CREATE TEMP TABLE _ml_movies AS SELECT * FROM (VALUES "
-                "(10, 'Toy Story (1995)', 'Adventure'), (20, 'Heat (1995)', 'Action')) "
+                "(10, 'Toy Story (1995)', 'Adventure|Animation'), (20, 'Heat (1995)', 'Action|Crime'), "
+                "(30, 'March of the Penguins (2005)', 'Documentary')) "
                 "t(movieId, title, genres)")
     counts = movielens.export(con, tmp_path)
-    assert counts == {"ratings": 3, "users": 2, "works": 2}
+    assert counts == {"ratings": 4, "users": 2, "works": 3}
+
+    work_genres = pd.read_parquet(tmp_path / "work_genres.parquet")
+    assert list(work_genres.columns) == ["work_id", "genre", "votes", "share"]
+    assert work_genres.work_id.tolist() == [30]     # только документальное — «non-fiction» книжного механизма
+    assert work_genres.genre.tolist() == ["non-fiction"]
 
     ratings = pd.read_parquet(tmp_path / "ratings.parquet")
     assert list(ratings.columns) == ["user_id", "work_id", "rating"]
-    assert len(ratings) == 3
+    assert len(ratings) == 4
 
     work_merges = pd.read_parquet(tmp_path / "work_merges.parquet")
     assert list(work_merges.columns) == ["shadow_work_id", "main_work_id"]
@@ -77,7 +83,7 @@ def test_export_writes_ratings_users_works_and_trivial_author_tables(con, tmp_pa
     assert (users.user_id == users.external_id).all()
 
     works = pd.read_parquet(tmp_path / "works.parquet")
-    assert sorted(works.title) == ["Heat (1995)", "Toy Story (1995)"]
+    assert sorted(works.title) == ["Heat (1995)", "March of the Penguins (2005)", "Toy Story (1995)"]
     assert not works.is_collection.any()
     assert works.original_title.isna().all() and works.best_edition_title.isna().all()
 
