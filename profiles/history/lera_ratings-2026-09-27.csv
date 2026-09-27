@@ -1,0 +1,101 @@
+list,section,rank,goodreads_work_id,title,author,chance,model,why,n_ratings,known,crowd_place,by_taste,crowd_z,taste_z
+main,,1,3331807,The Fountainhead,Ayn Rand,93.0,18a974459d312aa53c7e3232b8a12df7,читатели: Атлант расправил плечи 5★ | вкус за: Атлант расправил плечи 5★ (у всех 3.7) — похожа,63.0,18810.0,1.0,0.0,41.092,4.473
+main,,2,2574991,East of Eden,John Steinbeck,91.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Гроздья гнева 5★, О мышах и людях 5★ | вкус за: эту книгу обычно ставят 4.3",63.0,24135.0,4.0,0.0,25.532,5.729
+main,,3,3275794,To Kill a Mockingbird,Harper Lee,90.0,18a974459d312aa53c7e3232b8a12df7,"читатели: О мышах и людях 5★, Понедельник начинается в субботу 5★, Гарри Поттер 5★ | вкус за: эту книгу обычно ставят 4.3",63.0,193844.0,3.0,0.0,26.94,3.799
+main,,4,3393910,The Brothers Karamazov,Fyodor Dostoyevsky,90.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Бесы 4★, Идиот 3★, Преступление и наказание 4★",63.0,14595.0,2.0,0.0,27.952,-0.128
+main,,5,41364467,Hard to Be a God,Arkady Strugatsky,89.0,18a974459d312aa53c7e3232b8a12df7,читатели: Понедельник начинается в субботу 5★ | вкус за: эту книгу обычно ставят 4.1,63.0,591.0,5.0,0.0,21.834,2.942
+main,,6,1172473,Like Water for Chocolate,Laura Esquivel,89.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Шоколад 4★, Сто лет одиночества 5★ | вкус за: Сто лет одиночества 5★ (у всех 4.0) — похожа",63.0,21318.0,12.0,0.0,13.827,6.812
+main,,7,1243896,Roadside Picnic,Arkady Strugatsky,88.0,18a974459d312aa53c7e3232b8a12df7,читатели: Понедельник начинается в субботу 5★ | вкус за: эту книгу обычно ставят 4.0,63.0,2540.0,7.0,0.0,17.914,0.797
+main,,8,18160093,1Q84,Haruki Murakami,88.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Хроники заводной птицы 5★, Кафка на пляже 4★, Бесцветный Цкуру Тадзаки и годы его странствий 3★ | вкус против: Бесцветный Цкуру Тадзаки и годы его странствий 3★ (у всех 3.9) — похожа",63.0,13841.0,6.0,0.0,20.022,-1.495
+main,,9,153313,1984,George Orwell,88.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Странник по звездам 5★, Повелитель мух 4★, Преступление и наказание 4★ | вкус за: эту книгу обычно ставят 4.1",63.0,144578.0,10.0,0.0,14.885,2.604
+main,,10,3285349,Love in the Time of Cholera,Gabriel Garcia Marquez,87.0,18a974459d312aa53c7e3232b8a12df7,читатели: Сто лет одиночества 5★,63.0,29011.0,8.0,0.0,16.777,0.364
+main,,11,16827462,The Fault in Our Stars,John Green,87.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Дивергент 4★, Голодные игры 5★ | вкус за: эту книгу обычно ставят 4.2",63.0,161559.0,14.0,0.0,13.023,3.464
+main,,12,3346751,"The Lightning Thief (Percy Jackson and the Olympians, #1)",Rick Riordan,87.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Гарри Поттер 5★, Голодные игры 5★, Хроники Нарнии 5★ | вкус за: эту книгу обычно ставят 4.0",63.0,91863.0,17.0,0.0,11.418,4.538
+main,,13,166902,A Hero of Our Time,Mikhail Lermontov,87.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Отцы и дети 4★, Обломов 4★, Евгений Онегин 3★ | вкус против: Евгений Онегин 3★ (у всех 4.0) — похожа",63.0,2805.0,9.0,0.0,16.65,-1.291
+main,,14,2531870,Hard-Boiled Wonderland and the End of the World,Haruki Murakami,87.0,18a974459d312aa53c7e3232b8a12df7,читатели: Хроники заводной птицы 5★ | вкус за: эту книгу обычно ставят 4.1,63.0,7815.0,15.0,0.0,12.528,2.311
+main,,15,2977639,Jane Eyre,Charlotte Bronte,86.0,18a974459d312aa53c7e3232b8a12df7,читатели: Грозовой перевал 4★ | вкус за: эту книгу обычно ставят 4.1,63.0,101787.0,16.0,0.0,12.282,1.746
+main,,16,1272463,Fahrenheit 451,Ray Bradbury,86.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Понедельник начинается в субботу 5★, Цветы для Элджернона 5★, Повелитель мух 4★ | вкус за: эту книгу обычно ставят 4.0",63.0,91205.0,21.0,0.0,10.287,2.955
+main,,17,14863741,Ready Player One,Ernest Cline,86.0,18a974459d312aa53c7e3232b8a12df7,читатели: Тёмная материя 5★ | вкус за: эту книгу обычно ставят 4.3,63.0,47878.0,38.0,0.0,7.662,5.381
+main,,18,69741,The Old Man and the Sea,Ernest Hemingway,86.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Жемчужина 4★, Фауст 5★, Гроздья гнева 5★ | вкус против: эту книгу обычно ставят 3.6",63.0,49045.0,11.0,0.0,14.588,-1.623
+main,,19,3204327,"The Fellowship of the Ring (The Lord of the Rings, #1)",J.R.R. Tolkien,85.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Гарри Поттер 5★, Хроники Нарнии 5★ | вкус за: эту книгу обычно ставят 4.3",63.0,113685.0,19.0,0.0,11.087,1.583
+main,,20,2062963,The Sea Wolf,Jack London,85.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Странник по звездам 5★, Мартин Иден 5★, Белый Клык 4★ | вкус против: Зов предков 3★ (у всех 3.8) — похожа",63.0,1727.0,13.0,0.0,13.122,-0.59
+main,,21,3374404,The House of the Spirits,Isabel Allende,85.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Сто лет одиночества 5★, Шоколад 4★ | вкус за: эту книгу обычно ставят 4.2",63.0,13606.0,87.0,1.0,4.608,7.004
+main,,22,1466917,"A Game of Thrones (A Song of Ice and Fire, #1)",George R.R. Martin,85.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Гарри Поттер 5★, Голодные игры 5★ | вкус за: эту книгу обычно ставят 4.4",63.0,109518.0,39.0,0.0,7.211,4.193
+main,,23,2144026,We,Yevgeny Zamyatin,85.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Собачье сердце 4★, Понедельник начинается в субботу 5★, Отцы и дети 4★ | вкус за: Ромео и Джульетта 2★ (у всех 3.8) — не похожа",63.0,5387.0,29.0,0.0,9.159,2.18
+main,,24,1122661,The Neverending Story,Michael Ende,85.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Странник по звездам 5★, Фауст 5★ | вкус за: эту книгу обычно ставят 4.2",63.0,13851.0,102.0,1.0,4.068,6.832
+main,,25,6473602,"Born to Run: A Hidden Tribe, Superathletes, and the Greatest Race the World Has Never Seen",Christopher McDougall,85.0,18a974459d312aa53c7e3232b8a12df7,читатели: О чем я говорю когда говорю о беге 4★ | вкус за: эту книгу обычно ставят 4.3,63.0,6979.0,105.0,1.0,4.018,6.786
+main,,26,4840290,Siddhartha,Hermann Hesse,85.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Странник по звездам 5★, Посторонний 4★, Превращение 4★ | вкус за: Двенадцать стульев 3★ (у всех 4.2) — не похожа",63.0,32495.0,46.0,0.0,6.499,4.241
+main,,27,18962767,Sapiens: A Brief History of Humankind,Yuval Noah Harari,84.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Странник по звездам 5★, Мартин Иден 5★, Эгоистичный ген 4★ | вкус за: эту книгу обычно ставят 4.4",63.0,6179.0,76.0,1.0,5.056,5.671
+main,,28,3358283,Gone with the Wind,Margaret Mitchell,84.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Атлант расправил плечи 5★, Грозовой перевал 4★, Анна Каренина 3★ | вкус за: эту книгу обычно ставят 4.2",63.0,57751.0,69.0,1.0,5.25,5.362
+main,,29,3208463,Les Misérables,Victor Hugo,84.0,18a974459d312aa53c7e3232b8a12df7,читатели: Граф Монте-Кристо 5★ | вкус за: эту книгу обычно ставят 4.2,63.0,41270.0,26.0,0.0,9.605,0.946
+main,,30,41125521,The Nightingale,Kristin Hannah,84.0,18a974459d312aa53c7e3232b8a12df7,читатели: Тёмная материя 5★ | вкус за: эту книгу обычно ставят 4.5,63.0,23699.0,169.0,1.0,2.836,7.698
+main,,31,3044365,The God Delusion,Richard Dawkins,84.0,18a974459d312aa53c7e3232b8a12df7,читатели: Эгоистичный ген 4★,63.0,12070.0,24.0,0.0,9.91,0.35
+main,,32,21825181,The Martian,Andy Weir,84.0,18a974459d312aa53c7e3232b8a12df7,читатели: Тёмная материя 5★ | вкус за: эту книгу обычно ставят 4.4,63.0,52680.0,67.0,1.0,5.369,4.759
+main,,33,287946,Anthem,Ayn Rand,84.0,18a974459d312aa53c7e3232b8a12df7,читатели: Атлант расправил плечи 5★ | вкус за: Атлант расправил плечи 5★ (у всех 3.7) — похожа,63.0,10503.0,43.0,0.0,6.88,3.231
+main,,34,2346070,"The Good Earth (House of Earth, #1)",Pearl S. Buck,84.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Жемчужина 4★, Гроздья гнева 5★ | вкус за: Гроздья гнева 5★ (у всех 3.9) — похожа",63.0,15586.0,97.0,1.0,4.256,5.83
+main,,35,1263212,"The Three Musketeers (The D'Artagnan Romances, #1)",Alexandre Dumas,84.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Граф Монте-Кристо 5★, Понедельник начинается в субботу 5★ | вкус за: эту книгу обычно ставят 4.0",63.0,20024.0,32.0,0.0,8.413,1.488
+main,,36,1540236,The Hobbit,J.R.R. Tolkien,84.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Хроники Нарнии 5★, Гарри Поттер 5★ | вкус за: эту книгу обычно ставят 4.2",63.0,147356.0,33.0,0.0,8.344,1.533
+main,,37,2946399,The Minds of Billy Milligan,Daniel Keyes,83.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Понедельник начинается в субботу 5★, Мартин Иден 5★, Цветы для Элджернона 5★ | вкус за: эту книгу обычно ставят 4.1",63.0,1101.0,45.0,0.0,6.75,3.042
+main,,38,42375710,A Little Life,Hanya Yanagihara,83.0,18a974459d312aa53c7e3232b8a12df7,читатели: Бесцветный Цкуру Тадзаки и годы его странствий 3★ | вкус за: эту книгу обычно ставят 4.4,63.0,9759.0,716.0,1.0,0.614,9.096
+main,,39,2576674,Всадник без головы,Mayne Reid,83.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Понедельник начинается в субботу 5★, Мартин Иден 5★ | вкус за: эту книгу обычно ставят 4.0",63.0,507.0,75.0,1.0,5.079,4.595
+main,,40,1536771,"The Golden Compass (His Dark Materials, #1)",Philip Pullman,83.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Хроники Нарнии 5★, Гарри Поттер 5★ | вкус за: Сто лет одиночества 5★ (у всех 4.0) — похожа",63.0,73784.0,62.0,1.0,5.69,3.796
+main,,41,30431,The Complete Stories and Poems,Edgar Allan Poe,83.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Дракула 5★, Фауст 5★ | вкус за: эту книгу обычно ставят 4.3",63.0,12934.0,66.0,1.0,5.43,4.028
+main,,42,4717423,The Help,Kathryn Stockett,83.0,18a974459d312aa53c7e3232b8a12df7,читатели: Голодные игры 5★ | вкус за: эту книгу обычно ставят 4.3,63.0,94193.0,136.0,1.0,3.296,6.098
+main,,43,2335257,The Man Who Laughs,Victor Hugo,83.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Мартин Иден 5★, Странник по звездам 5★, Понедельник начинается в субботу 5★ | вкус за: эту книгу обычно ставят 4.1",63.0,922.0,37.0,0.0,7.689,1.683
+main,,44,46061078,All the Ugly and Wonderful Things,Bryn Greenwood,83.0,18a974459d312aa53c7e3232b8a12df7,читатели: Тёмная материя 5★ | вкус за: эту книгу обычно ставят 4.2,63.0,5020.0,190.0,1.0,2.559,6.762
+main,,45,873132,"Interview with the Vampire (The Vampire Chronicles, #1)",Anne Rice,83.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Дракула 5★, Фауст 5★ | вкус за: Дракула 5★ (у всех 3.9) — похожа",63.0,42138.0,71.0,1.0,5.228,3.907
+main,,46,55410918,The Paper Menagerie,Ken Liu,83.0,18a974459d312aa53c7e3232b8a12df7,читатели: Странник по звездам 5★ | вкус за: эту книгу обычно ставят 4.5,63.0,529.0,876.0,1.0,0.474,8.635
+main,,47,1187101,Приключения Незнайки,Nikolay Nosov,83.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Понедельник начинается в субботу 5★, Двенадцать стульев 3★ | вкус за: эту книгу обычно ставят 4.2",63.0,432.0,89.0,1.0,4.534,4.453
+main,,48,2965832,The Trial,Franz Kafka,83.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Превращение 4★, Фауст 5★, Посторонний 4★ | вкус против: Война и мир 2★ (у всех 4.0) — похожа",63.0,14996.0,20.0,0.0,11.006,-2.043
+main,,49,3441236,Water for Elephants,Sara Gruen,82.0,18a974459d312aa53c7e3232b8a12df7,читатели: Любовь гика 5★ | вкус за: эту книгу обычно ставят 4.0,63.0,69478.0,170.0,1.0,2.835,6.112
+main,,50,57593,Chess Story,Stefan Zweig,82.0,18a974459d312aa53c7e3232b8a12df7,"читатели: Мартин Иден 5★, Превращение 4★, Шинель 3★ | вкус за: эту книгу обычно ставят 4.3",63.0,4595.0,185.0,1.0,2.636,6.301
+bold,,1,3331807,The Fountainhead,Ayn Rand,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,2,2574991,East of Eden,John Steinbeck,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,3,3275794,To Kill a Mockingbird,Harper Lee,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,4,3393910,The Brothers Karamazov,Fyodor Dostoyevsky,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,5,41364467,Hard to Be a God,Arkady Strugatsky,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,6,1172473,Like Water for Chocolate,Laura Esquivel,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,7,1243896,Roadside Picnic,Arkady Strugatsky,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,8,153313,1984,George Orwell,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,9,18160093,1Q84,Haruki Murakami,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,10,16827462,The Fault in Our Stars,John Green,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,11,3346751,"The Lightning Thief (Percy Jackson and the Olympians, #1)",Rick Riordan,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,12,3285349,Love in the Time of Cholera,Gabriel Garcia Marquez,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,13,2531870,Hard-Boiled Wonderland and the End of the World,Haruki Murakami,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,14,166902,A Hero of Our Time,Mikhail Lermontov,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,15,14863741,Ready Player One,Ernest Cline,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,16,2977639,Jane Eyre,Charlotte Bronte,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,17,1272463,Fahrenheit 451,Ray Bradbury,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,18,3374404,The House of the Spirits,Isabel Allende,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,19,3204327,"The Fellowship of the Ring (The Lord of the Rings, #1)",J.R.R. Tolkien,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,20,1122661,The Neverending Story,Michael Ende,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,21,41125521,The Nightingale,Kristin Hannah,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,22,6473602,"Born to Run: A Hidden Tribe, Superathletes, and the Greatest Race the World Has Never Seen",Christopher McDougall,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,23,1466917,"A Game of Thrones (A Song of Ice and Fire, #1)",George R.R. Martin,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,24,42375710,A Little Life,Hanya Yanagihara,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,25,18962767,Sapiens: A Brief History of Humankind,Yuval Noah Harari,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,26,69741,The Old Man and the Sea,Ernest Hemingway,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,27,3358283,Gone with the Wind,Margaret Mitchell,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,28,2062963,The Sea Wolf,Jack London,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,29,4840290,Siddhartha,Hermann Hesse,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,30,2144026,We,Yevgeny Zamyatin,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,31,2346070,"The Good Earth (House of Earth, #1)",Pearl S. Buck,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,32,55410918,The Paper Menagerie,Ken Liu,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,33,21825181,The Martian,Andy Weir,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,34,46061078,All the Ugly and Wonderful Things,Bryn Greenwood,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,35,4717423,The Help,Kathryn Stockett,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,36,3300573,The Color Purple,Alice Walker,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,37,2576674,Всадник без головы,Mayne Reid,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,38,287946,Anthem,Ayn Rand,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,39,57593,Chess Story,Stefan Zweig,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,40,3441236,Water for Elephants,Sara Gruen,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,41,3208463,Les Misérables,Victor Hugo,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,42,2946399,The Minds of Billy Milligan,Daniel Keyes,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,43,30431,The Complete Stories and Poems,Edgar Allan Poe,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,44,1536771,"The Golden Compass (His Dark Materials, #1)",Philip Pullman,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,45,1383240,Nine Princes in Amber (The Chronicles of Amber #1),Roger Zelazny,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,46,833257,A Tree Grows in Brooklyn,Betty  Smith,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,47,319425,Totto-chan: The Little Girl at the Window,Tetsuko Kuroyanagi,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,48,1187101,Приключения Незнайки,Nikolay Nosov,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,49,873132,"Interview with the Vampire (The Vampire Chronicles, #1)",Anne Rice,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
+bold,,50,1263212,"The Three Musketeers (The D'Artagnan Romances, #1)",Alexandre Dumas,,18a974459d312aa53c7e3232b8a12df7,,,,,,,
