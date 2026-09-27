@@ -378,6 +378,20 @@ def test_tune_like_reuses_previous_run_and_trains_reused_best_to_save(world, mon
     assert "из прошлого прогона" in ly.report_like(res)
 
 
+def test_taste_input_softens_single_low_rating_and_dnf(world):
+    import scipy.sparse as sp
+    tp, sd, md = world
+    L = ly.Layers.from_models(md)
+    usual = L.taste.mu + L.taste.item_bias[[0, 1, 2]]
+    x = sp.csr_matrix((np.array([1.0, 5.0, 4.0], dtype=np.float32), ([0, 0, 0], [0, 1, 2])), shape=(1, L.taste.item_bias.size))
+    dnf = sp.csr_matrix((np.array([1.0]), ([0], [2])), shape=x.shape)
+    got = L.taste_input(x, dnf).data
+    assert got[0] == pytest.approx(max(1.0, usual[0] - ly.LOW_TASTE_FLOOR))   # 1★ — не ниже обычной − 1.5
+    assert got[1] == pytest.approx(5.0)                                       # высокие не трогаются
+    assert got[2] == pytest.approx(usual[2] - ly.DNF_TASTE_DROP)              # недочитанная — чуть ниже обычной
+    assert x.data[0] == 1.0                                                   # вход не меняется на месте
+
+
 def test_noise_at_interpolates_quality_at_same_hits():
     curve = [{"taste_weight": 0.0, "hits": 3.0, "quality": 1.30}, {"taste_weight": 1.0, "hits": 2.0, "quality": 1.40},
              {"taste_weight": 2.0, "hits": 1.0, "quality": 1.45}]

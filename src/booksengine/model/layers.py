@@ -44,6 +44,11 @@ LIKE_ALS = (0.0, 0.1, 0.25, 0.5, 0.75)   # вес ALS в толпе «ценно
 # 80% — решение пользователя 2026-09-25 (вкус 2 угадывает 88%, 3 — 78%); проверяется журналом выдач
 GUARD = 0.8
 DNF_TASTE_DROP = 0.5   # недочитанная во входе вкуса — на столько ниже обычной оценки книги (`Layers.taste_input`)
+# Оценка во входе вкуса — не ниже обычной оценки книги минус столько. Вкус читает отклонение от обычной, и одна 1★ при
+# обычной 4.0 — самый сильный сигнал профиля: у пользователя «Белые ночи» 1★ были главным доводом вкуса у 11 книг из
+# 40. Замер не меняется (валидация 2026-09-27, ±0.002 при том же числе угаданных: таких оценок в данных мало), решает
+# смысл оценок — одна плохая книга не приговор (как мягкие минусы во входе толпы). У пользователя другие 4 книги из 40.
+LOW_TASTE_FLOOR = 1.5
 JUDGE_STARS = np.array([-1.0, -0.5, 0.5, 1.0, 2.0])   # ценность угаданной книги с оценкой 1★ … 5★
 STARS = tuple(f"s{k}" for k in range(1, 6))           # доля угаданных с оценкой k★
 BASE = tuple(f"b{k}" for k in range(1, 6))            # то же среди всего прочитанного — «случайные из прочитанного»
@@ -134,7 +139,7 @@ class Layers:
 
     def taste_prediction(self, inputs: sp.csr_matrix) -> np.ndarray:
         """Прогноз оценки 1–5 модели вкуса по всем книгам ядра — признак шанса «понравится»."""
-        return self.taste.score(inputs)
+        return self.taste.score(self.taste_input(inputs))
 
     def like_parts(self, inputs: sp.csr_matrix, dnf: sp.csr_matrix | None = None) -> tuple[np.ndarray, np.ndarray]:
         """z(ALS) и z(EASE «ценность») по книгам EASE — толпа «ценность» при любом весе ALS без пересчёта."""
@@ -162,16 +167,16 @@ class Layers:
         отклонение от обычной оценки, и 1★ при обычных ~4 было самым сильным сигналом профиля: одна брошенная книга
         поднимала «её противоположность» («Цветы на чердаке» у пользователя — от «Вина из одуванчиков»; 1.5★ и 2★ —
         то же). «Не дочитал» — мягкий минус (решение пользователя); во входе EASE такая книга весит 0 (`mix.DNF_INPUT`).
-        В датасете недочитанных нет — на замеры не влияет."""
-        if dnf is None or dnf.nnz == 0:
-            return inputs
+        В датасете недочитанных нет — на замеры не влияет. Любая оценка — не ниже обычной на LOW_TASTE_FLOOR."""
         x = inputs.tocsr().astype(np.float32, copy=True)
-        d = dnf.tocsr()
-        for r in range(x.shape[0]):
-            a, b = x.indptr[r], x.indptr[r + 1]
-            hit = np.isin(x.indices[a:b], d.indices[d.indptr[r]:d.indptr[r + 1]])
-            cols = x.indices[a:b][hit]
-            x.data[a:b][hit] = self.taste.mu + self.taste.item_bias[cols] - DNF_TASTE_DROP
+        usual = self.taste.mu + self.taste.item_bias[x.indices]
+        if dnf is not None and dnf.nnz:
+            d = dnf.tocsr()
+            for r in range(x.shape[0]):
+                a, b = x.indptr[r], x.indptr[r + 1]
+                hit = np.isin(x.indices[a:b], d.indices[d.indptr[r]:d.indptr[r + 1]])
+                x.data[a:b][hit] = usual[a:b][hit] - DNF_TASTE_DROP
+        x.data = np.maximum(x.data, usual - LOW_TASTE_FLOOR)
         return x
 
     def taste_z(self, inputs: sp.csr_matrix, dnf: sp.csr_matrix | None = None) -> np.ndarray:
@@ -551,13 +556,20 @@ W4, W5 = (-1.0, -0.5, 0.5, 1.0, 2.0), (0.0, 0.0, 0.5, 1.0, 2.0)
 # Веса звёзд выбраны по смыслу оценок (решение пользователя 2026-09-25): W4 — наравне с лучшим по замеру (0.470 против
 # 0.473 у W1, разница в пределах шума). Подбирается только λ — иначе ночь вернула бы W1 по шуму.
 LIKE_GRID = [(lam, W4) for lam in (250.0, 500.0)]
+# Связь толпы «ценность» (вес EASE) — только если обе книги прочли не меньше стольких людей обучения. Половина весов
+# держалась на < 25 общих читателях, и у профиля, где книг одной области мало, такие связи решали список: у Леры
+# «Язык программирования C» и «A Mind for Numbers» — от «Понедельник начинается в субботу» (7 и 6 общих читателей).
+# Замер не меняется (валидация 2026-09-27: ±0.001 при k = 10/25/50); 25 — по спискам профилей: при 10 в нон-фикшн
+# Леры возвращается программирование, при 50 — книга без перевода и «2016 on Goodreads».
+MIN_SUPPORT = 25
 # Каждая настройка судится этими вариантами тем же судьёй, что `layers val` (`choose`): без вкуса, со вкусом, со вкусом
 # внутри первых 300 толпы. Весь перебор веса вкуса и ALS — потом, `layers val` на выбранной толпе.
 LIKE_JUDGED = (Variant("like", 0.0, None, 0.25), Variant("like", 1.0, None, 0.25), Variant("like", 1.0, 300, 0.25))
 
 
 def _setting(row: dict) -> tuple:
-    return float(row["lam"]), tuple(float(w) for w in row["weights"]), int(row.get("min_user", 20))
+    return (float(row["lam"]), tuple(float(w) for w in row["weights"]), int(row.get("min_user", 20)),
+            int(row.get("min_support", 0)))
 
 
 def _same_numbers(old: dict, new: dict) -> bool:
@@ -570,13 +582,15 @@ def _same_numbers(old: dict, new: dict) -> bool:
 
 
 def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: Path, grid=LIKE_GRID,
-              fit_kw: dict | None = None, force: bool = False, min_user: int = 20) -> dict:
+              fit_kw: dict | None = None, force: bool = False, min_user: int = 20,
+              min_support: int = MIN_SUPPORT) -> dict:
     """Обучает толпу «ценность» с каждой настройкой и судит её вариантами LIKE_JUDGED тем же судьёй, что `layers val`:
     качество списка у лучшего варианта из тех, что угадывают не меньше GUARD от сохранённой толпы без вкуса; если не угадывает
     ни один — настройка не подходит. Нынешняя — сохранённая толпа (первая в переборе) с вариантом из models/layers,
     без него — первый из LIKE_JUDGED. Лучшая настройка записывается в models/ease_like и models/mix_like; force —
     записать последнюю настройку сетки, даже если она хуже (решение пользователя); min_user — обучать новые настройки
-    только на людях с ≥ min_user оценок (сохранённая — со своим порогом).
+    только на людях с ≥ min_user оценок (сохранённая — со своим порогом); min_support — обнулять связи новых настроек,
+    за которыми меньше min_support общих читателей (`ease.EASELike`).
 
     Сохранённую толпу новая настройка сменяет, только если лучше неё уверенно: парная разность качества на тех же людях
     (лучший вариант настройки против лучшего варианта сохранённой) выше нуля по всему 95% интервалу — иначе выбор
@@ -598,10 +612,11 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
     chosen = read_params(models_dir / "layers").get("variant") if (models_dir / "layers" / "params.json").exists() else None
     now = Variant(**chosen) if chosen and chosen["crowd"] == "like" else LIKE_JUDGED[0]
     judged = list(dict.fromkeys([now, *LIKE_JUDGED, ANCHOR_LIKE]))
-    grid = [(float(lam), normalize_weights(w), int(min_user)) for lam, w in grid]
+    grid = [(float(lam), normalize_weights(w), int(min_user), int(min_support)) for lam, w in grid]
     saved = read_params(models_dir / "ease_like") if (models_dir / "ease_like" / "params.json").exists() else {}
     if saved:  # сохранённая толпа — всегда точка сравнения: без неё прогон из одной настройки записал бы худшую
-        cur = (float(saved["lam"]), tuple(saved.get("weights", W0)), int(saved.get("min_user", 20)))
+        cur = (float(saved["lam"]), tuple(saved.get("weights", W0)), int(saved.get("min_user", 20)),
+               int(saved.get("min_support", 0)))
         grid = [cur] + [g for g in grid if g != cur]
     path = eval_dir / "ease_like_tune.json"
     users = [int(u) for u in hold.user_ids]
@@ -615,9 +630,9 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
     reuse = False
     results, best, best_model, baseline, ref_q = [], None, None, None, None
     eval_dir.mkdir(parents=True, exist_ok=True)
-    for lam, weights, mu in grid:
-        is_saved = bool(saved) and cur == (lam, weights, mu)
-        old = prev.get((lam, weights, mu))
+    for lam, weights, mu, ms in grid:
+        is_saved = bool(saved) and cur == (lam, weights, mu, ms)
+        old = prev.get((lam, weights, mu, ms))
         if reuse and old is not None and not is_saved:
             row, ease = old | {"saved": False, "reused": True}, None
         else:
@@ -625,7 +640,7 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
             if is_saved:
                 ease = EASE.load(models_dir / "ease_like")
             else:
-                ease = EASELike(lam=lam, weights=weights, min_user=mu, **(fit_kw or {}))
+                ease = EASELike(lam=lam, weights=weights, min_user=mu, min_support=ms, **(fit_kw or {}))
                 ease.fit(train)
             fit_s = round(time.perf_counter() - t0, 1)
             like = Mix(str(models_dir / "als_neg"), str(models_dir / "ease_like"))
@@ -635,7 +650,8 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
             per = evaluate(layers, hold, info, judged, pop=pop)
             summ = summarize(per, judged[0])
             baseline = baseline or anchor(summ)       # опора — сохранённая толпа (первая настройка) без вкуса
-            row = {"lam": lam, "weights": list(weights), "min_user": mu, "fit_seconds": fit_s, "saved": is_saved,
+            row = {"lam": lam, "weights": list(weights), "min_user": mu, "min_support": ms, "fit_seconds": fit_s,
+                   "saved": is_saved,
                    "variants": {r["label"]: {k: r["groups"]["all"][k] for k in
                                              ("quality", "hits", "five_minus_low", *STARS)} for r in summ},
                    "per_user": {v.label(): [None if np.isnan(x) else round(float(x), 5) for x in per[v]["quality"]]
@@ -657,22 +673,22 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
         v = -np.inf if top is None else _mean(top, "quality")
         how = ("уже посчитано в прошлый прогон" if row.get("reused")
                else f"обучение {row['fit_seconds']} с")
-        print(f"«ценность» λ = {lam:g}, веса {weights}, люди с ≥ {mu} оценок: "
+        print(f"«ценность» λ = {lam:g}, веса {weights}, люди с ≥ {mu} оценок, опора связи ≥ {ms}: "
               + (f"качество списка {v:.3f} ({row['best_short']})" if top is not None
                  else f"не подходит — ни один вариант не угадывает {GUARD:.0%} от сохранённой толпы без вкуса")
               + ("" if d is None or is_saved else f", разница с сохранённой {_f(d, True)}{_ci(d)}")
               + f", {how}", flush=True)
         path.write_text(json.dumps({"user_ids": users, "results": results}, ensure_ascii=False))
-        last = (lam, weights, mu) == grid[-1]
+        last = (lam, weights, mu, ms) == grid[-1]
         if (force and last) or (not force and (best is None or (sure and v > best))):
-            best, best_model = v, (lam, weights, mu, ease)
+            best, best_model = v, (lam, weights, mu, ms, ease)
         else:
             del ease
-    lam, weights, mu, ease = best_model
-    if not (saved and cur == (lam, weights, mu)):
+    lam, weights, mu, ms, ease = best_model
+    if not (saved and cur == (lam, weights, mu, ms)):
         if ease is None:   # лучшая посчитана в прошлый прогон — обучить заново, чтобы записать
             print(f"«ценность» λ = {lam:g}, веса {weights}: обучаю заново, чтобы записать", flush=True)
-            ease = EASELike(lam=lam, weights=weights, min_user=mu, **(fit_kw or {}))
+            ease = EASELike(lam=lam, weights=weights, min_user=mu, min_support=ms, **(fit_kw or {}))
             ease.fit(train)
         ease.save(models_dir / "ease_like")
         mix = Mix(models_dir / "als_neg", models_dir / "ease_like")
@@ -680,18 +696,20 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
         mix.configure(als_weight=0.5, ease_input=weights)
         mix.save(models_dir / "mix_like")
     return {"results": results, "floor": GUARD * _mean(baseline, "hits"),
-            "best": {"lam": lam, "weights": list(weights), "min_user": mu},
-            "kept": bool(saved) and cur == (lam, weights, mu)}
+            "best": {"lam": lam, "weights": list(weights), "min_user": mu, "min_support": ms},
+            "kept": bool(saved) and cur == (lam, weights, mu, ms)}
 
 
 def _setting_name(r: dict) -> str:
-    who = "" if r.get("min_user", 20) == 20 else f", люди с ≥ {r['min_user']} оценок"
+    who = ("" if r.get("min_user", 20) == 20 else f", люди с ≥ {r['min_user']} оценок") + (
+        f", опора связи ≥ {r['min_support']}" if r.get("min_support") else "")
     return f"λ {r['lam']:g}, веса {'/'.join(f'{w:g}' for w in r['weights'])}{who}"
 
 
 def report_like(res: dict) -> str:
     b = res["best"]
-    best = next(r for r in res["results"] if _setting(r) == (b["lam"], tuple(b["weights"]), b.get("min_user", 20)))
+    best = next(r for r in res["results"]
+                if _setting(r) == (b["lam"], tuple(b["weights"]), b.get("min_user", 20), b.get("min_support", 0)))
     if res.get("kept", best.get("saved")):
         verdict = f"**Сохранённая толпа осталась: {_setting_name(best)}** — ни одна настройка не лучше уверенно."
     else:

@@ -114,15 +114,17 @@ class EASELike(EASE):
     B = argmin |Y − Xw·B|² + λ|B|², diag B = 0: B = P·XwᵀY − P·diag(μ), P = (XwᵀXw + λI)⁻¹,
     μ_j = (P·XwᵀY)_jj / P_jj (формула сверена с прямым решением по столбцам, tests/test_ease.py).
     Столбцы B считаются блоками и сразу урезаются до topk соседей: вторая плотная матрица n × n не нужна.
+    min_support — вес B[i, j] обнуляется, если обе книги прочли меньше min_support людей обучения (`support_counts`):
+    связь на единицах общих читателей — их случайный вкус, а не свойство книг.
     Формат на диске — как у EASE: смесь (`Mix`) подаёт в него те же взвешенные звёзды.
     """
     name = "ease_like"
 
     def __init__(self, lam: float = 500.0, n_top: int = 30_000, block: int = 2_000, topk: int = 500,
-                 weights=(-2.0, -1.0, 0.0, 1.0, 2.0), min_user: int = 20):
+                 weights=(-2.0, -1.0, 0.0, 1.0, 2.0), min_user: int = 20, min_support: int = 0):
         super().__init__(lam, n_top, block)
         self.topk_target, self.weights = int(topk), normalize_weights(weights)
-        self.min_user = int(min_user)
+        self.min_user, self.min_support = int(min_user), int(min_support)
 
     def fit(self, train: RatingMatrix) -> None:
         """min_user — учиться только на людях с ≥ min_user оценок (гипотеза пользователя: читающие последовательнее).
@@ -166,6 +168,12 @@ class EASELike(EASE):
             cols.append(np.repeat(np.arange(a, b), k))
             vals.append(np.take_along_axis(D, part, axis=0).ravel(order="F"))
         self._B = sp.csc_matrix((np.concatenate(vals), (np.concatenate(rows), np.concatenate(cols))), shape=(n, n))
+        del P, D
+        if self.min_support:
+            Xb = train.X[np.flatnonzero(train.X.getnnz(axis=1) >= self.min_user)][:, self.top_cols].tocsc()
+            self._B = self._B.tocsc()
+            self._B.sort_indices()
+            self._B.data[support_counts(self._B, Xb, self.block) < self.min_support] = 0.0
         self._B.eliminate_zeros()
         self.topk, self.B_full = k, None
 
@@ -176,4 +184,21 @@ class EASELike(EASE):
     def save(self, path: Path) -> None:
         super().save(path)
         p = read_params(path)
-        write_params(path, p | {"target": "rating-3", "weights": list(self.weights), "min_user": self.min_user})
+        write_params(path, p | {"target": "rating-3", "weights": list(self.weights), "min_user": self.min_user,
+                                "min_support": self.min_support})
+
+
+def support_counts(B: sp.csc_matrix, X: sp.csc_matrix, block: int = 2_000) -> np.ndarray:
+    """Опора каждого хранимого веса B[i, j] (порядок B.data, столбцы B — столбцы X): сколько строк X (людей)
+    содержат обе книги. Счёт блоками столбцов, как XᵀX в `EASE.fit`."""
+    Xb = X.tocsc(copy=True)
+    Xb.data[:] = 1.0
+    XbT = Xb.T.tocsr()
+    out = np.zeros(B.nnz, dtype=np.float32)
+    for a in range(0, B.shape[1], block):
+        b = min(a + block, B.shape[1])
+        C = (XbT @ Xb[:, a:b]).toarray()
+        for j in range(a, b):
+            s, e = B.indptr[j], B.indptr[j + 1]
+            out[s:e] = C[B.indices[s:e], j - a]
+    return out

@@ -185,8 +185,10 @@ def layers(stage: str = typer.Argument(..., help="val | test | profiles"),
 def ease_like_tune(lam: float = typer.Option(None, help="одна настройка вместо сетки: λ"),
                    weights: str = typer.Option(None, help="одна настройка: веса 1★…5★ через запятую, например 2,4,8,16,32"),
                    force: bool = typer.Option(False, "--force", help="записать эту настройку, даже если она не лучшая"),
-                   min_user: int = typer.Option(20, "--min-user", help="обучать только на людях с ≥ N оценок")
-                   ) -> None:
+                   min_user: int = typer.Option(20, "--min-user", help="обучать только на людях с ≥ N оценок"),
+                   min_support: int = typer.Option(None, "--min-support",
+                                                   help="связь книг — только при ≥ N общих читателях (по умолчанию "
+                                                        "layers.MIN_SUPPORT)")) -> None:
     """Подбор толпы «ценность» (λ, веса звёзд) на валидации → лучшая в models/ease_like и models/mix_like;
     сетка ~50–70 мин. Сохранённая толпа всегда в сравнении; --lam / --weights — проверить одну настройку против неё
     (без --weights берутся −2/−1/0/1/2). После — `layers val` и `layers test`."""
@@ -198,7 +200,8 @@ def ease_like_tune(lam: float = typer.Option(None, help="одна настрой
                  tuple(float(w) for w in weights.split(",")) if weights else ly.W0)]
     text = ly.report_like(ly.tune_like(clean_dir=CLEAN_DIR, split_dir=SPLIT_DIR, models_dir=MODELS_DIR,
                                        eval_dir=EVAL_DIR, grid=grid, force=force and (lam is not None or bool(weights)),
-                                       min_user=min_user))
+                                       min_user=min_user,
+                                       min_support=ly.MIN_SUPPORT if min_support is None else min_support))
     REPORTS_DIR.mkdir(exist_ok=True)
     (REPORTS_DIR / "ease_like_tune.md").write_text(text)
     print(text)

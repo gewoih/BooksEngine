@@ -113,3 +113,32 @@ def test_ease_like_min_user_trains_only_on_readers_but_keeps_books():
     b.fit(RatingMatrix(sp.csr_matrix(R[heavy]), heavy, np.arange(10)))
     np.testing.assert_allclose(a._B.toarray(), b._B.toarray(), atol=1e-5)
     np.testing.assert_array_equal(a.top_cols, np.arange(10))
+
+
+def test_support_counts_match_direct_count():
+    from booksengine.model.ease import support_counts
+    X = data().X.tocsc()
+    B = sp.random(12, 12, density=0.5, format="csc", random_state=1)
+    B.sort_indices()
+    got = support_counts(B, X, block=5)
+    Xb = (X.toarray() > 0).astype(int)
+    rows = np.repeat(np.arange(12), np.diff(B.indptr))       # столбец каждого веса
+    want = [(Xb[:, i] & Xb[:, j]).sum() for i, j in zip(B.indices, rows)]
+    assert got.tolist() == want
+
+
+def test_ease_like_min_support_zeroes_links_on_few_common_readers():
+    from booksengine.model.ease import EASELike, support_counts
+    d = data()
+    full = EASELike(lam=2.0, n_top=12, block=5, topk=12, min_user=0)
+    full.fit(d)
+    cut = EASELike(lam=2.0, n_top=12, block=5, topk=12, min_user=0, min_support=6)
+    cut.fit(d)
+    B, C = full._B.tocsc(), cut._B.tocsc()
+    B.sort_indices()
+    s = support_counts(B, d.X[:, full.top_cols], block=5)
+    weak = B.copy()
+    weak.data = np.where(s < 6, 0.0, B.data)
+    weak.eliminate_zeros()
+    assert 0 < (s < 6).sum() < len(s)                        # в данных есть и слабые, и крепкие связи
+    np.testing.assert_allclose(C.toarray(), weak.toarray(), atol=1e-6)
