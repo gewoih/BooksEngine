@@ -51,13 +51,25 @@ genres). `links.csv` пока не читаем — он для TMDB (шаг 3 �
 
 1. Загрузка `ratings.csv` + `movies.csv` → очистка (см. выше) → экспорт в `data/movies/clean/`.
 2. `split.build(ratings_path, users_path, data/movies/model/split, ...)` — без изменений кода.
-3. `taste.tune(ratings_path=..., split_dir=..., models_dir=data/../models/movies, eval_dir=...)`.
-4. `layers.tune_like(clean_dir=..., split_dir=..., models_dir=models/movies, eval_dir=...)` (это и есть
+3. **Старая смесь-опора** (уточнение при планировании — ниже) — `evaluate.tune("als_neg", ...)`,
+   `evaluate.tune("ease", ...)`, `evaluate.tune("mix", ..., grid=[путь к movies-моделям])`.
+4. `taste.tune(ratings_path=..., split_dir=..., models_dir=data/../models/movies, eval_dir=...)`.
+5. `layers.tune_like(clean_dir=..., split_dir=..., models_dir=models/movies, eval_dir=...)` (это и есть
    `ease-like-tune`).
-5. `layers.run("val", ...)`, затем `layers.run("test", ...)`.
+6. `layers.run("val", ...)`, затем `layers.run("test", ...)`.
 
-Модели — `models/movies/{taste, ease_like, mix_like, layers}`, отчёты — `reports/movies_{taste_val,
+Модели — `models/movies/{als_neg, ease, mix, taste, ease_like, mix_like, layers}`, отчёты — `reports/movies_{taste_val,
 ease_like_tune, layers_val, layers_test}.md`, теми же функциями `report()` / `report_like()`, что у книг.
+
+**Уточнение при планировании.** `layers.Layers.from_models` безусловно грузит `models_dir/"mix"` (старая
+смесь ALS+EASE по оценкам) — она нужна `layers.run` как опора сравнения (`REFERENCE`), даже когда интересует
+только толпа «ценность». Обучить её — `evaluate.tune("als_neg")` → `evaluate.tune("ease")` → `evaluate.tune("mix")`
+(тот же путь, что `booksengine evaluate <model> val` у книг). Ловушка: `evaluate.MODELS["mix"]` на уровне модуля
+зашивает пути `als_dir`/`ease_dir` через глобальный (книжный) `MODELS_DIR` — если позвать `tune("mix")` без
+своего `grid`, он подхватит книжные ALS/EASE вместо фильмовых. Обходится без изменений кода — `tune()` и так
+принимает `grid` параметром (как `--weights` у `ease-like-tune`): передаём свой grid с
+`als_dir=str(models/movies/als_neg)`, `ease_dir=str(models/movies/ease)`, копией остальной сетки `MODELS["mix"]`
+из `evaluate.py`.
 
 Долгие шаги (весь прогон — split на 32М строк, обучение ALS/EASE) — в фоне, лог в `reports/` (правило проекта
 для долгих прогонов на Mac пользователя).
