@@ -50,6 +50,8 @@ def export(con: duckdb.DuckDBPyConnection, out_dir: Path) -> dict:
                 f"NULL::SMALLINT AS position WHERE false) TO '{out_dir / 'work_authors.parquet'}' {opts}")
     con.execute(f"COPY (SELECT NULL::BIGINT AS author_id, NULL::VARCHAR AS name WHERE false) "
                 f"TO '{out_dir / 'authors.parquet'}' {opts}")
+    con.execute(f"COPY (SELECT NULL::BIGINT AS shadow_work_id, NULL::BIGINT AS main_work_id WHERE false) "
+                f"TO '{out_dir / 'work_merges.parquet'}' {opts}")
     counts = con.execute(
         "SELECT count(*), count(DISTINCT user_id), count(DISTINCT work_id) FROM ratings_w").fetchone()
     return {"ratings": counts[0], "users": counts[1], "works": counts[2]}

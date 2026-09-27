@@ -68,6 +68,10 @@ def test_export_writes_ratings_users_works_and_trivial_author_tables(con, tmp_pa
     assert list(ratings.columns) == ["user_id", "work_id", "rating"]
     assert len(ratings) == 3
 
+    work_merges = pd.read_parquet(tmp_path / "work_merges.parquet")
+    assert list(work_merges.columns) == ["shadow_work_id", "main_work_id"]
+    assert len(work_merges) == 0
+
     users = pd.read_parquet(tmp_path / "users.parquet")
     assert sorted(users.user_id) == [1, 2]
     assert (users.user_id == users.external_id).all()
