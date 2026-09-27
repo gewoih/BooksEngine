@@ -26,6 +26,13 @@ RAW_DIR = Path(os.environ.get("RAW_DIR", "~/Downloads")).expanduser()
 DOMAIN = os.environ.get("BOOKSENGINE_DOMAIN", "books")
 
 
+def domain_profiles(profiles_dir: Path, domain: str) -> list[Path]:
+    """Профили домена: у фильмов — `<имя>_movies.csv`, у книг — остальные CSV папки. Без разбора книжные команды
+    брали и профиль фильмов и падали на нём (в нём нет goodreads_work_id)."""
+    movies = sorted(profiles_dir.glob("*_movies.csv"))
+    return movies if domain == "movies" else [p for p in sorted(profiles_dir.glob("*.csv")) if p not in movies]
+
+
 def domain_dirs(project_root: Path, domain: str) -> tuple[Path, Path]:
     """(data_dir, models_dir) для домена — чистая функция, без чтения окружения (тестируется без .env/env)."""
     return project_root / "data" / domain, project_root / "models" / domain

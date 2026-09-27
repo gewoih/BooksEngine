@@ -19,7 +19,7 @@
 Топ-20 в замере собирается правилами выдачи (`filters.ListPicker`): судья видит тот же список, что и человек.
 """
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -29,9 +29,10 @@ import scipy.sparse as sp
 from booksengine.model import metrics
 from booksengine.model.base import fingerprint, read_params
 from booksengine.model.mix import Mix, _z
-from booksengine.model.split import BUCKET_ORDER
+from booksengine.model.split import BUCKET_ORDER, SEED
 from booksengine.model.taste import Taste
 from booksengine.model.taste_gap import graded_auc
+from booksengine.paths import domain_profiles
 
 # толпа «прочитал» замерена 2026-09-24 и отклонена (Low@20 8.7% → 11–14%); остаётся в коде для повторного замера
 CROWDS = ("mix",)
@@ -49,6 +50,12 @@ BASE = tuple(f"b{k}" for k in range(1, 6))            # то же среди в�
 CHECKED = ("quality", "hits")                          # среднее с интервалом и парная разность с нынешней
 # только среднее: распределение по звёздам, прежние судьи, сколько книг списка общие с нынешней выдачей
 MEANS = STARS + BASE + ("base_quality", "five_minus_low", "value20", "same", "known")
+# Контроль «шум вместо вкуса»: толпа и отсечение выбранного варианта, вместо z(вкус) — случайные числа с такими же
+# весами. Качество растёт и от шума: чем дальше список от верхушки толпы, тем больше среди угаданных малоизвестных
+# книг, а их человек выбирал сам и ставит им выше (валидация 2026-09-27, угадано 2.76: шум +0.017 к толпе, штраф за
+# известность +0.028, вкус +0.084). «Сверх шума» — качество минус качество шума при том же числе угаданных: сколько
+# дал сам вкус. Сравнивать варианты с разным числом угаданных по сырому качеству нельзя — у смелого фора.
+NOISE_WEIGHTS = (0.0, 1.0, 2.0, 3.0, 5.0, 8.0)
 
 
 @dataclass(frozen=True)
@@ -198,17 +205,16 @@ def popularity(ratings_path: Path, work_ids: np.ndarray) -> np.ndarray:
 
 
 def evaluate(layers: Layers, hold, info: pd.DataFrame, variants: list[Variant], batch: int = 500,
-             pop: np.ndarray | None = None) -> dict:
+             pop: np.ndarray | None = None, taste=None) -> dict:
     """Метрики по людям для каждого варианта (баллы толпы и вкуса считаются один раз на пачку). Топ-20 — по правилам
     выдачи (`filters.ListPicker`), «уже оценено по сути» — по входу человека. `same` — сколько книг списка общие
     со списком первого варианта (нынешней выдачи); `known` — медиана числа оценок книг списка (pop — `popularity`):
-    растёт ли доля менее известных книг с профилем."""
+    растёт ли доля менее известных книг с профилем. taste(X) — z-балл вместо вкуса (контроль `noise_curve`)."""
     from booksengine.model.filters import ListPicker, RatedFilter, pick_top
-    from booksengine.model.series import SeriesIndex
     top = layers.mix.ease.top_cols
     pos_of = np.full(hold.inputs.shape[1], -1)
     pos_of[top] = np.arange(len(top))
-    picker = ListPicker(info, SeriesIndex(info.title.tolist()))
+    picker = ListPicker(info)
     exclude = (hold.inputs if hold.exclude is None else hold.exclude).tocsr()
     rows = {v: [] for v in variants}
     for s in range(0, len(hold.user_ids), batch):
@@ -218,13 +224,13 @@ def evaluate(layers: Layers, hold, info: pd.DataFrame, variants: list[Variant], 
             za, ze = layers.like_parts(X)
             for w in {v.als_weight for v in variants if v.crowd == "like"}:
                 crowds[("like", w)] = w * za + (1 - w) * ze
-        taste = layers.taste_z(X)
+        tz = layers.taste_z(X) if taste is None else taste(X)
         excl = (exclude[s:s + batch][:, top].toarray() != 0)
         rated = [RatedFilter(picker.books, X.indices[X.indptr[i]:X.indptr[i + 1]]) for i in range(X.shape[0])]
         first = None
         for v in variants:
-            sc = layers.combine(crowds[("like", v.als_weight) if v.crowd == "like" else v.crowd], taste, excl, v)
-            lists = pick_top(sc, top, pos_of, picker, rated, metrics.K)
+            sc = layers.combine(crowds[("like", v.als_weight) if v.crowd == "like" else v.crowd], tz, excl, v)
+            lists = pick_top(sc, top, picker, rated, metrics.K)
             first = lists if first is None else first
             for i in range(sc.shape[0]):
                 u = s + i
@@ -245,6 +251,34 @@ def evaluate(layers: Layers, hold, info: pd.DataFrame, variants: list[Variant], 
                     row[f"b{k}"] = float((base == k).mean()) if len(base) else np.nan
                 rows[v].append(row)
     return {v: pd.DataFrame(r) for v, r in rows.items()}
+
+
+def noise_curve(layers: Layers, hold, info: pd.DataFrame, v: Variant) -> list[dict]:
+    """Кривая «угадано → качество» у контроля «шум вместо вкуса» (`NOISE_WEIGHTS`) на толпе и отсечении варианта v."""
+    rng = np.random.default_rng(SEED)
+    n = len(layers.mix.ease.top_cols)
+    vs = [replace(v, taste_weight=w) for w in NOISE_WEIGHTS]
+    per = evaluate(layers, hold, info, vs, taste=lambda X: rng.standard_normal((X.shape[0], n)))
+    return [{"taste_weight": w, "hits": float(per[x].hits.mean()), "quality": float(per[x].quality.mean())}
+            for w, x in zip(NOISE_WEIGHTS, vs)]
+
+
+def noise_at(curve: list[dict], hits: float) -> float | None:
+    """Качество шума при том же числе угаданных (линейно между точками кривой); вне кривой — None."""
+    h = np.array([p["hits"] for p in curve])
+    q = np.array([p["quality"] for p in curve])
+    if not h.min() <= hits <= h.max():
+        return None
+    o = np.argsort(h)
+    return float(np.interp(hits, h[o], q[o]))
+
+
+def add_above_noise(summary: list[dict], curve: list[dict]) -> None:
+    """«Сверх шума» у каждой строки summary (по всем людям): качество минус качество шума при её числе угаданных."""
+    for r in summary:
+        g = r["groups"]["all"]
+        q = noise_at(curve, g["hits"]["mean"])
+        g["above_noise"] = None if q is None or g["quality"]["mean"] is None else g["quality"]["mean"] - q
 
 
 def summarize(per_user: dict[Variant, pd.DataFrame], reference: Variant, n_boot: int = 1000) -> list[dict]:
@@ -344,6 +378,8 @@ def run(stage: str, *, clean_dir: Path, split_dir: Path, models_dir: Path, eval_
              "components": Layers.component_fingerprints(models_dir)}, ensure_ascii=False, indent=1))
     else:
         res["chosen"] = saved["variant"]
+    res["noise"] = noise_curve(layers, hold, info, Variant(**res["chosen"]))
+    add_above_noise(summary, res["noise"])
     eval_dir.mkdir(parents=True, exist_ok=True)
     (eval_dir / f"layers_{stage}.json").write_text(json.dumps(res, ensure_ascii=False, indent=1))
     return res
@@ -368,8 +404,10 @@ HOW_TO_READ = ("Судится список из 20 книг по тем его 
                "внутри двадцати не важен. **Качество** — средняя ценность угаданных: 5★ = 2, 4★ = 1, 3★ = 0.5, "
                "2★ = −0.5, 1★ = −1 (сначала по человеку, потом по людям). **5★ … 1★** — как угаданные распределены по "
                "оценкам. **Разница** — с нынешним на тех же людях, в скобках 95% интервал: новое сменяет нынешнее, только "
-               "если интервал целиком выше нуля. **Угадано** — книг из списка, прочитанных человеком; ограничение — не "
-               f"меньше {GUARD:.0%} от толпы без вкуса.")
+               "если интервал целиком выше нуля. **Сверх шума** — качество минус качество контроля «шум вместо вкуса» "
+               "при том же числе угаданных: сколько дал сам вкус (от ухода к малоизвестным книгам качество растёт и "
+               "без вкуса — их человек выбирал сам). **Угадано** — книг из списка, прочитанных человеком; ограничение — "
+               f"не меньше {GUARD:.0%} от толпы без вкуса.")
 
 
 def short(v: Variant) -> str:
@@ -403,12 +441,17 @@ def report(res: dict) -> str:
         f" (порог {floor:.2f})." if floor is not None else f" ({gc['hits']['mean']:.2f} у {was[:-2]}его).")
     lines = [f"# Слои «толпа + вкус» — {'валидация' if stage == 'val' else 'тест'}, {res['n_users']} человек", "",
              verdict]
+    if res.get("noise") and gn.get("above_noise") is not None:
+        crowd_q = res["noise"][0]["quality"]
+        noise_q = gn["quality"]["mean"] - gn["above_noise"]
+        lines.append(f"Сверх шума: {gn['above_noise']:+.3f} — столько дал сам вкус; случайный сдвиг от толпы при том же "
+                     f"числе угаданных дал бы {noise_q - crowd_q:+.3f} (толпа без вкуса — {crowd_q:.3f}).")
     if stage == "val":
         lines.append(f"Прежние судьи выбрали бы: «доля 5★ − доля 1–2★» — {short(Variant(**_by_label(rows, res.get('chosen_by_share'))))}; "
                      f"сумма (оценка − 3) угаданных — {short(Variant(**_by_label(rows, res['chosen_by_value'])))}.")
-    lines += ["", "| вариант | качество | разница | 5★ | 4★ | 3★ | 2★ | 1★ | угадано | общих книг | известность |",
-              "|---|---|---|---|---|---|---|---|---|---|---|",
-              f"| *случайные из прочитанного* | {_f(gc['base_quality'])} | | {_stars(gc, BASE)} | | | |"]
+    lines += ["", "| вариант | качество | разница | сверх шума | 5★ | 4★ | 3★ | 2★ | 1★ | угадано | общих книг | известность |",
+              "|---|---|---|---|---|---|---|---|---|---|---|---|",
+              f"| *случайные из прочитанного* | {_f(gc['base_quality'])} | | | {_stars(gc, BASE)} | | | |"]
     by_quality = sorted(rows, key=lambda r: -_mean(r, "quality"))
     if stage == "val":
         best = {r["label"] for r in [r for r in by_quality if _mean(r, "hits") >= floor][:SHOWN]}
@@ -421,8 +464,9 @@ def report(res: dict) -> str:
         mark = (" **← выбран**" if v == chosen else "") + (f" ({was})" if v == current else "")
         if floor is not None and g["hits"]["mean"] < floor:
             mark += " (мало угадывает)"
+        above = "—" if g.get("above_noise") is None else f"{g['above_noise']:+.3f}"
         lines.append(f"| {short(v)}{mark} | {_f(g['quality'])} | {_f(g['quality_diff'], True)}{_ci(g['quality_diff'])} | "
-                     f"{_stars(g)} | {g['hits']['mean']:.2f} | {g['same']['mean']:.1f} | {_known(g)} |")
+                     f"{above} | {_stars(g)} | {g['hits']['mean']:.2f} | {g['same']['mean']:.1f} | {_known(g)} |")
     if len(shown) < len(rows):
         lines += ["", f"Остальные варианты ({len(rows) - len(shown)}) — в models/eval/layers_{stage}.json."]
     groups = [b for b in BUCKET_ORDER if b in rows[0]["groups"]]
@@ -451,7 +495,7 @@ def _by_label(rows: list[dict], label: str | None) -> dict:
 
 
 def profiles(*, clean_dir: Path, models_dir: Path, profiles_dir: Path, top: int = 20) -> str:
-    """Топ-N каждого профиля profiles/*.csv: прежняя выдача (до последнего `layers val`) и выбранная рядом — поиск
+    """Топ-N каждого книжного профиля (`paths.domain_profiles`): прежняя выдача (до последнего `layers val`) и выбранная рядом — поиск
     дефектов глазами."""
     from booksengine.model.filters import ListPicker, RatedFilter, pick_top, work_info
     from booksengine.model.matrix import catalog_works
@@ -464,22 +508,20 @@ def profiles(*, clean_dir: Path, models_dir: Path, profiles_dir: Path, top: int 
     chosen = Variant(**saved["variant"])
     ref = Variant(**saved.get("baseline", asdict(Variant(*REFERENCE))))   # прежняя выдача — до последнего `layers val`
     top_cols = layers.mix.ease.top_cols
-    pos_of = np.full(len(work_ids), -1)
-    pos_of[top_cols] = np.arange(len(top_cols))
     series = SeriesIndex(info.title.tolist())
-    picker = ListPicker(info, series)
+    picker = ListPicker(info)
     out = [f"# Топ-{top} на профилях: прежняя выдача «{ref.label()}» и выбранная «{chosen.label()}»", "",
-           "Списки собраны правилами выдачи (без сборников, поздний том — первой книгой серии, книг одного автора — "
+           "Списки собраны правилами выдачи (без сборников и поздних томов неначатых серий, книг одного автора — "
            "не больше одной на каждые 10 мест). Без шанса и объяснения."]
-    for csv in sorted(profiles_dir.glob("*.csv")):
+    for csv in domain_profiles(profiles_dir, "books"):
         prof = read_profile(csv, work_ids, clean_dir)
         if prof.x.nnz == 0:
             continue
-        excl = exclusion(prof.x, series)[:, top_cols].toarray() != 0
+        excl = exclusion(prof.seen(), series)[:, top_cols].toarray() != 0
         crowds = {v: layers.crowd(v.crowd, prof.x, prof.dnf, v.als_weight) for v in (ref, chosen)}
         taste = layers.taste_z(prof.x, prof.dnf)
-        rated = RatedFilter(picker.books, prof.x.indices)
-        lists = {v: pick_top(layers.combine(crowds[v], taste, excl, v), top_cols, pos_of, picker, [rated], top)[0].tolist()
+        rated = RatedFilter(picker.books, np.union1d(prof.x.indices, prof.read))
+        lists = {v: pick_top(layers.combine(crowds[v], taste, excl, v), top_cols, picker, [rated], top)[0].tolist()
                  for v in (ref, chosen)}
         before = set(lists[ref])
         out += ["", f"## {csv.stem} ({prof.x.nnz} оценок)", "",
@@ -698,7 +740,7 @@ def profile_check(*, clean_dir: Path, models_dir: Path, profiles_dir: Path) -> s
            "Каждая оценённая книга по очереди спрятана, выдача посчитана по остальным. Место — среди всех кандидатов "
            "(около 30 000 книг, без оценённых и продолжений начатых серий); меньше — лучше. Хорошо, когда пятёрки "
            "выше четвёрок, четвёрки выше низких. Проверяется только прочитанное — книги, которые человек выбрал сам."]
-    for csv in sorted(profiles_dir.glob("*.csv")):
+    for csv in domain_profiles(profiles_dir, "books"):
         prof = read_profile(csv, work_ids, clean_dir)
         cols = prof.x.indices
         ok = cols[pos_of[cols] >= 0]

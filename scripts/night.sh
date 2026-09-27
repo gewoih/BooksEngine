@@ -30,7 +30,7 @@ step ease-like-tune                 # λ 125/250/500/1000, веса звёзд �
 step layers val && step layers test && step calibrate layers
 step layers profiles
 step profile-check
-for p in profiles/*.csv; do step recommend --ratings "$p"; done
+for p in profiles/*.csv; do [[ $p == *_movies.csv ]] || step recommend --ratings "$p"; done   # профили фильмов — не здесь
 
 echo; echo "=== ИТОГ $(date +%T)"
 grep -h "^Выбрано:" reports/ease_like_tune.md 2>/dev/null || true

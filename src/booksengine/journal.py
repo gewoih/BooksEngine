@@ -16,6 +16,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from booksengine.paths import domain_profiles
+
 
 def save(recs, profile: str, model_fp: str, history_dir: Path,
          bold: list[tuple[int, str, str, str]] | None = None) -> Path:
@@ -106,7 +108,7 @@ def report(profiles_dir: Path, history_dir: Path, clean_dir: Path | None = None)
     out = ["# Журнал выдач: что прочитано из советов и как оценено", "",
            "Прочитанное из советов — книги из выдач, которые теперь оценены в профиле (недочитанная = 1★). Если "
            "добавить в профиль книгу из советов, прочитанную давно, она тоже попадёт сюда."]
-    for csv in sorted(profiles_dir.glob("*.csv")):
+    for csv in domain_profiles(profiles_dir, "books"):
         adv = advised(history_dir, csv.stem)
         if adv.empty:
             continue

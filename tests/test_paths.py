@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from booksengine.paths import domain_dirs
+from booksengine.paths import domain_dirs, domain_profiles
 
 
 def test_domain_dirs_puts_data_and_models_under_domain_name():
@@ -44,3 +44,10 @@ def test_cli_domain_sets_env_before_subcommand(monkeypatch):
     result = CliRunner().invoke(probe_app, ["--domain", "movies", "probe"])
     assert result.exit_code == 0, result.output
     assert seen["domain"] == "movies"
+
+
+def test_domain_profiles_split_books_and_movies(tmp_path):
+    for name in ("my_ratings.csv", "lera_ratings.csv", "my_movies.csv", "notes.txt"):
+        (tmp_path / name).write_text("")
+    assert [p.name for p in domain_profiles(tmp_path, "books")] == ["lera_ratings.csv", "my_ratings.csv"]
+    assert [p.name for p in domain_profiles(tmp_path, "movies")] == ["my_movies.csv"]
