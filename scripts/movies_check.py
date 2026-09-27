@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Фильмы, шаг 1 плана «Фильмы» (TODO.md): MovieLens 32M -> split -> опорная смесь (als_neg+ease+mix, код
-evaluate.py) -> толпа «ценность» (ease-like-tune) -> вкус -> layers val|test. Код model/*.py не меняется —
-только пути и явные grid-параметры. Разовый скрипт, не часть booksengine CLI: домен в CLI (paths.py,
-data/<domain>/, models/<domain>/) — задача шага 2 плана «Фильмы», пока его нет.
+"""Проверка толпы и вкуса на MovieLens: загрузка -> split -> опорная смесь (als_neg+ease+mix, код
+evaluate.py) -> толпа «ценность» (ease-like-tune) -> вкус -> layers val|test. Код model/*.py и
+data/clean.py не меняется — только пути и явные grid-параметры; общий код модели работает с матрицей
+«человек × произведение × оценка», книжной специфики (сборники, дубли произведений) в нём нет.
+Разовый скрипт, не часть booksengine CLI — пути даны напрямую, без домена в paths.py/CLI.
 Дизайн: docs/superpowers/specs/2026-09-27-movies-crowd-taste-check-design.md.
 
 Запуск из корня проекта: uv run python scripts/movies_check.py
-Долгий (часы на 32М строк) — в фоне:
-  uv run python scripts/movies_check.py > reports/movies_check.log 2>&1 &
+Долгий (часы на 32М строк) — в фоне, без буферизации вывода (иначе лог пуст, пока процесс не выйдет):
+  uv run python -u scripts/movies_check.py > reports/movies_check.log 2>&1 &
 """
 import json
 import time
@@ -25,11 +26,12 @@ MODELS_DIR = PROJECT_ROOT / "models" / "movies"
 EVAL_DIR = MODELS_DIR / "eval"
 REPORTS_DIR = PROJECT_ROOT / "reports"
 
-# Копия сетки evaluate.MODELS["mix"] (evaluate.py) с movies-путями к als_neg/ease. У evaluate.py als_dir/ease_dir
-# зашиты через модульный (книжный) MODELS_DIR на уровне импорта — своя копия обходит это без изменений
-# evaluate.py. Если сетка als_weight в evaluate.py изменится, эту копию нужно поправить вручную.
-MIX_GRID = [({"als_dir": str(MODELS_DIR / "als_neg"), "ease_dir": str(MODELS_DIR / "ease")},
-             [{"als_weight": w} for w in (0.0, 0.5, 0.6, 0.65, 0.7, 0.75, 0.8, 1.0)])]
+# Сетка mix из evaluate.MODELS["mix"] (score_grid — веса ALS в смеси) с movies-путями к als_neg/ease вместо
+# книжных. У evaluate.py als_dir/ease_dir зашиты через модульный (книжный) MODELS_DIR на уровне импорта —
+# tune() принимает свой grid параметром (как --weights у ease-like-tune), это и обходит без изменений
+# evaluate.py; веса сохраняются те же, что у книг, — не копия вручную, а чтение из evaluate.MODELS.
+_MIX_FIT = {"als_dir": str(MODELS_DIR / "als_neg"), "ease_dir": str(MODELS_DIR / "ease")}
+MIX_GRID = [(_MIX_FIT, score_grid) for _, score_grid in evaluate.MODELS["mix"][1]]
 
 
 def _write_report(name: str, text: str) -> None:
@@ -46,24 +48,26 @@ def main() -> None:
     manifest = movielens.prepare(RAW_DIR, CLEAN_DIR, cfg)
     print(json.dumps(manifest["outputs"], ensure_ascii=False, indent=1))
 
-    print("[split]")
-    meta = split.build(CLEAN_DIR / "ratings.parquet", CLEAN_DIR / "users.parquet", SPLIT_DIR,
-                       data_fp=json.dumps(manifest["outputs"], sort_keys=True))
+    ratings_path = CLEAN_DIR / "ratings.parquet"
+    pool = movielens.bucket_pool_size(ratings_path)
+    print("[split] пул по этапам (свой, не книжный):", json.dumps(pool, ensure_ascii=False))
+    meta = split.build(ratings_path, CLEAN_DIR / "users.parquet", SPLIT_DIR,
+                       data_fp=json.dumps(manifest["outputs"], sort_keys=True), bucket_pool_size=pool)
     print(json.dumps(meta["groups"], ensure_ascii=False, indent=1))
 
     print("[опорная смесь] als_neg")
-    evaluate.tune("als_neg", ratings_path=CLEAN_DIR / "ratings.parquet", split_dir=SPLIT_DIR, eval_dir=EVAL_DIR,
+    evaluate.tune("als_neg", ratings_path=ratings_path, split_dir=SPLIT_DIR, eval_dir=EVAL_DIR,
                  models_dir=MODELS_DIR)
     print("[опорная смесь] ease")
-    evaluate.tune("ease", ratings_path=CLEAN_DIR / "ratings.parquet", split_dir=SPLIT_DIR, eval_dir=EVAL_DIR,
+    evaluate.tune("ease", ratings_path=ratings_path, split_dir=SPLIT_DIR, eval_dir=EVAL_DIR,
                  models_dir=MODELS_DIR)
     print("[опорная смесь] mix — grid с movies-путями:", MIX_GRID)
-    evaluate.tune("mix", ratings_path=CLEAN_DIR / "ratings.parquet", split_dir=SPLIT_DIR, eval_dir=EVAL_DIR,
+    evaluate.tune("mix", ratings_path=ratings_path, split_dir=SPLIT_DIR, eval_dir=EVAL_DIR,
                  models_dir=MODELS_DIR, grid=MIX_GRID)
 
     print("[taste]")
     _write_report("taste_val", taste.report(taste.tune(
-        ratings_path=CLEAN_DIR / "ratings.parquet", split_dir=SPLIT_DIR, models_dir=MODELS_DIR, eval_dir=EVAL_DIR)))
+        ratings_path=ratings_path, split_dir=SPLIT_DIR, models_dir=MODELS_DIR, eval_dir=EVAL_DIR)))
 
     print("[ease-like-tune]")
     _write_report("ease_like_tune", layers.report_like(layers.tune_like(

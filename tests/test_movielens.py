@@ -1,8 +1,28 @@
+from pathlib import Path
+
 import duckdb
 import pandas as pd
 import pytest
 
 from booksengine.data import movielens
+
+
+def test_bucket_pool_size_counts_users_per_bucket_from_ratings(tmp_path):
+    """split.BUCKET_POOL_SIZE откалиброван под Goodreads (149K/155K/…) — на MovieLens доля отбора в
+    проверку/тест (`test_per_bucket / pool`) с этим пулом оказывается втрое меньше задуманной. Свой пул —
+    из фактических ratings.parquet домена."""
+    rows = []
+    wid = 0
+    for n_users, n_ratings in ((3, 25), (2, 50), (1, 5000)):   # 25 -> 20-39, 50 -> 40-79, 5000 -> 1000+ (вне пула)
+        for u in range(n_users):
+            for _ in range(n_ratings):
+                wid += 1
+                rows.append((f"{n_ratings}-{u}", wid, 5))
+    path = tmp_path / "ratings.parquet"
+    pd.DataFrame(rows, columns=["user_id", "work_id", "rating"]).to_parquet(path, index=False)
+
+    pool = movielens.bucket_pool_size(path)
+    assert pool == {"20-39": 3, "40-79": 2, "80-159": 0, "160-319": 0, "320-999": 0}
 
 
 @pytest.fixture
@@ -66,7 +86,7 @@ def test_export_writes_ratings_users_works_and_trivial_author_tables(con, tmp_pa
     assert len(authors) == 0
 
 
-def _synthetic_ml_csvs(tmp_path) -> "Path":
+def _synthetic_ml_csvs(tmp_path) -> Path:
     raw = tmp_path / "raw"
     (raw / "ml-32m").mkdir(parents=True)
     (raw / "ml-32m" / "ratings.csv").write_text(

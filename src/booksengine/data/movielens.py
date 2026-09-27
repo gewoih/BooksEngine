@@ -1,7 +1,7 @@
-"""MovieLens 32M → matrices в той же схеме, что у книг (проверка толпы и вкуса на фильмах, шаг 1 плана
-«Фильмы» — TODO.md, docs/superpowers/specs/2026-09-27-movies-crowd-taste-check-design.md). Переиспользует
-очистку пользователей и k-core из `booksengine.data.clean` без изменений — книжные правила (сборники, дубли
-произведений, не-книги) фильмам не нужны.
+"""MovieLens 32M → matrices в той же схеме, что у книг: общий код модели (`split`, `taste`, `layers`, `ease`)
+работает с матрицей «человек × произведение × оценка», книжная специфика (сборники, дубли произведений,
+не-книги) фильмам не нужна — переиспользует только очистку пользователей и k-core из `booksengine.data.clean`.
+Дизайн: docs/superpowers/specs/2026-09-27-movies-crowd-taste-check-design.md.
 """
 from pathlib import Path
 
@@ -55,9 +55,22 @@ def export(con: duckdb.DuckDBPyConnection, out_dir: Path) -> dict:
     return {"ratings": counts[0], "users": counts[1], "works": counts[2]}
 
 
+def bucket_pool_size(ratings_path: Path) -> dict:
+    """Люди по этапам (`split.BUCKET_ORDER`) в самом ratings.parquet — для `split.build(bucket_pool_size=...)`.
+    `split.BUCKET_POOL_SIZE` откалиброван по ядру книг (149K/155K/138K/93K/56K); у MovieLens другие размеры
+    ядра на этап — с книжным пулом доля отбора в проверку/тест (`test_per_bucket / pool`) оказывается не той,
+    что задумана."""
+    from booksengine.model import split
+
+    counts = duckdb.execute("SELECT count(*) AS n FROM read_parquet(?) GROUP BY user_id",
+                            [str(ratings_path)]).df()["n"].to_numpy()
+    buckets = split.bucket_of(counts)
+    return {b: int((buckets == b).sum()) for b in split.BUCKET_ORDER}
+
+
 def prepare(raw_dir: Path, out_dir: Path, cfg: dict, min_user: int = 20, min_work: int = 100) -> dict:
     """Загрузка → округление и дедуп → очистка пользователей (`cfg` — раздел movies: cleaning.yaml) →
-    k-core (min_user/min_work — фиксированные решением из TODO, не в конфиге) → экспорт."""
+    k-core (min_user/min_work — фиксированные значения 20/100, как у книг; не перебираются) → экспорт."""
     from booksengine.data import clean
 
     con = duckdb.connect()

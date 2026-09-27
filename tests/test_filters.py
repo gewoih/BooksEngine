@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from booksengine.model.filters import RatedFilter, work_info
+from booksengine.model.filters import Books, RatedFilter, work_info
 
 
 def _write(tmp_path, works, authors, original=None, extra_authors=()):
@@ -94,6 +94,28 @@ def _picker_world(tmp_path):
     sc = np.array([3, 9, -np.inf, 8, 7, 6, 5, 4, -np.inf, 2], dtype=np.float64)   # 8 — вход, 2 — не кандидат
     order = np.argsort(-sc, kind="stable")
     return info, picker, sc, order[np.isfinite(sc[order])]
+
+
+def test_books_of_handles_domain_without_any_authors(tmp_path):
+    """Домен без авторов совсем (фильмы, шаг 1 плана «Фильмы»): work_authors.parquet и authors.parquet
+    пустые — LEFT JOIN в work_info даёт NULL (pandas: pd.NA, не None) в колонке authors. Books.of не должен
+    падать: np.isscalar(pd.NA) — False, старая проверка это NULL не ловила."""
+    works = pd.DataFrame([(1, "Toy Story (1995)", "Toy Story (1995)", False)],
+                         columns=["work_id", "title", "best_edition_title", "is_collection"])
+    works.insert(2, "original_title", None)
+    works.to_parquet(tmp_path / "works.parquet")
+    pd.DataFrame({"work_id": pd.Series(dtype="int64"), "author_id": pd.Series(dtype="int64"),
+                 "role": pd.Series(dtype="object"), "position": pd.Series(dtype="int64")}
+                ).to_parquet(tmp_path / "work_authors.parquet")
+    pd.DataFrame({"author_id": pd.Series(dtype="int64"), "name": pd.Series(dtype="object")}
+                ).to_parquet(tmp_path / "authors.parquet")
+
+    info = work_info(tmp_path, np.array([1]))
+    books = Books.of(info)
+    assert books.author.tolist() == [-1]
+    assert books.authors[0] == frozenset()
+    f = RatedFilter(info, np.array([]))
+    assert f.is_rated_already(0) is False
 
 
 def test_author_cap_is_one_book_per_ten_places():

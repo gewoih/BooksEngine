@@ -109,7 +109,7 @@ class Books:
         author = info.author_id.fillna(-1).to_numpy(dtype=np.int64)
         everyone = info.authors if "authors" in info else pd.Series([None] * len(info))
         authors = np.empty(len(info), dtype=object)
-        authors[:] = [frozenset(() if e is None or (np.isscalar(e) and pd.isna(e)) else (int(x) for x in e))
+        authors[:] = [(frozenset(int(x) for x in e) if isinstance(e, (list, tuple, np.ndarray)) else frozenset())
                       | ({int(a)} if a >= 0 else set()) for e, a in zip(everyone, author)]
         cols = [info[c] if c in info else pd.Series([None] * len(info))
                 for c in ("title", "original_title", "best_edition_title")]
