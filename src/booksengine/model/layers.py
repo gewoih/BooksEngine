@@ -127,11 +127,12 @@ class Layers:
         if score_params:
             raise ValueError(f"у слоёв нет настроек выдачи: {score_params}")
 
-    def score(self, inputs: sp.csr_matrix, dnf: sp.csr_matrix | None = None) -> np.ndarray:
+    def score(self, inputs: sp.csr_matrix, dnf: sp.csr_matrix | None = None,
+              shelf: sp.csr_matrix | None = None) -> np.ndarray:
         """Балл выбранного варианта по всем книгам ядра; вне EASE — −∞ (как у смеси). Без исключения входа."""
         top = self.mix.ease.top_cols
         excl = np.zeros((inputs.shape[0], len(top)), dtype=bool)
-        c = self.crowd(self.variant.crowd, inputs, dnf, self.variant.als_weight)
+        c = self.crowd(self.variant.crowd, inputs, dnf, self.variant.als_weight, shelf)
         s = self.combine(c, self.taste_z(inputs, dnf), excl, self.variant)
         out = np.full(inputs.shape, -np.inf, dtype=np.float32)
         out[:, top] = s
@@ -141,23 +142,25 @@ class Layers:
         """Прогноз оценки 1–5 модели вкуса по всем книгам ядра — признак шанса «понравится»."""
         return self.taste.score(self.taste_input(inputs))
 
-    def like_parts(self, inputs: sp.csr_matrix, dnf: sp.csr_matrix | None = None) -> tuple[np.ndarray, np.ndarray]:
+    def like_parts(self, inputs: sp.csr_matrix, dnf: sp.csr_matrix | None = None,
+                   shelf: sp.csr_matrix | None = None) -> tuple[np.ndarray, np.ndarray]:
         """z(ALS) и z(EASE «ценность») по книгам EASE — толпа «ценность» при любом весе ALS без пересчёта."""
-        a, e = self.like_mix.components(inputs, dnf)
+        a, e = self.like_mix.components(inputs, dnf, shelf)
         return _z(a), _z(e)
 
     def crowd(self, kind: str, inputs: sp.csr_matrix, dnf: sp.csr_matrix | None = None,
-              als_weight: float = 0.5) -> np.ndarray:
-        """z-балл толпы по книгам EASE (строки × 30 000); als_weight — только для «ценности»."""
+              als_weight: float = 0.5, shelf: sp.csr_matrix | None = None) -> np.ndarray:
+        """z-балл толпы по книгам EASE (строки × 30 000); als_weight — только для «ценности»; shelf — книги профиля без
+        оценки с весом во входе EASE (`mix.WANT_INPUT`, `mix.READ_INPUT`)."""
         if kind == "like":
-            za, ze = self.like_parts(inputs, dnf)
+            za, ze = self.like_parts(inputs, dnf, shelf)
             return als_weight * za + (1 - als_weight) * ze
         w, ein, rule, beta = self._mix_cfg
         if kind == "read":
             self.mix.configure(als_weight=w, ease_input=(1.0,) * 5)
             self.mix.als.configure("none", 0.0)
         try:
-            return self.mix.score(inputs, dnf)[:, self.mix.ease.top_cols].astype(np.float64)
+            return self.mix.score(inputs, dnf, shelf)[:, self.mix.ease.top_cols].astype(np.float64)
         finally:
             self.mix.configure(als_weight=w, ease_input=ein)
             self.mix.als.configure(rule, beta)
@@ -523,9 +526,10 @@ def profiles(*, clean_dir: Path, models_dir: Path, profiles_dir: Path, top: int 
         if prof.x.nnz == 0:
             continue
         excl = exclusion(prof.seen(), series)[:, top_cols].toarray() != 0
-        crowds = {v: layers.crowd(v.crowd, prof.x, prof.dnf, v.als_weight) for v in (ref, chosen)}
+        excl |= np.isin(top_cols, prof.want)[None, :]
+        crowds = {v: layers.crowd(v.crowd, prof.x, prof.dnf, v.als_weight, prof.shelf()) for v in (ref, chosen)}
         taste = layers.taste_z(prof.x, prof.dnf)
-        rated = RatedFilter(picker.books, np.union1d(prof.x.indices, prof.read))
+        rated = RatedFilter(picker.books, prof.not_advised())
         lists = {v: pick_top(layers.combine(crowds[v], taste, excl, v), top_cols, picker, [rated], top)[0].tolist()
                  for v in (ref, chosen)}
         before = set(lists[ref])
@@ -846,7 +850,10 @@ def why(*, clean_dir: Path, models_dir: Path, profile_csv: Path, query: str, top
     dnf = sp.csr_matrix(d[None, :])
     series = SeriesIndex(info.title.tolist())
     excl = exclusion(x, series)[:, top_cols].toarray()[0] != 0
-    za, ze = layers.like_parts(x, dnf)
+    shelf = prof.shelf()
+    shelf.data[shelf.indices == col] = 0.0                     # спрятанная книга — и не на полке
+    shelf.eliminate_zeros()
+    za, ze = layers.like_parts(x, dnf, shelf)
     tz = layers.taste_z(x, dnf)
     parts = {"ALS": za[0], "EASE «ценность»": ze[0], "вкус": tz[0],
              "итог": layers.combine(v.als_weight * za + (1 - v.als_weight) * ze, tz, excl[None, :], v)[0]}
@@ -864,21 +871,24 @@ def why(*, clean_dir: Path, models_dir: Path, profile_csv: Path, query: str, top
     w0 = m.als_weight
     try:
         m.configure(als_weight=1.0, ease_input=m.ease_input)
-        in_cols, c_als = explain.contributions(m, x, np.array([col]), dnf)
+        in_cols, c_als = explain.contributions(m, x, np.array([col]), dnf, shelf)
         m.configure(als_weight=0.0, ease_input=m.ease_input)
-        _, c_ease = explain.contributions(m, x, np.array([col]), dnf)
+        _, c_ease = explain.contributions(m, x, np.array([col]), dnf, shelf)
     finally:
         m.configure(als_weight=w0, ease_input=m.ease_input)
     c_als, c_ease = c_als[:, 0], c_ease[:, 0]
     total = v.als_weight * c_als + (1 - v.als_weight) * c_ease
-    r_in = metrics.rounded(x.data)
+    rating_of = dict(zip(x.indices.tolist(), metrics.rounded(x.data).tolist()))
+    want = set(prof.want.tolist())
+    r_in = [f"{rating_of[c]:.0f}" if c in rating_of else ("хочу прочитать" if c in want else "прочитано")
+            for c in in_cols.tolist()]
     lines += ["", f"Вклады книг входа в балл толпы (ALS × {v.als_weight:g} + EASE × {1 - v.als_weight:g}); "
                   "сумма по книгам = z-балл толпы. Самые тянущие вниз и вверх:", "",
               "| книга входа | оценка | вклад | ALS | EASE |", "|---|---|---|---|---|"]
     order = np.argsort(total)
     for i in dict.fromkeys(list(order[:top]) + list(order[::-1][:top])):
         c = int(in_cols[i])
-        lines.append(f"| {prof.names.get(c, info.title[c])} | {r_in[i]:.0f} | {total[i]:+.3f} | {c_als[i]:+.3f} | "
+        lines.append(f"| {prof.names.get(c, info.title[c])} | {r_in[i]} | {total[i]:+.3f} | {c_als[i]:+.3f} | "
                      f"{c_ease[i]:+.3f} |")
     lines += ["", f"Книг серии этой книги в ядре: {series.continuations(np.array([col])).size} "
                   "(продолжения начатых серий исключаются)."]

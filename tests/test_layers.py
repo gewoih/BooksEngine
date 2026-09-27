@@ -253,6 +253,10 @@ def test_why_explains_place_of_hidden_book(world):
     pd.DataFrame({"goodreads_work_id": [100, 101, 102, 125], "rating": [5, 5, 4, 1]}).to_csv(prof / "p.csv", index=False)
     text = ly.why(clean_dir=tp, models_dir=md, profile_csv=prof / "p.csv", query="Book 101")
     assert "оценена на 5★ и спрятана" in text and "| итог |" in text and "| 125 | 1 |" in text
+    pd.DataFrame({"goodreads_work_id": [100, 101, 102, 125, 103], "rating": [5, 5, 4, 1, None],
+                  "status": ["read"] * 4 + ["want"]}).to_csv(prof / "p.csv", index=False)
+    text = ly.why(clean_dir=tp, models_dir=md, profile_csv=prof / "p.csv", query="Book 101")
+    assert "| хочу прочитать |" in text                         # книга полки — во входе толпы, со своим вкладом
 
 
 def test_layers_contributions_sum_to_score(world):
@@ -291,6 +295,18 @@ def test_layers_contributions_sum_to_score(world):
     assert not np.allclose(L.taste_z(x), L.taste_z(soft))
     _, crowd, taste, const = explain.layers_parts(L, x, cols, dnf)
     np.testing.assert_allclose(crowd.sum(axis=0) + taste.sum(axis=0) + const, L.score(x, dnf)[0, cols], atol=1e-4)
+    # книги без оценки (полка) — только во входе EASE; вклад каждой считается так же точно
+    from booksengine.model.mix import READ_INPUT, WANT_INPUT
+    free = np.setdiff1d(L.mix.ease.top_cols, x.indices)[:3]
+    shelf = sp.csr_matrix((np.array([WANT_INPUT, READ_INPUT, WANT_INPUT], dtype=np.float32), ([0, 0, 0], free)),
+                          shape=x.shape)
+    for v in (ly.Variant("like", 2.0, None, 0.25), ly.Variant("mix", 0.5)):
+        L.variant = v
+        in_cols, crowd, taste, const = explain.layers_parts(L, x, cols, dnf, shelf)
+        assert set(free.tolist()) <= set(in_cols.tolist()) and not taste[np.isin(in_cols, free)].any()
+        np.testing.assert_allclose(crowd.sum(axis=0) + taste.sum(axis=0) + const, L.score(x, dnf, shelf)[0, cols],
+                                   atol=1e-4)
+        assert not np.allclose(L.score(x, dnf, shelf)[0, cols], L.score(x, dnf)[0, cols])
 
 
 def test_recommend_uses_layers_with_chance_and_writes_history(world):
@@ -344,7 +360,14 @@ def test_recommend_skips_books_read_without_rating(world):
                   "rating": rows["rating"] + [None]}).to_csv(prof, index=False)
     res = rec.recommend(prof, clean_dir=tp, models_dir=md, top=5, sections=False)
     assert first not in [r.work_id for r in res.recs] and res.n_used == 4 and res.n_read == 1
-    assert "прочитано без оценки (не советуются): 1" in rec.format_result(res)
+    assert "без оценки (не советуются): прочитано без оценки 1" in rec.format_result(res)
+    # «хочу прочитать» — тоже не советуется и тоже во входе толпы
+    second = res.recs[0].work_id
+    pd.DataFrame({"goodreads_work_id": rows["goodreads_work_id"] + [first, second],
+                  "rating": rows["rating"] + [None, None], "status": ["read"] * 5 + ["want"]}).to_csv(prof, index=False)
+    res = rec.recommend(prof, clean_dir=tp, models_dir=md, top=5, sections=False)
+    assert not {first, second} & {r.work_id for r in res.recs} and (res.n_read, res.n_want) == (1, 1)
+    assert "хочу прочитать 1" in rec.format_result(res)
 
 
 def test_tune_like_skips_setting_that_guesses_too_little(world, monkeypatch):

@@ -6,8 +6,9 @@
 
 CSV: `goodreads_work_id`, `rating` 1–5, необязательно `status` (`dnf` без оценки = 1; во входе
 EASE недочитанная книга весит 0 — `mix.DNF_INPUT`) и `title` (так книга
-называется в объяснении). Пустая оценка (не `dnf`) — «прочитано, оценку не помню»: книга не советуется (и то же
-произведение под другим названием, и продолжения её серии), но в модель не идёт — оценки нет. Книгу с произведением сопоставляет нейросеть заранее, своего поиска нет.
+называется в объяснении). Книги без оценки: `status` = `want` — «хочу прочитать», иначе пустая оценка — «прочитано,
+оценку не помню». Обе не советуются (и то же произведение под другим названием; у прочитанной — и продолжения серии) и
+идут во вход толпы слабым плюсом (`mix.WANT_INPUT`, `mix.READ_INPUT`), во вкус — нет: оценки нет. Книгу с произведением сопоставляет нейросеть заранее, своего поиска нет.
 Тень из `work_merges.parquet` заменяется главным произведением,
 несколько строк одного произведения — средней оценкой (как издания при очистке).
 """
@@ -25,7 +26,7 @@ from booksengine.model.base import fingerprint
 from booksengine.model.chance import Chance, personal_pct
 from booksengine.model.filters import WHY_REMOVED, ListPicker, RatedFilter, nonfiction, work_info
 from booksengine.model.matrix import catalog_works
-from booksengine.model.mix import Mix
+from booksengine.model.mix import READ_INPUT, WANT_INPUT, Mix
 from booksengine.model.series import SeriesIndex, exclusion
 
 # почему книга из CSV не попала в модель
@@ -38,14 +39,27 @@ class Profile:
     dnf: sp.csr_matrix            # 1 × книги ядра, 1 — недочитана (все строки книги в CSV — dnf)
     names: dict[int, str]         # столбец входа → как книга названа у человека
     skipped: list[tuple[str, str]]  # (книга, почему не учтена)
-    outside: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))  # прочитанные книги каталога вне ядра
+    outside: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))  # книги профиля каталога вне ядра
     read: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))     # прочитаны без оценки (столбцы)
+    want: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))     # «хочу прочитать» (столбцы)
+
+    def _row(self, cols: np.ndarray, values: np.ndarray) -> sp.csr_matrix:
+        return sp.csr_matrix((values.astype(np.float32), (np.zeros(len(cols), dtype=int), cols)), shape=self.x.shape)
 
     def seen(self) -> sp.csr_matrix:
         """1 × книги ядра: всё прочитанное — оценённое, недочитанное и без оценки (для исключения и серий)."""
         cols = np.union1d(self.x.indices, self.read)
-        return sp.csr_matrix((np.ones(len(cols), dtype=np.float32), (np.zeros(len(cols), dtype=int), cols)),
-                             shape=self.x.shape)
+        return self._row(cols, np.ones(len(cols)))
+
+    def shelf(self) -> sp.csr_matrix:
+        """1 × книги ядра: книги без оценки с весом во входе толпы («хочу прочитать», «прочитано без оценки»)."""
+        cols = np.concatenate([self.want, self.read])
+        o = np.argsort(cols)
+        return self._row(cols[o], np.r_[np.full(len(self.want), WANT_INPUT), np.full(len(self.read), READ_INPUT)][o])
+
+    def not_advised(self) -> np.ndarray:
+        """Столбцы, которые не советуются по сути (`RatedFilter`): оценённое, прочитанное без оценки, полка."""
+        return np.union1d(np.union1d(self.x.indices, self.read), self.want)
 
 
 # «Смелая» выдача для журнала: вкус 4 при том же отсечении, что у выбранного варианта, — смелее порога
@@ -76,7 +90,8 @@ class Result:
     removed: list[tuple[str, str]] = field(default_factory=list)  # (книга, почему не в списке) — `filters.ListPicker`
     skipped: list[tuple[str, str]] = field(default_factory=list)
     n_used: int = 0
-    n_read: int = 0               # прочитано без оценки: не советуется, в модель не идёт
+    n_read: int = 0               # прочитано без оценки: не советуется, во входе толпы — слабый плюс
+    n_want: int = 0               # «хочу прочитать»: то же
 
 
 def read_profile(path: Path, work_ids: np.ndarray, clean_dir: Path, id_col: str = "goodreads_work_id") -> Profile:
@@ -89,9 +104,11 @@ def read_profile(path: Path, work_ids: np.ndarray, clean_dir: Path, id_col: str 
             raise ValueError(f"{path}: нет колонки {col}")
     if "title" not in p.columns:
         p["title"] = None
-    dnf = p.get("status", pd.Series("", index=p.index)).eq("dnf")
+    status = p.get("status", pd.Series("", index=p.index)).fillna("")
+    dnf = status.eq("dnf")
     p["rating"] = p.rating.where(p.rating.notna() | ~dnf, 1)
-    unrated = p.rating.isna().to_numpy()      # прочитано, оценку не помню
+    unrated = p.rating.isna().to_numpy()      # прочитано, оценку не помню, или «хочу прочитать»
+    wanted = unrated & status.eq("want").to_numpy()
     bad = p[~unrated & ~p.rating.isin([1, 2, 3, 4, 5])]
     if len(bad):
         raise ValueError(f"{path}: оценка — целое 1–5 (строки {', '.join(str(i + 2) for i in bad.index)})")
@@ -114,9 +131,16 @@ def read_profile(path: Path, work_ids: np.ndarray, clean_dir: Path, id_col: str 
             for v in (g.rating.to_numpy(np.float32), g.dnf.to_numpy(np.float32)))
     d.eliminate_zeros()
     outside = np.unique(p.work_id[why == NOT_IN_CORE].to_numpy(dtype=np.int64))
-    read = np.unique(p.work_id[(why == "") & unrated].to_numpy(dtype=np.int64))
-    read = np.setdiff1d(np.searchsorted(work_ids, read), cols)      # оценённое в другой строке — оценено
-    return Profile(x, d, dict(zip(cols.tolist(), g.name)), skipped, outside, read)
+
+    def core_cols(mask) -> np.ndarray:
+        return np.searchsorted(work_ids, np.unique(p.work_id[(why == "") & mask].to_numpy(dtype=np.int64)))
+    read = np.setdiff1d(core_cols(unrated & ~wanted), cols)         # оценённое в другой строке — оценено
+    want = np.setdiff1d(np.setdiff1d(core_cols(wanted), cols), read)
+    names = dict(zip(cols.tolist(), g.name))
+    for c, n in zip(np.searchsorted(work_ids, p.work_id[(why == "") & unrated].to_numpy(dtype=np.int64)).tolist(),
+                    name[(why == "") & unrated]):
+        names.setdefault(c, n)
+    return Profile(x, d, names, skipped, outside, read, want)
 
 
 def load_model(models_dir: Path, model: str | None = None):
@@ -163,14 +187,16 @@ def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int 
 
     # как при калибровке шанса: вход и начатые серии — не кандидаты
     series = SeriesIndex(info.title[:n].tolist())
-    sc = model.score(prof.x, prof.dnf)[0].astype(np.float64)
+    shelf = prof.shelf()
+    sc = model.score(prof.x, prof.dnf, shelf)[0].astype(np.float64)
     ex = exclusion(prof.seen(), series)
     sc[ex.indices] = -np.inf
+    sc[prof.want] = -np.inf
     order = np.argsort(-sc, kind="stable")
     order = order[np.isfinite(sc[order])]
 
     picker = ListPicker(info)
-    rated = RatedFilter(picker.books, np.concatenate([prof.x.indices, prof.read, np.arange(n, len(info))]))
+    rated = RatedFilter(picker.books, np.concatenate([prof.not_advised(), np.arange(n, len(info))]))
     if sections:
         nf = nonfiction(clean_dir, work_ids)
         parts = {FICTION: ~nf, NONFICTION: nf}
@@ -182,13 +208,14 @@ def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int 
     r = metrics.rounded(prof.x.data)
     pct = chance.predict(personal_pct(sc, picked), int((r >= 4).sum()), prof.x.nnz)
     if isinstance(model, Mix):
-        in_cols, contrib = explain.contributions(model, prof.x, picked, prof.dnf)
+        in_cols, contrib = explain.contributions(model, prof.x, picked, prof.dnf, shelf)
         taste, const = np.zeros_like(contrib), np.zeros(len(picked))
     else:
-        in_cols, contrib, taste, const = explain.layers_parts(model, prof.x, picked, prof.dnf)
+        in_cols, contrib, taste, const = explain.layers_parts(model, prof.x, picked, prof.dnf, shelf)
     names = [prof.names[c] for c in in_cols.tolist()]
-    dnf = set(prof.dnf.indices.tolist())
-    stars = [("не дочитал" if c in dnf else f"{v:g}★") for c, v in zip(in_cols.tolist(), prof.x.data.tolist())]
+    stars = [_label(prof, c) for c in in_cols.tolist()]
+    rating_of = dict(zip(prof.x.indices.tolist(), prof.x.data.tolist()))
+    x_in = np.array([rating_of.get(c, np.nan) for c in in_cols.tolist()])
     recs = []
     for k, c in enumerate(picked):
         why = explain.reason(contrib[:, k])
@@ -197,17 +224,28 @@ def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int 
         recs.append(Rec(int(work_ids[c]), info.title[c], info.author[c] or "", int(round(pct[k] * 100)),
                         [names[i] for i in why.because], None if why.despite is None else names[why.despite],
                         {names[i]: stars[i] for i in shown},
-                        None if note is None else _taste_text(note, model.taste, c, in_cols, names, prof.x.data, stars),
+                        None if note is None else _taste_text(note, model.taste, c, in_cols, names, x_in, stars),
                         section=got[k][0]))
     bold = []
     if not isinstance(model, Mix):
         bold = _debug(model, prof, recs, picked, ex, picker, rated, top, rules, clean_dir, work_ids, parts)
     res = Result(recs, [(f"{info.title[c]} — {info.author[c] or '?'}", WHY_REMOVED[w]) for c, w in removed],
-                 prof.skipped, prof.x.nnz, len(prof.read))
+                 prof.skipped, prof.x.nnz, len(prof.read), len(prof.want))
     if history_dir is not None:
         journal.save(res.recs, ratings_csv.stem, model_fp, history_dir,
                      bold=[(int(work_ids[c]), info.title[c], info.author[c] or "", sec) for sec, c in bold])
     return res
+
+
+def _label(prof: Profile, col: int) -> str:
+    """Как книга входа показана в подписи: оценка («4★»), «не дочитал», «хочу прочитать», «прочитано»."""
+    if col in set(prof.dnf.indices.tolist()):
+        return "не дочитал"
+    if col in set(prof.want.tolist()):
+        return "хочу прочитать"
+    if col in set(prof.read.tolist()):
+        return "прочитано"
+    return f"{prof.x[0, col]:g}★"
 
 
 def _taste_text(note: explain.TasteNote, taste, col: int, in_cols: np.ndarray, names: list[str], x: np.ndarray,
@@ -234,13 +272,14 @@ def _debug(layers, prof: Profile, recs: list[Rec], picked: np.ndarray, ex: sp.cs
     from booksengine.model.layers import popularity
     top_cols = layers.mix.ease.top_cols
     v = layers.variant
-    crowd = layers.crowd(v.crowd, prof.x, prof.dnf, v.als_weight)[0]
+    crowd = layers.crowd(v.crowd, prof.x, prof.dnf, v.als_weight, prof.shelf())[0]
     taste = layers.taste_z(prof.x, prof.dnf)[0]
 
     def full(s: np.ndarray) -> np.ndarray:
         out = np.full(len(work_ids), -np.inf)
         out[top_cols] = s
         out[ex.indices] = -np.inf
+        out[prof.want] = -np.inf
         return out
 
     def pick(s: np.ndarray) -> list[tuple[str, int]]:
@@ -261,19 +300,23 @@ def _debug(layers, prof: Profile, recs: list[Rec], picked: np.ndarray, ex: sp.cs
     return bold
 
 
-LEGEND = ("Как читать: «читатели» — книги из твоего профиля (рядом твоя оценка), чьи читатели ценят и эту; "
+LEGEND = ("Как читать: «читатели» — книги из твоего профиля (рядом твоя оценка или «хочу прочитать» / «прочитано»), "
+          "чьи читатели ценят и эту; "
           "«ценят те, кому не понравились» — книги, которые ты оценил низко, и эту ценят люди, которым они тоже не "
           "понравились; «несмотря на» — чьи читатели её не ценят. «Вкус» сравнивает твою оценку со средней у всех: книга похожа "
           "на ту, что ты оценил выше других, или не похожа на ту, что ниже; «обычно ставят» — книгу ценят все.")
 
 
 def _book(name: str, rec: Rec) -> str:
-    return f"{name} {rec.rated[name]}" if name in rec.rated else name
+    if name not in rec.rated:
+        return name
+    label = rec.rated[name]
+    return f"{name} ({label})" if label in ("хочу прочитать", "прочитано") else f"{name} {label}"
 
 
 def _low(stars: str | None) -> bool:
     """Книга профиля не понравилась: 1–2★ или не дочитана."""
-    return stars is not None and (stars == "не дочитал" or float(stars.rstrip("★")) <= 2)
+    return stars is not None and (stars == "не дочитал" or (stars.endswith("★") and float(stars.rstrip("★")) <= 2))
 
 
 def why_text(r: Rec) -> list[str]:
@@ -290,8 +333,9 @@ def why_text(r: Rec) -> list[str]:
 
 
 def format_result(res: Result) -> str:
-    out = [f"Учтено оценок: {res.n_used}" + (f"; прочитано без оценки (не советуются): {res.n_read}"
-                                             if res.n_read else ""), "", LEGEND]
+    extra = [f"прочитано без оценки {res.n_read}"] * bool(res.n_read) + [f"хочу прочитать {res.n_want}"] * bool(res.n_want)
+    out = [f"Учтено оценок: {res.n_used}" + (f"; без оценки (не советуются): {', '.join(extra)}" if extra else ""),
+           "", LEGEND]
     section, i = None, 0
     for r in res.recs:
         if r.section != section:

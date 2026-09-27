@@ -84,10 +84,12 @@ def bold_only(history_dir: Path, profile: str) -> pd.DataFrame:
 
 
 def ratings(csv: Path, merges: dict[int, int] | None = None) -> pd.DataFrame:
-    """Оценки профиля: произведение (тень → главное, как в `recommend`), оценка 1–5 (недочитанная — 1), название."""
+    """Оценки профиля: произведение (тень → главное, как в `recommend`), оценка 1–5 (недочитанная — 1), название.
+    Книги без оценки («хочу прочитать», «прочитано, оценку не помню») не оценки — их нет."""
     p = pd.read_csv(csv, dtype={"goodreads_work_id": "Int64"})
     dnf = p.get("status", pd.Series("", index=p.index)).eq("dnf")
     p["rating"] = p.rating.where(p.rating.notna() | ~dnf, 1)
+    p = p[p.rating.notna()]
     work = p.goodreads_work_id.map(lambda w: (merges or {}).get(int(w), int(w)) if pd.notna(w) else w)
     return pd.DataFrame({"work_id": work.astype("Int64"), "rating": p.rating.astype(float),
                          "title": p.get("title", pd.Series("", index=p.index)).fillna("")})
