@@ -128,10 +128,13 @@ class Layers:
             raise ValueError(f"у слоёв нет настроек выдачи: {score_params}")
 
     def score(self, inputs: sp.csr_matrix, dnf: sp.csr_matrix | None = None,
-              shelf: sp.csr_matrix | None = None) -> np.ndarray:
-        """Балл выбранного варианта по всем книгам ядра; вне EASE — −∞ (как у смеси). Без исключения входа."""
+              shelf: sp.csr_matrix | None = None, exclude: sp.spmatrix | None = None) -> np.ndarray:
+        """Балл выбранного варианта по всем книгам ядра; вне EASE — −∞ (как у смеси). exclude (строки × книги ядра,
+        не ноль — не кандидат: вход, начатые серии) — −∞, и мест в отсечении вкуса эти книги не занимают, как в
+        замере (`evaluate`); без него отсечение считает и прочитанное — сжимается с ростом профиля."""
         top = self.mix.ease.top_cols
-        excl = np.zeros((inputs.shape[0], len(top)), dtype=bool)
+        excl = (np.zeros((inputs.shape[0], len(top)), dtype=bool) if exclude is None
+                else sp.csr_matrix(exclude)[:, top].toarray() != 0)
         c = self.crowd(self.variant.crowd, inputs, dnf, self.variant.als_weight, shelf)
         s = self.combine(c, self.taste_z(inputs, dnf), excl, self.variant)
         out = np.full(inputs.shape, -np.inf, dtype=np.float32)

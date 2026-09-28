@@ -186,13 +186,13 @@ def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int 
     info = work_info(clean_dir, np.concatenate([work_ids, prof.outside]))
     n = len(work_ids)
 
-    # как при калибровке шанса: вход и начатые серии — не кандидаты
+    # как при калибровке шанса: вход, начатые серии и полка — не кандидаты (и мест в отсечении вкуса не занимают)
     series = SeriesIndex(info.title[:n].tolist())
     shelf = prof.shelf()
-    sc = model.score(prof.x, prof.dnf, shelf)[0].astype(np.float64)
-    ex = exclusion(prof.seen(), series)
+    ex = (exclusion(prof.seen(), series) + prof._row(prof.want, np.ones(len(prof.want)))).tocsr()
+    sc = model.score(prof.x, prof.dnf, shelf, **({} if isinstance(model, Mix) else {"exclude": ex}))[0]
+    sc = sc.astype(np.float64)
     sc[ex.indices] = -np.inf
-    sc[prof.want] = -np.inf
     order = np.argsort(-sc, kind="stable")
     order = order[np.isfinite(sc[order])]
 
@@ -280,7 +280,6 @@ def _debug(layers, prof: Profile, recs: list[Rec], picked: np.ndarray, ex: sp.cs
         out = np.full(len(work_ids), -np.inf)
         out[top_cols] = s
         out[ex.indices] = -np.inf
-        out[prof.want] = -np.inf
         return out
 
     def pick(s: np.ndarray) -> list[tuple[str, int]]:
@@ -289,7 +288,7 @@ def _debug(layers, prof: Profile, recs: list[Rec], picked: np.ndarray, ex: sp.cs
 
     c_full = full(crowd)
     by_crowd = {c for _, c in pick(c_full)}
-    bold = pick(full(layers.combine(crowd[None, :], taste[None, :], np.zeros((1, len(top_cols)), bool),
+    bold = pick(full(layers.combine(crowd[None, :], taste[None, :], np.isin(top_cols, ex.indices)[None, :],
                                     replace(v, taste_weight=BOLD_TASTE))[0]))
     place = np.argsort(np.argsort(-c_full, kind="stable"), kind="stable") + 1
     pop = popularity(clean_dir / "ratings.parquet", work_ids)
