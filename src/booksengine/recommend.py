@@ -233,7 +233,7 @@ def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int 
     res = Result(recs, [(f"{info.title[c]} — {info.author[c] or '?'}", WHY_REMOVED[w]) for c, w in removed],
                  prof.skipped, prof.x.nnz, len(prof.read), len(prof.want), chance.label())
     if history_dir is not None:
-        journal.save(res.recs, ratings_csv.stem, model_fp, history_dir,
+        journal.save(res.recs, ratings_csv.stem, model_fp, history_dir, chance_of=res.chance,
                      bold=[(int(work_ids[c]), info.title[c], info.author[c] or "", sec) for sec, c in bold])
     return res
 

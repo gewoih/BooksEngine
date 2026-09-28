@@ -20,8 +20,9 @@ from booksengine.paths import domain_profiles
 
 
 def save(recs, profile: str, model_fp: str, history_dir: Path,
-         bold: list[tuple[int, str, str, str]] | None = None) -> Path:
-    """Выдача в журнал: место, книга, шанс, отпечаток модели, подпись и отладка слоёв (`Rec.debug`); строки
+         bold: list[tuple[int, str, str, str]] | None = None, chance_of: str = "4–5★") -> Path:
+    """Выдача в журнал: место, книга, шанс (chance_of — на что: «5★» или «4–5★», `Chance.label`), отпечаток модели,
+    подпись и отладка слоёв (`Rec.debug`); строки
     `list = bold` — «смелая» выдача (id, название, автор, список), не показанная человеку. `section` — список
     (художественная / нон-фикшн), место — внутри него. Одна выдача в день на профиль —
     повторный запуск перезаписывает. recs — `recommend.Rec`."""
@@ -29,7 +30,8 @@ def save(recs, profile: str, model_fp: str, history_dir: Path,
     history_dir.mkdir(parents=True, exist_ok=True)
     path = history_dir / f"{profile}-{date.today().isoformat()}.csv"
     rows = [{"list": "main", "section": r.section, "rank": k, "goodreads_work_id": r.work_id, "title": r.title,
-             "author": r.author, "chance": r.chance, "model": model_fp, "why": " | ".join(why_text(r)), **r.debug}
+             "author": r.author, "chance": r.chance, "chance_of": chance_of, "model": model_fp,
+             "why": " | ".join(why_text(r)), **r.debug}
             for r, k in zip(recs, _ranks([r.section for r in recs]))]
     bold = [b if len(b) == 4 else (*b, "") for b in bold or []]
     rows += [{"list": "bold", "section": sec, "rank": k, "goodreads_work_id": w, "title": t, "author": a,
@@ -52,7 +54,7 @@ def files(history_dir: Path, profile: str) -> list[Path]:
     return [p for p in sorted(history_dir.glob(f"{profile}-*.csv")) if p.stem[:-11] == profile]
 
 
-ADVISED = ["goodreads_work_id", "date", "rank", "chance", "title", "author", "by_taste", "known"]
+ADVISED = ["goodreads_work_id", "date", "rank", "chance", "chance_of", "title", "author", "by_taste", "known"]
 
 
 def _history(history_dir: Path, profile: str) -> pd.DataFrame:
@@ -64,6 +66,8 @@ def _history(history_dir: Path, profile: str) -> pd.DataFrame:
     for c in ("by_taste", "known"):
         if c not in d.columns:
             d[c] = np.nan
+    # до 2026-09-28 в выдаче был шанс «понравится» (4–5★), с тех пор — шанс пятёрки; старые файлы поля не знают
+    d["chance_of"] = d["chance_of"].fillna("4–5★") if "chance_of" in d.columns else "4–5★"
     d["list"] = d["list"].fillna("main") if "list" in d.columns else "main"
     return d.sort_values(["date", "rank"], kind="stable")
 
@@ -128,12 +132,24 @@ def report(profiles_dir: Path, history_dir: Path, clean_dir: Path | None = None)
         if adv.by_taste.notna().any():                  # выдачи с отладкой слоёв
             out += _debug_lines(read, bold_only(history_dir, csv.stem), rated)
         if len(read):
+            out += [""] + _chance_lines(read)
             out += ["", "| книга | посоветована | место | шанс | поднял вкус | известность | оценка |",
                     "|---|---|---|---|---|---|---|"]
-            out += [f"| {x.title} — {x.author} | {x.date} | {x.rank} | {x.chance}% | {_yes(x.by_taste)} "
+            out += [f"| {x.title} — {x.author} | {x.date} | {x.rank} | {x.chance:g}% на {x.chance_of} | {_yes(x.by_taste)} "
                     f"| {'' if pd.isna(x.known) else f'{x.known:,.0f}'} | {x.rating:g} |"
                     for x in read.sort_values(["date", "rank"]).itertuples()]
     return "\n".join(out) + "\n"
+
+
+def _chance_lines(read: pd.DataFrame) -> list[str]:
+    """Честен ли шанс на книгах человека: обещано в среднем против доли книг, получивших обещанное (5★ или 4–5★)."""
+    out = []
+    for label, g in read.groupby("chance_of", sort=False):
+        stars = 5 if label == "5★" else 4
+        got = (np.floor(g.rating.to_numpy(dtype=np.float64) + 0.5) >= stars).mean()
+        out.append(f"Шанс {label}: обещано в среднем {g.chance.mean():.0f}%, на деле {got:.0%} ({len(g)} книг"
+                   + (" — пока мало, чтобы судить)." if len(g) < 10 else ")."))
+    return out
 
 
 def _yes(v) -> str:
