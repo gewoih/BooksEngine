@@ -46,8 +46,9 @@ def observations(model, hold: Holdout, batch: int = 500) -> pd.DataFrame:
     exclude = hold.inputs if hold.exclude is None else hold.exclude
     for s in range(0, len(hold.user_ids), batch):
         X = hold.inputs[s:s + batch]
-        sc = model.score(X).astype(np.float64)
         tp = model.taste_prediction(X) if hasattr(model, "taste_prediction") else None
+        # у слоёв исключённые не занимают мест в отсечении вкуса — как в выдаче и замере
+        sc = (model.score(X) if tp is None else model.score(X, exclude=exclude[s:s + batch])).astype(np.float64)
         ex = exclude[s:s + batch].tocoo()
         sc[ex.row, ex.col] = -np.inf
         for i in range(X.shape[0]):

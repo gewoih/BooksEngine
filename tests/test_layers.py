@@ -165,6 +165,38 @@ def test_saved_layers_score_calibrate_and_refuse_stale_components(world):
         ly.Layers.load(md / "layers")
 
 
+def test_score_cutoff_counts_only_candidates(world):
+    """Вкус переставляет первые N кандидатов толпы, как в замере (`evaluate`): оценённые книги и начатые серии мест
+    в этих N не занимают — иначе у выдачи отсечение сжималось бы с ростом профиля."""
+    tp, sd, md = world
+    L = ly.Layers.from_models(md)
+    L.variant = ly.Variant("mix", 3.0, 5)
+    x = load_train(tp / "ratings.parquet", sd / "holdout_users.parquet").X[:4]
+    top = L.mix.ease.top_cols
+    expect = L.combine(L.crowd("mix", x), L.taste_z(x), x[:, top].toarray() != 0, L.variant)
+    np.testing.assert_allclose(L.score(x, exclude=x)[:, top], expect, rtol=1e-5)
+
+
+def test_recommend_cutoff_counts_only_candidates(world):
+    from dataclasses import asdict
+
+    from booksengine import recommend as rec
+    from booksengine.model import chance
+    from booksengine.model.base import read_params, write_params
+    from booksengine.model.matrix import catalog_works
+    tp, sd, md = world
+    ly.run("val", clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval")
+    write_params(md / "layers", read_params(md / "layers") | {"variant": asdict(ly.Variant("mix", 3.0, 3))})
+    chance.calibrate("layers", ratings_path=tp / "ratings.parquet", split_dir=sd, models_dir=md, eval_dir=tp / "eval")
+    prof = tp / "p.csv"
+    pd.DataFrame({"goodreads_work_id": list(range(100, 120, 2)), "rating": [5, 1] * 5}).to_csv(prof, index=False)
+    res = rec.recommend(prof, clean_dir=tp, models_dir=md, top=3, sections=False, rules=False)
+    L, work_ids = ly.Layers.load(md / "layers"), catalog_works(tp / "ratings.parquet")
+    x, top = rec.read_profile(prof, work_ids, tp).x, L.mix.ease.top_cols
+    s = L.combine(L.crowd("mix", x), L.taste_z(x), x[:, top].toarray() != 0, L.variant)[0]
+    assert [r.work_id for r in res.recs] == work_ids[top[np.argsort(-s)[:3]]].tolist()
+
+
 def test_val_includes_value_crowd_when_trained(world):
     from booksengine.model.ease import EASELike
     tp, sd, md = world
