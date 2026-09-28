@@ -130,6 +130,9 @@ def test_run_val_test_and_profiles(world):
     json.dump(saved, (md / "layers" / "params.json").open("w"))
     text = ly.report(val)
     assert "Как читать" in text and "случайные из прочитанного" in text and "Прежние судьи" in text
+    # контроль «шум вместо вкуса»: кривая на толпе выбранного варианта, у каждой строки — «сверх шума»
+    assert [p["taste_weight"] for p in val["noise"]] == list(ly.NOISE_WEIGHTS)
+    assert "сверх шума" in text and all("above_noise" in r["groups"]["all"] for r in val["summary"])
     assert "5★ | 4★ | 3★ | 2★ | 1★" in text
     test = ly.run("test", clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=ed)
     assert 1 <= len(test["summary"]) <= 3 and test["current"] == val["current"] and (ed / "layers_test.json").exists()
@@ -155,6 +158,7 @@ def test_saved_layers_score_calibrate_and_refuse_stale_components(world):
     assert np.isneginf(np.delete(got, top, axis=1)).all()
     out = chance.calibrate("layers", ratings_path=tp / "ratings.parquet", split_dir=sd, models_dir=md, eval_dir=ed)
     assert any("прогноз вкуса" in k for k in out["test"]) and len(out["chance"]["coef"]) == 3
+    assert out["stars"] == 5 and "Шанс пятёрки" in chance.report(out)     # у выдачи — шанс пятёрки
     assert "auc_within_person" in out["test"]["место + щедрость"]
     Taste(factors=2, reg=0.07, iterations=1).save(md / "taste")      # вкус переобучен после выбора веса
     with pytest.raises(ValueError, match="layers val"):
@@ -250,6 +254,10 @@ def test_why_explains_place_of_hidden_book(world):
     pd.DataFrame({"goodreads_work_id": [100, 101, 102, 125], "rating": [5, 5, 4, 1]}).to_csv(prof / "p.csv", index=False)
     text = ly.why(clean_dir=tp, models_dir=md, profile_csv=prof / "p.csv", query="Book 101")
     assert "оценена на 5★ и спрятана" in text and "| итог |" in text and "| 125 | 1 |" in text
+    pd.DataFrame({"goodreads_work_id": [100, 101, 102, 125, 103], "rating": [5, 5, 4, 1, None],
+                  "status": ["read"] * 4 + ["want"]}).to_csv(prof / "p.csv", index=False)
+    text = ly.why(clean_dir=tp, models_dir=md, profile_csv=prof / "p.csv", query="Book 101")
+    assert "| хочу прочитать |" in text                         # книга полки — во входе толпы, со своим вкладом
 
 
 def test_layers_contributions_sum_to_score(world):
@@ -288,6 +296,18 @@ def test_layers_contributions_sum_to_score(world):
     assert not np.allclose(L.taste_z(x), L.taste_z(soft))
     _, crowd, taste, const = explain.layers_parts(L, x, cols, dnf)
     np.testing.assert_allclose(crowd.sum(axis=0) + taste.sum(axis=0) + const, L.score(x, dnf)[0, cols], atol=1e-4)
+    # книги без оценки (полка) — только во входе EASE; вклад каждой считается так же точно
+    from booksengine.model.mix import READ_INPUT, WANT_INPUT
+    free = np.setdiff1d(L.mix.ease.top_cols, x.indices)[:3]
+    shelf = sp.csr_matrix((np.array([WANT_INPUT, READ_INPUT, WANT_INPUT], dtype=np.float32), ([0, 0, 0], free)),
+                          shape=x.shape)
+    for v in (ly.Variant("like", 2.0, None, 0.25), ly.Variant("mix", 0.5)):
+        L.variant = v
+        in_cols, crowd, taste, const = explain.layers_parts(L, x, cols, dnf, shelf)
+        assert set(free.tolist()) <= set(in_cols.tolist()) and not taste[np.isin(in_cols, free)].any()
+        np.testing.assert_allclose(crowd.sum(axis=0) + taste.sum(axis=0) + const, L.score(x, dnf, shelf)[0, cols],
+                                   atol=1e-4)
+        assert not np.allclose(L.score(x, dnf, shelf)[0, cols], L.score(x, dnf)[0, cols])
 
 
 def test_recommend_uses_layers_with_chance_and_writes_history(world):
@@ -319,12 +339,36 @@ def test_recommend_uses_layers_with_chance_and_writes_history(world):
     assert len(hist) == 1 and len(main) == len(res.recs) and (h["list"] == "bold").sum() > 0
     assert list(main.groupby("section")["rank"].max().sort_index()) == sorted([len(fic), len(nonfic)])
     assert main.known.gt(0).all() and main.crowd_place.ge(1).all() and main.by_taste.isin([0, 1]).all()
-    assert main.why.str.startswith(("читатели: ", "по профилю в целом")).all()
+    assert main.why.str.startswith(("читатели: ", "ценят те, кому", "по профилю в целом")).all()
     assert all(set(r.rated) <= {"А", "Б", "В", "Г"} and all(v.endswith("★") for v in r.rated.values())
                for r in res.recs)
     chance.calibrate("mix", ratings_path=tp / "ratings.parquet", split_dir=sd, models_dir=md, eval_dir=tp / "eval")
     mix_res = rec.recommend(prof, clean_dir=tp, models_dir=md, top=5, model="mix")  # приложение — смесь
     assert len([r for r in mix_res.recs if r.section == rec.FICTION]) == 5
+
+
+def test_recommend_skips_books_read_without_rating(world):
+    from booksengine import recommend as rec
+    from booksengine.model import chance
+    tp, sd, md = world
+    ly.run("val", clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval")
+    chance.calibrate("layers", ratings_path=tp / "ratings.parquet", split_dir=sd, models_dir=md, eval_dir=tp / "eval")
+    prof = tp / "p.csv"
+    rows = {"goodreads_work_id": [100, 101, 102, 125], "rating": [5, 5, 4, 1]}
+    pd.DataFrame(rows).to_csv(prof, index=False)
+    first = rec.recommend(prof, clean_dir=tp, models_dir=md, top=5, sections=False).recs[0].work_id
+    pd.DataFrame({"goodreads_work_id": rows["goodreads_work_id"] + [first],
+                  "rating": rows["rating"] + [None]}).to_csv(prof, index=False)
+    res = rec.recommend(prof, clean_dir=tp, models_dir=md, top=5, sections=False)
+    assert first not in [r.work_id for r in res.recs] and res.n_used == 4 and res.n_read == 1
+    assert "без оценки (не советуются): прочитано без оценки 1" in rec.format_result(res)
+    # «хочу прочитать» — тоже не советуется и тоже во входе толпы
+    second = res.recs[0].work_id
+    pd.DataFrame({"goodreads_work_id": rows["goodreads_work_id"] + [first, second],
+                  "rating": rows["rating"] + [None, None], "status": ["read"] * 5 + ["want"]}).to_csv(prof, index=False)
+    res = rec.recommend(prof, clean_dir=tp, models_dir=md, top=5, sections=False)
+    assert not {first, second} & {r.work_id for r in res.recs} and (res.n_read, res.n_want) == (1, 1)
+    assert "хочу прочитать 1" in rec.format_result(res)
 
 
 def test_tune_like_skips_setting_that_guesses_too_little(world, monkeypatch):
@@ -356,6 +400,30 @@ def test_tune_like_reuses_previous_run_and_trains_reused_best_to_save(world, mon
     assert fits == [5.0]                                  # не в переборе — только чтобы записать выбранную
     assert read_params(md / "ease_like")["lam"] == 5.0
     assert "из прошлого прогона" in ly.report_like(res)
+
+
+def test_taste_input_softens_single_low_rating_and_dnf(world):
+    import scipy.sparse as sp
+    tp, sd, md = world
+    L = ly.Layers.from_models(md)
+    usual = L.taste.mu + L.taste.item_bias[[0, 1, 2]]
+    x = sp.csr_matrix((np.array([1.0, 5.0, 4.0], dtype=np.float32), ([0, 0, 0], [0, 1, 2])), shape=(1, L.taste.item_bias.size))
+    dnf = sp.csr_matrix((np.array([1.0]), ([0], [2])), shape=x.shape)
+    got = L.taste_input(x, dnf).data
+    assert got[0] == pytest.approx(max(1.0, usual[0] - ly.LOW_TASTE_FLOOR))   # 1★ — не ниже обычной − 1.5
+    assert got[1] == pytest.approx(5.0)                                       # высокие не трогаются
+    assert got[2] == pytest.approx(usual[2] - ly.DNF_TASTE_DROP)              # недочитанная — чуть ниже обычной
+    assert x.data[0] == 1.0                                                   # вход не меняется на месте
+
+
+def test_noise_at_interpolates_quality_at_same_hits():
+    curve = [{"taste_weight": 0.0, "hits": 3.0, "quality": 1.30}, {"taste_weight": 1.0, "hits": 2.0, "quality": 1.40},
+             {"taste_weight": 2.0, "hits": 1.0, "quality": 1.45}]
+    assert ly.noise_at(curve, 2.5) == pytest.approx(1.35)
+    assert ly.noise_at(curve, 3.5) is None and ly.noise_at(curve, 0.5) is None   # вне кривой — не выдумывать
+    rows = [{"groups": {"all": {"hits": {"mean": 2.0}, "quality": {"mean": 1.5}}}}]
+    ly.add_above_noise(rows, curve)
+    assert rows[0]["groups"]["all"]["above_noise"] == pytest.approx(0.1)
 
 
 def test_quality_is_mean_star_value_of_guessed_books():

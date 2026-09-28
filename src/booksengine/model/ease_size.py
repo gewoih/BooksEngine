@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 
 from booksengine.model import metrics
+from booksengine.paths import domain_profiles
 from booksengine.model.matrix import catalog_works
 
 SIZES = (30_000, 40_000, 50_000, 60_000)   # первый — нынешний размер EASE
@@ -130,7 +131,7 @@ def run(*, clean_dir: Path, split_dir: Path, models_dir: Path, profiles_dir: Pat
     out += ["## Порог и память\n", _md(thresholds(r)), ""]
 
     out.append("## Профили\n")
-    for p in sorted(profiles_dir.glob("*.csv")):
+    for p in domain_profiles(profiles_dir, "books"):
         counts, far, skipped = profile_table(p, r, clean_dir)
         out.append(f"**{p.name}** — в ядре по диапазонам: "
                    + ", ".join(f"{k}: {v}" for k, v in counts.items()) + f"; вне ядра: {skipped}\n")

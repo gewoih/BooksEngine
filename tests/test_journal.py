@@ -22,7 +22,11 @@ def test_report_compares_advised_reads_with_own_choices(tmp_path):
     assert "Выдач: 2" in text and "разных книг в них: 4" in text
     assert "Прочитано из советов: 3 — пятёрок 33%, 1–2★ — 67%" in text          # 5, тень 12 → 2, dnf → 1
     assert "Остальные оценки (книги, выбранные без модели, 2): пятёрок 50%, 1–2★ — 0%" in text
-    assert "| Twelve — C | 2026-01-01 | 3 | 60% |  |  | 2 |" in text                 # выдача без отладки
+    assert "| Twelve — C | 2026-01-01 | 3 | 60% на 4–5★ |  |  | 2 |" in text          # выдача без отладки
+    # обещано (80 + 60 + 55) / 3 = 65%, получили 4–5★ — одна из трёх
+    assert "Шанс 4–5★: обещано в среднем 65%, на деле 33% (3 книг — пока мало, чтобы судить)." in text
+    journal.save([Rec(14, "Fourteen", "E", 40, [], None)], "me", "fp", hist, chance_of="5★")
+    assert journal.advised(hist, "me").set_index("goodreads_work_id").chance_of.to_dict()[14] == "5★"
 
 
 def test_report_without_reads_says_so(tmp_path):

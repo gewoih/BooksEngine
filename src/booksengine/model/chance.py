@@ -1,8 +1,13 @@
-"""Шанс, что книга понравится (4–5★), — «насколько книга мне подходит» в процентах.
+"""Шанс, что книга получит не меньше `stars` звёзд, — «насколько книга мне подходит» в процентах.
+
+`stars` — порог: у выдачи (`layers`) — 5, шанс пятёрки: цель — книги, которые человек оценит на 5, а 4★ для него
+«заметно слабее» (у книг списка «4–5★» — 72–93%, коридор узкий; пятёрка — 15–70%, различает книги лучше); у смеси
+приложения — 4, «понравится» (C# считает так). Честная вероятность, не растянутая шкала: «40%» — из десяти таких книг
+пятёрку получат четыре, это проверяет журнал выдач.
 
 Два признака, логистическая регрессия:
 - место книги в личном рейтинге модели: pct = (книг выше + 1) / число кандидатов, признак log10(pct);
-- щедрость человека: доля 4–5★ в его оценках, подтянутая к доле по толпе p0 тем сильнее, чем меньше
+- щедрость человека: доля оценок ≥ stars в его оценках, подтянутая к доле по толпе p0 тем сильнее, чем меньше
   оценок: (k + a·p0) / (n + a), признак — её логит. Щедрость объясняет больше места в рейтинге: книга из
   топ-20 нравится придирчивым (< 50% своих 4–5★) в 54% случаев, щедрым (≥ 90%) — в 93% (валидация, ALS).
 
@@ -21,6 +26,7 @@ from booksengine.model.base import fingerprint
 from booksengine.model.matrix import Holdout
 
 PRIOR_GRID = (1.0, 3.0, 10.0, 30.0, 100.0)
+STARS = {"layers": 5}          # порог шанса по модели; остальные — 4 («понравится»)
 _EPS = 1e-6
 
 
@@ -35,7 +41,7 @@ def personal_pct(scores: np.ndarray, cols: np.ndarray) -> np.ndarray:
 
 
 def observations(model, hold: Holdout, batch: int = 500) -> pd.DataFrame:
-    """Скрытая книга → место в рейтинге человека, его 4–5★ во входе (k из n), её оценка."""
+    """Скрытая книга → место в рейтинге человека, его 4–5★ и 5★ во входе (k_like, k_five из n), её оценка."""
     parts = []
     exclude = hold.inputs if hold.exclude is None else hold.exclude
     for s in range(0, len(hold.user_ids), batch):
@@ -52,6 +58,7 @@ def observations(model, hold: Holdout, batch: int = 500) -> pd.DataFrame:
             inp = metrics.rounded(X.data[X.indptr[i]:X.indptr[i + 1]])
             d = pd.DataFrame({"user_id": hold.user_ids[u], "bucket": hold.buckets[u],
                               "pct": personal_pct(sc[i], h), "k_like": int((inp >= 4).sum()),
+                              "k_five": int((inp >= 5).sum()),
                               "n_rated": len(inp), "rating": metrics.rounded(hold.hidden_ratings[u])})
             if tp is not None:
                 d["taste"] = tp[i, h]
@@ -82,8 +89,12 @@ def _logistic(X: np.ndarray, y: np.ndarray, iters: int = 50) -> np.ndarray:
 class Chance:
     coef: list[float]   # свободный член, log10(pct), логит щедрости
     prior: float        # a: сила подтягивания щедрости к толпе, в «оценках»
-    p0: float           # доля 4–5★ по толпе (вход обучающих людей)
+    p0: float           # доля оценок ≥ stars по толпе (вход обучающих людей)
     model_fp: str = ""  # отпечаток весов модели, на которой откалибровано
+    stars: int = 4      # шанс оценки не ниже stars: 4 — «понравится», 5 — пятёрка
+
+    def label(self) -> str:
+        return "5★" if self.stars == 5 else f"{self.stars}–5★"
 
     def _features(self, pct, k_like, n_rated) -> np.ndarray:
         own = (np.asarray(k_like, dtype=np.float64) + self.prior * self.p0) / (np.asarray(n_rated) + self.prior)
@@ -91,6 +102,7 @@ class Chance:
         return np.column_stack([np.ones(len(pct)), np.log10(pct), _logit(own)])
 
     def predict(self, pct, k_like, n_rated) -> np.ndarray:
+        """k_like — сколько оценок человека не ниже stars, n_rated — всего оценок."""
         pct = np.atleast_1d(np.asarray(pct, dtype=np.float64))
         k = np.broadcast_to(k_like, pct.shape)
         n = np.broadcast_to(n_rated, pct.shape)
@@ -112,33 +124,39 @@ def log_loss(y: np.ndarray, p: np.ndarray) -> float:
     return float(-(y * np.log(p) + (1 - y) * np.log(1 - p)).mean())
 
 
-def fit(obs: pd.DataFrame, p0: float, prior_grid=PRIOR_GRID) -> tuple[Chance, dict]:
+def _k(obs: pd.DataFrame, stars: int) -> pd.Series:
+    """Сколько оценок человека не ниже stars (столбец `observations`)."""
+    return obs.k_five if stars == 5 else obs.k_like
+
+
+def fit(obs: pd.DataFrame, p0: float, prior_grid=PRIOR_GRID, stars: int = 4) -> tuple[Chance, dict]:
     """Коэффициенты при каждой силе подтягивания a; берётся a с наименьшим log-loss."""
-    y = (obs.rating >= 4).to_numpy(dtype=np.float64)
+    y = (obs.rating >= stars).to_numpy(dtype=np.float64)
+    k = _k(obs, stars)
     losses, best = {}, None
     for a in prior_grid:
-        c = Chance([0.0, 0.0, 0.0], a, p0)
-        X = c._features(obs.pct, obs.k_like, obs.n_rated)
+        c = Chance([0.0, 0.0, 0.0], a, p0, stars=stars)
+        X = c._features(obs.pct, k, obs.n_rated)
         c.coef = _logistic(X, y).tolist()
-        losses[a] = log_loss(y, c.predict(obs.pct, obs.k_like, obs.n_rated))
+        losses[a] = log_loss(y, c.predict(obs.pct, k, obs.n_rated))
         if best is None or losses[a] < losses[best.prior]:
             best = c
     return best, losses
 
 
-def rank_only(obs_fit: pd.DataFrame, obs: pd.DataFrame) -> np.ndarray:
+def rank_only(obs_fit: pd.DataFrame, obs: pd.DataFrame, stars: int = 4) -> np.ndarray:
     """Сравнение: шанс только по месту в рейтинге (без щедрости человека)."""
     X = lambda d: np.column_stack([np.ones(len(d)), np.log10(d.pct.to_numpy())])
-    w = _logistic(X(obs_fit), (obs_fit.rating >= 4).to_numpy(dtype=np.float64))
+    w = _logistic(X(obs_fit), (obs_fit.rating >= stars).to_numpy(dtype=np.float64))
     return 1 / (1 + np.exp(-X(obs) @ w))
 
 
-def person_only(obs_fit: pd.DataFrame, obs: pd.DataFrame, prior: float, p0: float) -> np.ndarray:
+def person_only(obs_fit: pd.DataFrame, obs: pd.DataFrame, prior: float, p0: float, stars: int = 4) -> np.ndarray:
     """Сравнение: шанс только по щедрости человека (без места книги)."""
     def X(d):
-        own = (d.k_like.to_numpy() + prior * p0) / (d.n_rated.to_numpy() + prior)
+        own = (_k(d, stars).to_numpy() + prior * p0) / (d.n_rated.to_numpy() + prior)
         return np.column_stack([np.ones(len(d)), _logit(own)])
-    w = _logistic(X(obs_fit), (obs_fit.rating >= 4).to_numpy(dtype=np.float64))
+    w = _logistic(X(obs_fit), (obs_fit.rating >= stars).to_numpy(dtype=np.float64))
     return 1 / (1 + np.exp(-X(obs) @ w))
 
 
@@ -151,19 +169,19 @@ def reliability(y: np.ndarray, p: np.ndarray, bins=(0, .3, .4, .5, .6, .7, .8, .
             for i, r in t.iterrows()]
 
 
-def with_taste(obs_fit: pd.DataFrame, obs: pd.DataFrame, prior: float, p0: float) -> np.ndarray:
+def with_taste(obs_fit: pd.DataFrame, obs: pd.DataFrame, prior: float, p0: float, stars: int = 4) -> np.ndarray:
     """Сравнение (только замер): место + щедрость + прогноз оценки модели вкуса. В шанс не входит — книга ниже
     в списке могла бы получить больший процент."""
     def X(d):
-        own = (d.k_like.to_numpy() + prior * p0) / (d.n_rated.to_numpy() + prior)
+        own = (_k(d, stars).to_numpy() + prior * p0) / (d.n_rated.to_numpy() + prior)
         return np.column_stack([np.ones(len(d)), np.log10(d.pct.to_numpy()), _logit(own), d.taste.to_numpy() - 3.0])
-    w = _logistic(X(obs_fit), (obs_fit.rating >= 4).to_numpy(dtype=np.float64))
+    w = _logistic(X(obs_fit), (obs_fit.rating >= stars).to_numpy(dtype=np.float64))
     return 1 / (1 + np.exp(-X(obs) @ w))
 
 
-def within_person_auc(obs: pd.DataFrame, p: np.ndarray) -> float:
-    """Среднее по людям: понравившаяся скрытая книга получила обещание выше непонравившейся (0.5 — монетка)."""
-    d = obs.assign(p=p, y=obs.rating >= 4)
+def within_person_auc(obs: pd.DataFrame, p: np.ndarray, stars: int = 4) -> float:
+    """Среднее по людям: скрытая книга с оценкой ≥ stars получила обещание выше остальных (0.5 — монетка)."""
+    d = obs.assign(p=p, y=obs.rating >= stars)
     vals = [_auc(g.p[g.y].to_numpy(), g.p[~g.y].to_numpy()) for _, g in d.groupby("user_id") if 0 < g.y.sum() < len(g)]
     return float(np.mean(vals)) if vals else float("nan")
 
@@ -177,9 +195,11 @@ def model_class(name: str):
     return MODELS[name][0]
 
 
-def calibrate(name: str, *, ratings_path: Path, split_dir: Path, models_dir: Path, eval_dir: Path) -> dict:
+def calibrate(name: str, *, ratings_path: Path, split_dir: Path, models_dir: Path, eval_dir: Path,
+              stars: int | None = None) -> dict:
     """Учим шанс на валидации для сохранённой модели models_dir/<name>, проверяем на тесте.
-    Пишет models_dir/<name>/chance.json и eval_dir/chance_<name>.json."""
+    Пишет models_dir/<name>/chance.json и eval_dir/chance_<name>.json. stars — порог (по умолчанию `STARS`)."""
+    stars = STARS.get(name, 4) if stars is None else int(stars)
     from booksengine.model.evaluate import load_eval_holdout
     from booksengine.model.matrix import catalog_works
     model_dir = models_dir / name
@@ -188,22 +208,23 @@ def calibrate(name: str, *, ratings_path: Path, split_dir: Path, models_dir: Pat
     val = observations(model, load_eval_holdout(ratings_path, split_dir, "val", work_ids))
     test = observations(model, load_eval_holdout(ratings_path, split_dir, "test", work_ids))
     users = val.drop_duplicates("user_id")
-    p0 = float((users.k_like / users.n_rated).mean())
-    c, losses = fit(val, p0)
+    p0 = float((_k(users, stars) / users.n_rated).mean())
+    c, losses = fit(val, p0, stars=stars)
     c.model_fp = fingerprint(model_dir)
     c.save(model_dir / "chance.json")
-    y = (test.rating >= 4).to_numpy(dtype=np.float64)
-    p = c.predict(test.pct, test.k_like, test.n_rated)
-    variants = {"константа p(4–5★) валидации": np.full(len(y), (val.rating >= 4).mean()),
-                "только место в рейтинге": rank_only(val, test),
-                "только щедрость человека": person_only(val, test, c.prior, p0),
+    y = (test.rating >= stars).to_numpy(dtype=np.float64)
+    p = c.predict(test.pct, _k(test, stars), test.n_rated)
+    variants = {f"константа p({c.label()}) валидации": np.full(len(y), (val.rating >= stars).mean()),
+                "только место в рейтинге": rank_only(val, test, stars),
+                "только щедрость человека": person_only(val, test, c.prior, p0, stars),
                 "место + щедрость": p}
     if "taste" in val.columns:
-        variants["место + щедрость + прогноз вкуса (только замер)"] = with_taste(val, test, c.prior, p0)
-    out = {"model": name, "chance": asdict(c), "prior_log_loss_val": {str(k): v for k, v in losses.items()},
+        variants["место + щедрость + прогноз вкуса (только замер)"] = with_taste(val, test, c.prior, p0, stars)
+    out = {"model": name, "stars": stars, "chance": asdict(c),
+           "prior_log_loss_val": {str(k): v for k, v in losses.items()},
            "n_val": len(val), "n_test": len(test), "test_like_share": float(y.mean()),
            "test": {k: {"log_loss": log_loss(y, v), "brier": float(((v - y) ** 2).mean()),
-                        "auc": _auc(v[y == 1], v[y == 0]), "auc_within_person": within_person_auc(test, v)}
+                        "auc": _auc(v[y == 1], v[y == 0]), "auc_within_person": within_person_auc(test, v, stars)}
                     for k, v in variants.items()},
            "reliability": reliability(y, p),
            "by_bucket": {b: reliability(y[test.bucket == b], p[test.bucket == b]) for b in sorted(test.bucket.unique())}}
@@ -222,20 +243,24 @@ def report(out: dict) -> str:
     t = out["test"]
     main = t["место + щедрость"]
     n = f"{out['n_test']:,}".replace(",", " ")
-    lines = [f"# Шанс «понравится» (4–5★): models/{out['model']} — тест, {n} скрытых оценок", "",
+    stars = out.get("stars", 4)
+    what = "пятёрки (5★)" if stars == 5 else "«понравится» (4–5★)"
+    got = "5★ на деле" if stars == 5 else "понравилось на деле"
+    lines = [f"# Шанс {what}: models/{out['model']} — тест, {n} скрытых оценок", "",
              f"**Шанс различает книги с AUC {main['auc']:.2f}** (внутри одного человека — "
              f"{main['auc_within_person']:.2f}); обещанное расходится с реальным не больше чем на "
              f"{max(abs(r['promised'] - r['actual']) for r in out['reliability']):.0%}.", "",
-             "| обещано | понравилось на деле | оценок |", "|---|---|---|"]
+             f"| обещано | {got} | оценок |", "|---|---|---|"]
     lines += [f"| {_bin_name(r['bin'])} (в среднем {r['promised']:.0%}) | {r['actual']:.0%} | {r['n']:,} |".replace(",", " ")
               for r in out["reliability"]]
     lines += ["", "Из чего шанс и что даёт каждая часть:", "", "| что учитывает | AUC | внутри человека |", "|---|---|---|"]
     lines += [f"| {k}{' ← шанс' if k == 'место + щедрость' else ''} | {v['auc']:.3f} | {v['auc_within_person']:.3f} |"
               for k, v in t.items()]
-    lines += ["", "**Как читать.** Шанс — вероятность, что человек поставит книге 4–5★, по месту книги в его рейтинге и "
-              "его щедрости (какую долю прочитанного он оценивает на 4–5★). Хорошо откалиброван, если «обещано» ≈ "
-              "«понравилось на деле». AUC — как часто понравившаяся книга получает шанс выше непонравившейся: 0.5 — "
-              "наугад, 1 — всегда; «внутри человека» — только между книгами одного человека, без вклада его щедрости."]
+    mark = "5★" if stars == 5 else "4–5★"
+    lines += ["", f"**Как читать.** Шанс — вероятность, что человек поставит книге {mark}, по месту книги в его рейтинге "
+              f"и его щедрости (какую долю прочитанного он оценивает на {mark}). Хорошо откалиброван, если «обещано» ≈ "
+              f"«{got}». AUC — как часто книга с оценкой {mark} получает шанс выше остальных: 0.5 — наугад, 1 — "
+              "всегда; «внутри человека» — только между книгами одного человека, без вклада его щедрости."]
     return "\n".join(lines) + "\n"
 
 

@@ -80,10 +80,10 @@ uv run booksengine load-db                                  # каталог и�
 | **модели и замеры** | |
 | `evaluate <model> --stage val\|test` | стенд `popularity`, `als`, `als_neg`, `knn`, `ease`, `mix`: перебор по NDCG@20 → `models/<model>` / замер на тесте |
 | `report-3a` | `reports/stage3a_report.md` — сравнение моделей стенда |
-| `calibrate [model]` | шанс «понравится» → `models/<model>/chance.json`, отчёт `reports/chance_<model>.md` |
+| `calibrate [model]` | шанс: у `layers` (выдача) — пятёрки (5★), у `mix` (приложение) — «понравится» (4–5★) → `models/<model>/chance.json`, отчёт `reports/chance_<model>.md` |
 | `taste [--factors … --reg …]` | модель вкуса → `models/taste` |
-| `ease-like-tune [--lam … --weights … --force --min-user N]` | подбор толпы «ценность» → `models/ease_like`, `models/mix_like` |
-| `layers val\|test\|profiles [--top N]` | слои «толпа + вкус»: выбор по качеству списка (средняя ценность угаданных книг топ-20: 5★ = 2 … 1★ = −1) → `models/layers`, замер на тесте, топ профилей рядом с прежней выдачей |
+| `ease-like-tune [--lam … --weights … --force --min-user N --min-support N]` | подбор толпы «ценность» → `models/ease_like`, `models/mix_like`; связь книг — только при ≥ N общих читателях (по умолчанию 25) |
+| `layers val\|test\|profiles [--top N]` | слои «толпа + вкус»: выбор по качеству списка (средняя ценность угаданных книг топ-20: 5★ = 2 … 1★ = −1) → `models/layers`, замер на тесте с контролем «шум вместо вкуса» («сверх шума» — честный вклад вкуса), топ профилей рядом с прежней выдачей |
 | `profile-check` | каждая книга `profiles/*.csv` по очереди прячется — на каком месте её поставит выдача |
 | `why [--profile имя] "<книга>"` | почему книга стоит на своём месте: части модели и вклады книг профиля |
 | `taste-gap` | личная точность моделей: понравившиеся скрытые книги выше непонравившихся? |
@@ -91,7 +91,7 @@ uv run booksengine load-db                                  # каталог и�
 | `exp save\|split\|run\|report` | сравнить варианты очистки на общем тесте |
 | **выдача** | |
 | `journal` | журнал выдач (`profiles/history/`) против оценок, поставленных позже: доля 5★ и 1–2★ среди прочитанного из советов и среди остальных оценок; отдельно — поднятое вкусом и прочитанное из «смелой» выдачи (проверка порога 80%) → `reports/journal.md` |
-| `recommend --ratings <csv> [--top 20] [--one-list]` | рекомендации по CSV (`goodreads_work_id`, `rating` 1–5, `status`, `title`): два списка — художественная литература и нон-фикшн (`--one-list` — один); слои `models/layers`, без них — смесь; без сборников, поздний том неначатой серии — первой книгой, не больше одной книги автора на 10 мест; выдача пишется в `profiles/history/` |
+| `recommend --ratings <csv> [--top 20] [--one-list]` | рекомендации по CSV (`goodreads_work_id`, `rating` 1–5, `status`, `title`): два списка — художественная литература и нон-фикшн (`--one-list` — один); слои `models/layers`, без них — смесь; без сборников и поздних томов неначатых серий, не больше одной книги автора на 10 мест; без оценки: `status=want` — «хочу прочитать», иначе — «прочитано, оценку не помню» (не советуются, во входе толпы — слабый плюс; полка до 20 книг даёт +2% угаданного, вся полка Goodreads — +21%); выдача пишется в `profiles/history/` |
 | `export-model` | смесь → БД для веб-интерфейса (перезаписывает целиком) |
 
 Порядок сборки моделей: `split` → `evaluate als_neg` и `evaluate ease` (val, затем test) → `evaluate mix` →

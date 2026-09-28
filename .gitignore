@@ -8,6 +8,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .idea/
+.superpowers/
 
 # .NET
 bin/
@@ -16,3 +17,4 @@ obj/
 # фронт
 web/node_modules/
 web/dist/
+.DS_Store

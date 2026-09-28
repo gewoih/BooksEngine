@@ -22,24 +22,26 @@ DESPITE_OF_LEADER = 0.5  # отрицательный вклад по модул
 TASTE_SHOWN = 0.5
 
 
-def contributions(mix: Mix, x: sp.csr_matrix, cols: np.ndarray,
-                  dnf: sp.csr_matrix | None = None) -> tuple[np.ndarray, np.ndarray]:
-    """Вклады книг входа одного человека (x — строка 1 × книги ядра, dnf — недочитанные, как в `Mix.score`)
-    в балл смеси книг cols. Возвращает (столбцы входа, матрица вкладов вход × cols). cols — только книги EASE."""
+def contributions(mix: Mix, x: sp.csr_matrix, cols: np.ndarray, dnf: sp.csr_matrix | None = None,
+                  shelf: sp.csr_matrix | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """Вклады книг входа одного человека (x — строка 1 × книги ядра, dnf — недочитанные, shelf — книги без оценки,
+    как в `Mix.score`) в балл смеси книг cols. Возвращает (столбцы входа, матрица вкладов вход × cols); вход — оценённые
+    и полка, у книг полки вклад только через EASE. cols — только книги EASE."""
     top = mix.ease.top_cols
     pos = np.searchsorted(top, cols)
     if not np.array_equal(top[np.minimum(pos, len(top) - 1)], cols):
         raise ValueError("объясняются только книги EASE: у остальных нет балла смеси")
-    in_cols = x.indices
-    s_als, s_ease = mix.components(x, dnf)
+    in_cols = x.indices if shelf is None or shelf.nnz == 0 else np.union1d(x.indices, shelf.indices)
+    s_als, s_ease = mix.components(x, dnf, shelf)
     w_als = mix.als_weight
 
-    A, Yu, w = mix.als.fold_in_system(in_cols, x.data)
+    A, Yu, w = mix.als.fold_in_system(x.indices, x.data)
     G = np.linalg.solve(A, Yu.T).T * w[:, None]                 # вклад книги i в вектор человека
     Y = mix.als.item_factors.astype(np.float64)
-    c_als = G @ Y[cols].T - (G @ Y[top].mean(axis=0))[:, None]
+    c_als = np.zeros((len(in_cols), len(cols)))
+    c_als[np.searchsorted(in_cols, x.indices)] = G @ Y[cols].T - (G @ Y[top].mean(axis=0))[:, None]
 
-    v = mix.ease_inputs(x, dnf)                                   # 1 × 30 000, вес оценки у книг EASE
+    v = mix.ease_inputs(x, dnf, shelf)                            # 1 × 30 000, вес оценки у книг EASE
     rows = sp.csr_matrix((v.data, (np.searchsorted(in_cols, top[v.indices]), v.indices)),
                          shape=(len(in_cols), len(top)))       # вход × книги EASE
     c_ease_all = rows @ mix.ease._B
@@ -85,8 +87,8 @@ def taste_contributions(taste, x: sp.csr_matrix, cols: np.ndarray, top: np.ndarr
     return c, const
 
 
-def layers_parts(layers, x: sp.csr_matrix, cols: np.ndarray,
-                 dnf: sp.csr_matrix | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def layers_parts(layers, x: sp.csr_matrix, cols: np.ndarray, dnf: sp.csr_matrix | None = None,
+                 shelf: sp.csr_matrix | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Вклады книг входа в балл слоёв «толпа + вкус» (`Layers.score`) книг cols — отдельно толпа и вкус (с его весом),
     и постоянная часть вкуса («как книгу обычно оценивают»). Толпа + вкус + постоянная = балл, точно.
     Возвращает (вход, толпа, вкус, постоянная)."""
@@ -100,21 +102,21 @@ def layers_parts(layers, x: sp.csr_matrix, cols: np.ndarray,
     w0 = m.als_weight
     try:
         m.configure(als_weight=w, ease_input=m.ease_input)
-        in_cols, c = contributions(m, x, cols, dnf)
+        in_cols, c = contributions(m, x, cols, dnf, shelf)
     finally:
         m.configure(als_weight=w0, ease_input=m.ease_input)
     t, const = np.zeros_like(c), np.zeros(len(cols))
     if v.taste_weight:
-        # вход вкуса — с недочитанными чуть ниже обычной оценки (`Layers.taste_input`), столбцы те же
+        # вход вкуса — с недочитанными чуть ниже обычной оценки (`Layers.taste_input`); полки во вкусе нет
         ct, kt = taste_contributions(layers.taste, layers.taste_input(x, dnf), cols, m.ease.top_cols)
-        t, const = v.taste_weight * ct, v.taste_weight * kt
+        t[np.searchsorted(in_cols, x.indices)], const = v.taste_weight * ct, v.taste_weight * kt
     return in_cols, c, t, const
 
 
-def layers_contributions(layers, x: sp.csr_matrix, cols: np.ndarray,
-                         dnf: sp.csr_matrix | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def layers_contributions(layers, x: sp.csr_matrix, cols: np.ndarray, dnf: sp.csr_matrix | None = None,
+                         shelf: sp.csr_matrix | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Вклады книг входа в балл слоёв (толпа и вкус вместе) и постоянная часть. Возвращает (вход, вклады, постоянная)."""
-    in_cols, c, t, const = layers_parts(layers, x, cols, dnf)
+    in_cols, c, t, const = layers_parts(layers, x, cols, dnf, shelf)
     return in_cols, c + t, const
 
 

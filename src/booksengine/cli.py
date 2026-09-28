@@ -3,9 +3,31 @@ import typer
 app = typer.Typer(help="BooksEngine: офлайн-часть рекомендательной системы книг", no_args_is_help=True)
 
 
+@app.callback()
+def main(domain: str = typer.Option("books", "--domain", help="books | movies — данные и модели домена "
+                                     "(data/<domain>/, models/<domain>/)")) -> None:
+    import os
+    if domain not in ("books", "movies"):
+        raise typer.BadParameter("domain: books | movies")
+    os.environ["BOOKSENGINE_DOMAIN"] = domain
+
+
 @app.command()
-def prepare(force: bool = typer.Option(False, "--force", help="пересобрать всё, игнорируя кэш")) -> None:
-    """Staging → профилирование → очистка → валидация → отчёт (reports/stage1_report.md)."""
+def prepare(force: bool = typer.Option(False, "--force", help="пересобрать всё, игнорируя кэш (только books)")) -> None:
+    """books: staging → профилирование → очистка → валидация → отчёт (reports/stage1_report.md).
+    movies: MovieLens → очистка (округление звёзд, k-core) → data/movies/clean/."""
+    from booksengine.paths import DOMAIN
+    if DOMAIN == "movies":
+        import json
+
+        import yaml
+
+        from booksengine.data import movielens
+        from booksengine.paths import CLEAN_DIR, CONFIG_PATH, RAW_DIR
+        cfg = yaml.safe_load(CONFIG_PATH.read_text())["movies"]
+        manifest = movielens.prepare(RAW_DIR, CLEAN_DIR, cfg)
+        print(json.dumps(manifest["outputs"], ensure_ascii=False, indent=1))
+        return
     from booksengine.data import pipeline
     pipeline.prepare(force=force)
 
@@ -38,14 +60,21 @@ def report() -> None:
 
 @app.command()
 def split(force: bool = typer.Option(False, "--force", help="пересобрать сплит")) -> None:
-    """Отложенная выборка: тест и валидация поровну из этапов 20-39/40-79/80-159/160-319/320-999 оценок, вне обучения (data/model/split/)."""
+    """Отложенная выборка: тест и валидация поровну из этапов 20-39/40-79/80-159/160-319/320-999 оценок, вне обучения (data/<domain>/model/split/)."""
     import json
 
     from booksengine.model import split as s
-    from booksengine.paths import CLEAN_DIR, SPLIT_DIR
-    manifest = json.loads((CLEAN_DIR / "manifest.json").read_text())
+    from booksengine.paths import CLEAN_DIR, DOMAIN, SPLIT_DIR
+    kw = {}
+    if DOMAIN == "movies":
+        from booksengine.data import movielens
+        kw["bucket_pool_size"] = movielens.bucket_pool_size(CLEAN_DIR / "ratings.parquet")
+        data_fp = str((CLEAN_DIR / "ratings.parquet").stat().st_mtime_ns)
+    else:
+        manifest = json.loads((CLEAN_DIR / "manifest.json").read_text())
+        data_fp = manifest["outputs"]["ratings"]["checksum"]
     meta = s.build(CLEAN_DIR / "ratings.parquet", CLEAN_DIR / "users.parquet", SPLIT_DIR,
-                   manifest["outputs"]["ratings"]["checksum"], force=force)
+                   data_fp, force=force, **kw)
     print(json.dumps(meta["groups"], ensure_ascii=False, indent=1))
 
 
@@ -156,8 +185,10 @@ def layers(stage: str = typer.Argument(..., help="val | test | profiles"),
 def ease_like_tune(lam: float = typer.Option(None, help="одна настройка вместо сетки: λ"),
                    weights: str = typer.Option(None, help="одна настройка: веса 1★…5★ через запятую, например 2,4,8,16,32"),
                    force: bool = typer.Option(False, "--force", help="записать эту настройку, даже если она не лучшая"),
-                   min_user: int = typer.Option(20, "--min-user", help="обучать только на людях с ≥ N оценок")
-                   ) -> None:
+                   min_user: int = typer.Option(20, "--min-user", help="обучать только на людях с ≥ N оценок"),
+                   min_support: int = typer.Option(None, "--min-support",
+                                                   help="связь книг — только при ≥ N общих читателях (по умолчанию "
+                                                        "layers.MIN_SUPPORT)")) -> None:
     """Подбор толпы «ценность» (λ, веса звёзд) на валидации → лучшая в models/ease_like и models/mix_like;
     сетка ~50–70 мин. Сохранённая толпа всегда в сравнении; --lam / --weights — проверить одну настройку против неё
     (без --weights берутся −2/−1/0/1/2). После — `layers val` и `layers test`."""
@@ -169,7 +200,8 @@ def ease_like_tune(lam: float = typer.Option(None, help="одна настрой
                  tuple(float(w) for w in weights.split(",")) if weights else ly.W0)]
     text = ly.report_like(ly.tune_like(clean_dir=CLEAN_DIR, split_dir=SPLIT_DIR, models_dir=MODELS_DIR,
                                        eval_dir=EVAL_DIR, grid=grid, force=force and (lam is not None or bool(weights)),
-                                       min_user=min_user))
+                                       min_user=min_user,
+                                       min_support=ly.MIN_SUPPORT if min_support is None else min_support))
     REPORTS_DIR.mkdir(exist_ok=True)
     (REPORTS_DIR / "ease_like_tune.md").write_text(text)
     print(text)
