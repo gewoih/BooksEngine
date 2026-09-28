@@ -92,6 +92,7 @@ class Result:
     n_used: int = 0
     n_read: int = 0               # прочитано без оценки: не советуется, во входе толпы — слабый плюс
     n_want: int = 0               # «хочу прочитать»: то же
+    chance: str = "4–5★"          # какой шанс в скобках (`Chance.label`)
 
 
 def read_profile(path: Path, work_ids: np.ndarray, clean_dir: Path, id_col: str = "goodreads_work_id") -> Profile:
@@ -206,7 +207,7 @@ def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int 
     picked = np.array([c for _, c in got], dtype=np.int64)
 
     r = metrics.rounded(prof.x.data)
-    pct = chance.predict(personal_pct(sc, picked), int((r >= 4).sum()), prof.x.nnz)
+    pct = chance.predict(personal_pct(sc, picked), int((r >= chance.stars).sum()), prof.x.nnz)
     if isinstance(model, Mix):
         in_cols, contrib = explain.contributions(model, prof.x, picked, prof.dnf, shelf)
         taste, const = np.zeros_like(contrib), np.zeros(len(picked))
@@ -230,7 +231,7 @@ def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int 
     if not isinstance(model, Mix):
         bold = _debug(model, prof, recs, picked, ex, picker, rated, top, rules, clean_dir, work_ids, parts)
     res = Result(recs, [(f"{info.title[c]} — {info.author[c] or '?'}", WHY_REMOVED[w]) for c, w in removed],
-                 prof.skipped, prof.x.nnz, len(prof.read), len(prof.want))
+                 prof.skipped, prof.x.nnz, len(prof.read), len(prof.want), chance.label())
     if history_dir is not None:
         journal.save(res.recs, ratings_csv.stem, model_fp, history_dir,
                      bold=[(int(work_ids[c]), info.title[c], info.author[c] or "", sec) for sec, c in bold])
@@ -335,7 +336,8 @@ def why_text(r: Rec) -> list[str]:
 def format_result(res: Result) -> str:
     extra = [f"прочитано без оценки {res.n_read}"] * bool(res.n_read) + [f"хочу прочитать {res.n_want}"] * bool(res.n_want)
     out = [f"Учтено оценок: {res.n_used}" + (f"; без оценки (не советуются): {', '.join(extra)}" if extra else ""),
-           "", LEGEND]
+           "", f"В скобках — шанс, что поставишь книге {res.chance}, если прочтёшь (из десяти книг с шансом 40% "
+               f"{res.chance} получат четыре). " + LEGEND]
     section, i = None, 0
     for r in res.recs:
         if r.section != section:

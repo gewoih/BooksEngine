@@ -19,7 +19,8 @@
 
 ## Модель
 
-- `recommend` считает лучшей моделью — `models/layers` (шанс — `calibrate layers`): толпа «ценность» — `EASELike`
+- `recommend` считает лучшей моделью — `models/layers` (шанс пятёрки — `calibrate layers`: честная вероятность 5★, на
+  книгах списков обещано 52%, на деле 55%): толпа «ценность» — `EASELike`
   (цель «оценка − 3», λ 500, вход — звёзды 1★…5★ с весами −1/−0.5/0.5/1/2; связь двух книг — только при ≥ 25 общих
   читателях, `layers.MIN_SUPPORT`) + ALS с весом 0; модель вкуса — вес 3, переставляет только первые 1000 книг толпы
   (отсекает книги, которые советует один вкус). Во входе вкуса недочитанная — на 0.5 ниже обычной оценки книги, любая
@@ -77,7 +78,7 @@ uv run booksengine ease-like-tune [--weights … --force --min-user N]   # то�
 uv run booksengine layers val|test|profiles     # подбор и проверка толпа + вкус → models/layers
 uv run booksengine profile-check                # каждая книга профиля прячется — её место
 uv run booksengine why "<книга>"                # почему книга стоит на своём месте
-uv run booksengine calibrate layers             # шанс «понравится» для models/layers
+uv run booksengine calibrate layers             # шанс пятёрки (5★) для models/layers
 uv run booksengine recommend --ratings profiles/my_ratings.csv
 scripts/night.sh                                # на ночь: весь подбор, тест, шанс, списки → reports/
 uv run booksengine journal                      # что прочитано из советов и как оценено (profiles/history/)

@@ -158,6 +158,7 @@ def test_saved_layers_score_calibrate_and_refuse_stale_components(world):
     assert np.isneginf(np.delete(got, top, axis=1)).all()
     out = chance.calibrate("layers", ratings_path=tp / "ratings.parquet", split_dir=sd, models_dir=md, eval_dir=ed)
     assert any("прогноз вкуса" in k for k in out["test"]) and len(out["chance"]["coef"]) == 3
+    assert out["stars"] == 5 and "Шанс пятёрки" in chance.report(out)     # у выдачи — шанс пятёрки
     assert "auc_within_person" in out["test"]["место + щедрость"]
     Taste(factors=2, reg=0.07, iterations=1).save(md / "taste")      # вкус переобучен после выбора веса
     with pytest.raises(ValueError, match="layers val"):

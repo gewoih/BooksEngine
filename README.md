@@ -80,7 +80,7 @@ uv run booksengine load-db                                  # каталог и�
 | **модели и замеры** | |
 | `evaluate <model> --stage val\|test` | стенд `popularity`, `als`, `als_neg`, `knn`, `ease`, `mix`: перебор по NDCG@20 → `models/<model>` / замер на тесте |
 | `report-3a` | `reports/stage3a_report.md` — сравнение моделей стенда |
-| `calibrate [model]` | шанс «понравится» → `models/<model>/chance.json`, отчёт `reports/chance_<model>.md` |
+| `calibrate [model]` | шанс: у `layers` (выдача) — пятёрки (5★), у `mix` (приложение) — «понравится» (4–5★) → `models/<model>/chance.json`, отчёт `reports/chance_<model>.md` |
 | `taste [--factors … --reg …]` | модель вкуса → `models/taste` |
 | `ease-like-tune [--lam … --weights … --force --min-user N --min-support N]` | подбор толпы «ценность» → `models/ease_like`, `models/mix_like`; связь книг — только при ≥ N общих читателях (по умолчанию 25) |
 | `layers val\|test\|profiles [--top N]` | слои «толпа + вкус»: выбор по качеству списка (средняя ценность угаданных книг топ-20: 5★ = 2 … 1★ = −1) → `models/layers`, замер на тесте с контролем «шум вместо вкуса» («сверх шума» — честный вклад вкуса), топ профилей рядом с прежней выдачей |

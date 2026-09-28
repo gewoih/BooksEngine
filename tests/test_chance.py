@@ -32,6 +32,28 @@ def test_fit_recovers_coefficients_and_chooses_prior():
     assert set(losses) == {10.0}
 
 
+def test_fit_five_stars_uses_share_of_fives():
+    rng = np.random.default_rng(1)
+    n_users, per = 3000, 20
+    n_rated = rng.integers(20, 300, n_users)
+    k_five = rng.binomial(n_rated, rng.beta(2, 4, n_users))
+    obs = pd.DataFrame({"user_id": np.repeat(np.arange(n_users), per), "pct": 10 ** rng.uniform(-4, 0, n_users * per),
+                        "k_like": np.repeat(n_rated, per), "k_five": np.repeat(k_five, per),
+                        "n_rated": np.repeat(n_rated, per)})
+    truth = chance.Chance([-0.8, -0.3, 1.0], prior=10.0, p0=0.33, stars=5)
+    p = truth.predict(obs.pct, obs.k_five, obs.n_rated)
+    obs["rating"] = np.where(rng.random(len(obs)) < p, 5.0, 4.0)      # четвёрка — не пятёрка
+    c, _ = chance.fit(obs, p0=0.33, prior_grid=(10.0,), stars=5)
+    np.testing.assert_allclose(c.coef, truth.coef, atol=0.1)
+    assert c.stars == 5 and c.label() == "5★"
+
+
+def test_old_calibration_without_stars_means_four_or_more(tmp_path):
+    (tmp_path / "chance.json").write_text(json.dumps({"coef": [0.0, 0.0, 1.0], "prior": 3.0, "p0": 0.7}))
+    c = chance.Chance.load(tmp_path / "chance.json")
+    assert c.stars == 4 and c.label() == "4–5★"
+
+
 def test_load_rejects_calibration_of_other_model_version(tmp_path):
     c = chance.Chance([0.0, 0.0, 1.0], 3.0, 0.7, model_fp="aaa")
     c.save(tmp_path / "chance.json")
