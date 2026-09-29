@@ -65,7 +65,7 @@ def extract_year(publisher_raw: str | None) -> int | None:
     """Год издания — минимальное правдоподобное 4-значное число (1900..CURRENT_YEAR) в тексте `Publisher`
     («Chatto & Windus; First Edition (January 1, 2004)» -> 2004). Минимальное, не максимальное: в тексте
     попадаются шумовые числа (артикулы, вес) — они почти всегда больше настоящей даты издания."""
-    if not publisher_raw:
+    if not isinstance(publisher_raw, str) or not publisher_raw:
         return None
     years = [int(y) for y in re.findall(r"(?:19|20)\d{2}", publisher_raw)]
     plausible = [y for y in years if 1900 <= y <= CURRENT_YEAR]
@@ -102,3 +102,46 @@ def build_bridge(con: duckdb.DuckDBPyConnection, editions_path: Path) -> None:
         )
         GROUP BY parent_asin
     """)
+
+
+def apply_kcore(con: duckdb.DuckDBPyConnection, min_user: int = MIN_USER, min_work: int = MIN_WORK) -> dict:
+    """Итеративный k-core на _az_ratings по (user_id, parent_asin). Переиспользует `clean.apply_kcore` —
+    внутри него имя колонки произведения жёстко `work_id`, поэтому parent_asin временно переименовывается."""
+    from booksengine.data import clean
+
+    con.execute("CREATE OR REPLACE TEMP TABLE ratings_w AS SELECT user_id, parent_asin AS work_id, rating, "
+                "timestamp, source FROM _az_ratings")
+    log = clean.CleaningLog()
+    clean.apply_kcore(con, log, min_user, min_work)
+    con.execute("CREATE OR REPLACE TEMP TABLE _az_ratings AS SELECT user_id, work_id AS parent_asin, rating, "
+                "timestamp, source FROM ratings_w")
+    con.execute("DROP TABLE ratings_w")
+    return log.records()[-1]
+
+
+def export(con: duckdb.DuckDBPyConnection, out_dir: Path) -> dict:
+    """ratings/items/bridge.parquet в out_dir. items — от _az_ratings (после k-core), не от _az_meta:
+    оценённая книга без meta-строки (JSON не распарсился) не теряется, просто с пустыми полями."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    opts = "(FORMAT parquet, COMPRESSION zstd)"
+    con.execute(f"COPY (SELECT user_id, parent_asin, rating, timestamp, source FROM _az_ratings "
+                f"ORDER BY parent_asin, user_id) TO '{out_dir / 'ratings.parquet'}' {opts}")
+
+    counts = con.execute("SELECT parent_asin, count(*) AS n_ratings FROM _az_ratings GROUP BY 1").df()
+    meta = con.execute("SELECT parent_asin, title, author, isbn10, isbn13, publisher_raw, language, "
+                       "categories, source FROM _az_meta").df()
+    items = counts.merge(meta, on="parent_asin", how="left")
+    items["year"] = items["publisher_raw"].map(extract_year)
+    items = items[["parent_asin", "title", "author", "isbn10", "isbn13", "year", "categories",
+                   "n_ratings", "source"]].set_index("parent_asin").reset_index()
+    items.to_parquet(out_dir / "items.parquet", index=False)
+
+    con.execute(f"COPY (SELECT b.parent_asin, b.work_id FROM bridge b "
+                f"JOIN (SELECT DISTINCT parent_asin FROM _az_ratings) r USING (parent_asin) "
+                f"ORDER BY b.parent_asin) TO '{out_dir / 'bridge.parquet'}' {opts}")
+
+    bridged = con.execute(
+        "SELECT count(*) FROM bridge b JOIN (SELECT DISTINCT parent_asin FROM _az_ratings) r "
+        "USING (parent_asin) WHERE b.work_id IS NOT NULL").fetchone()[0]
+    return {"ratings": int(con.execute("SELECT count(*) FROM _az_ratings").fetchone()[0]),
+            "items": len(items), "bridged": bridged, "new": len(items) - bridged}

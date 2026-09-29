@@ -146,3 +146,50 @@ def test_build_bridge_does_not_fan_out_on_duplicate_isbn_in_editions(tmp_path, c
     rows = con.execute("SELECT parent_asin, work_id FROM bridge WHERE parent_asin = 'DUP'").fetchall()
     assert len(rows) == 1   # ровно одна строка мостa, не две — дубль ISBN не размножает bridge
     assert rows[0][1] in (1, 2)
+
+
+def test_apply_kcore_filters_low_volume_users_and_items(con):
+    rows = ", ".join(f"('U{u}', 'B{w}', 5.0, 1000, 'books')" for u in range(5) for w in range(5))
+    con.execute(f"CREATE OR REPLACE TEMP TABLE _az_ratings AS SELECT * FROM (VALUES {rows}, "
+                f"('U9', 'B9', 5.0, 1000, 'books')) "   # 1 оценка у пользователя и книги — не пройдёт k-core
+                f"t(user_id, parent_asin, rating, timestamp, source)")
+
+    step = amazon.apply_kcore(con, min_user=5, min_work=5)
+
+    remaining = con.execute("SELECT count(*) FROM _az_ratings").fetchone()[0]
+    assert remaining == 25   # плотная матрица 5x5 проходит k-core целиком
+    assert step["rule"] == "kcore"
+    assert con.execute("SELECT count(*) FROM _az_ratings WHERE parent_asin = 'B9'").fetchone()[0] == 0
+
+
+def test_export_writes_ratings_items_and_bridge_parquet(tmp_path, con):
+    con.execute("CREATE OR REPLACE TEMP TABLE _az_ratings AS SELECT * FROM (VALUES "
+                "('U1', 'B001', 5.0, 1000, 'books'), ('U2', 'B001', 4.0, 1001, 'books'), "
+                "('U1', 'B002', 3.0, 1002, 'books')) "   # B002 оценена, но без записи в _az_meta
+                "t(user_id, parent_asin, rating, timestamp, source)")
+    con.execute("CREATE OR REPLACE TEMP TABLE _az_meta AS SELECT * FROM (VALUES "
+                "('B001', 'Some Title', 'Some Author', '0701169850', '978-0701169855', "
+                "'Publisher (2004)', 'English', 'Books|Fiction', 'books')) "
+                "t(parent_asin, title, author, isbn10, isbn13, publisher_raw, language, categories, source)")
+    con.execute("CREATE OR REPLACE TEMP TABLE bridge AS SELECT * FROM (VALUES "
+                "('B001', 1), ('B002', NULL)) t(parent_asin, work_id)")
+
+    counts = amazon.export(con, tmp_path)
+    assert counts == {"ratings": 3, "items": 2, "bridged": 1, "new": 1}
+
+    ratings = pd.read_parquet(tmp_path / "ratings.parquet")
+    assert list(ratings.columns) == ["user_id", "parent_asin", "rating", "timestamp", "source"]
+    assert len(ratings) == 3
+
+    items = pd.read_parquet(tmp_path / "items.parquet").set_index("parent_asin")
+    assert list(items.columns) == ["title", "author", "isbn10", "isbn13", "year", "categories",
+                                   "n_ratings", "source"]
+    assert items.loc["B001", "year"] == 2004
+    assert items.loc["B001", "n_ratings"] == 2
+    # B002 оценена, но нет meta-строки для неё — не должна пропасть из items, просто с пустыми полями
+    assert items.loc["B002", "n_ratings"] == 1
+    assert pd.isna(items.loc["B002", "title"])
+
+    bridge = pd.read_parquet(tmp_path / "bridge.parquet")
+    assert list(bridge.columns) == ["parent_asin", "work_id"]
+    assert len(bridge) == 2
