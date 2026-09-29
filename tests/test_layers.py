@@ -262,6 +262,17 @@ def test_tune_like_trains_grid_and_saves_best(world):
     res3 = ly.tune_like(clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval", grid=[other],
                         fit_kw={"topk": 20})
     assert [(r["lam"], tuple(r["weights"])) for r in res3["results"]] == [(best["lam"], tuple(best["weights"])), other]
+    # толпа, урезанная прежним способом (в params.json нет «links»), — другая настройка: та же λ и веса обучаются
+    from booksengine.model.base import write_params
+    write_params(md / "ease_like", {k: v for k, v in read_params(md / "ease_like").items() if k != "links"})
+    mix = Mix(md / "als_neg", md / "ease_like")
+    mix.fit(load_train(tp / "ratings.parquet", sd / "holdout_users.parquet"))
+    mix.configure(als_weight=0.5, ease_input=best["weights"])
+    mix.save(md / "mix_like")
+    old = ly.tune_like(clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval",
+                       grid=[(best["lam"], tuple(best["weights"]))], fit_kw={"topk": 20})
+    assert [(r["saved"], r.get("links", "")) for r in old["results"]] == [(True, ""), (False, "both")]
+    assert "связи только у цели" in ly.report_like(old)
 
 
 def test_profile_check_places_each_hidden_book(world):

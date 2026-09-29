@@ -113,12 +113,17 @@ class EASELike(EASE):
 
     B = argmin |Y − Xw·B|² + λ|B|², diag B = 0: B = P·XwᵀY − P·diag(μ), P = (XwᵀXw + λI)⁻¹,
     μ_j = (P·XwᵀY)_jj / P_jj (формула сверена с прямым решением по столбцам, tests/test_ease.py).
-    Столбцы B считаются блоками и сразу урезаются до topk соседей: вторая плотная матрица n × n не нужна.
-    min_support — вес B[i, j] обнуляется, если обе книги прочли меньше min_support людей обучения (`support_counts`):
-    связь на единицах общих читателей — их случайный вкус, а не свойство книг.
+    Столбцы B считаются блоками и сразу урезаются: вторая плотная матрица n × n не нужна. У каждой книги хранятся
+    topk сильнейших связей и как у цели (столбец), и как у источника (строка): у известной книги каждая связь слабая,
+    и с одними столбцами она оставалась почти без связей (у 100 самых известных — медиана 10 против 148 у остальных).
+    min_support — связь книг, которые обе прочли меньше min_support людей обучения, обнуляется до урезания: связь
+    на единицах общих читателей — их случайный вкус, а не свойство книг (после урезания она занимала место сильной
+    связи — пропадала половина мест). Замер 2026-09-29: качество списка +0.011 [+0.005; +0.017], угадано +1.5%;
+    без урезания (127 млн связей против 24 млн) — то же.
     Формат на диске — как у EASE: смесь (`Mix`) подаёт в него те же взвешенные звёзды.
     """
     name = "ease_like"
+    LINKS = "both"   # в params.json: связи урезаны с обеих сторон после опоры (у прежних толп поля нет)
 
     def __init__(self, lam: float = 500.0, n_top: int = 30_000, block: int = 2_000, topk: int = 500,
                  weights=(-2.0, -1.0, 0.0, 1.0, 2.0), min_user: int = 20, min_support: int = 0):
@@ -143,8 +148,10 @@ class EASELike(EASE):
         Y = X.copy()
         Y.data = (r - 3).astype(np.float32)
         Y.eliminate_zeros()
+        Xb = X.copy()                                  # кто что прочёл — для опоры связи
+        Xb.data[:] = 1.0
         del X
-        XwT = Xw.T.tocsr()
+        XwT, XbT = Xw.T.tocsr(), Xb.T.tocsr()
         G = np.empty((n, n), dtype=np.float32)
         for a in range(0, n, self.block):
             b = min(a + self.block, n)
@@ -156,24 +163,35 @@ class EASELike(EASE):
         del G, Xw
         diag = np.diag(P).copy()
         k = min(self.topk_target, n)
-        rows, cols, vals = [], [], []
+        rc, cc, vc = [], [], []                        # сильнейшие у каждой цели (столбцы)
+        row_idx = np.full((n, k), -1, dtype=np.int64)  # сильнейшие у каждого источника (строки), накопительно
+        row_val = np.zeros((n, k), dtype=np.float32)
         for a in range(0, n, self.block):
             b = min(a + self.block, n)
             D = P @ (XwT @ Y[:, a:b]).toarray()
             idx = np.arange(b - a)
             D -= P[:, a:b] * (D[a + idx, idx] / diag[a:b])[None, :]
             D[a + idx, idx] = 0.0
+            if self.min_support:
+                D[(XbT @ Xb[:, a:b]).toarray() < self.min_support] = 0.0
             part = np.argpartition(-np.abs(D), k - 1, axis=0)[:k]
-            rows.append(part.ravel(order="F"))
-            cols.append(np.repeat(np.arange(a, b), k))
-            vals.append(np.take_along_axis(D, part, axis=0).ravel(order="F"))
-        self._B = sp.csc_matrix((np.concatenate(vals), (np.concatenate(rows), np.concatenate(cols))), shape=(n, n))
+            rc.append(part.ravel(order="F"))
+            cc.append(np.repeat(np.arange(a, b), k))
+            vc.append(np.take_along_axis(D, part, axis=0).ravel(order="F"))
+            cand = (np.argpartition(-np.abs(D), k - 1, axis=1)[:, :k] if b - a > k
+                    else np.broadcast_to(idx, (n, b - a)))
+            all_idx = np.hstack([row_idx, cand + a])
+            all_val = np.hstack([row_val, np.take_along_axis(D, cand, axis=1)])
+            best = np.argpartition(-np.abs(all_val), k - 1, axis=1)[:, :k]
+            row_idx = np.take_along_axis(all_idx, best, axis=1)
+            row_val = np.take_along_axis(all_val, best, axis=1)
         del P, D
-        if self.min_support:
-            Xb = train.X[np.flatnonzero(train.X.getnnz(axis=1) >= self.min_user)][:, self.top_cols].tocsc()
-            self._B = self._B.tocsc()
-            self._B.sort_indices()
-            self._B.data[support_counts(self._B, Xb, self.block) < self.min_support] = 0.0
+        keep = row_idx.ravel() >= 0
+        lin = np.concatenate([np.concatenate(rc) * n + np.concatenate(cc),
+                              (np.repeat(np.arange(n), k) * n + row_idx.ravel())[keep]])
+        val = np.concatenate([np.concatenate(vc), row_val.ravel()[keep]])
+        lin, first = np.unique(lin, return_index=True)  # связь в обоих списках — одна (значение то же)
+        self._B = sp.csc_matrix((val[first], (lin // n, lin % n)), shape=(n, n))
         self._B.eliminate_zeros()
         self.topk, self.B_full = k, None
 
@@ -185,20 +203,4 @@ class EASELike(EASE):
         super().save(path)
         p = read_params(path)
         write_params(path, p | {"target": "rating-3", "weights": list(self.weights), "min_user": self.min_user,
-                                "min_support": self.min_support})
-
-
-def support_counts(B: sp.csc_matrix, X: sp.csc_matrix, block: int = 2_000) -> np.ndarray:
-    """Опора каждого хранимого веса B[i, j] (порядок B.data, столбцы B — столбцы X): сколько строк X (людей)
-    содержат обе книги. Счёт блоками столбцов, как XᵀX в `EASE.fit`."""
-    Xb = X.tocsc(copy=True)
-    Xb.data[:] = 1.0
-    XbT = Xb.T.tocsr()
-    out = np.zeros(B.nnz, dtype=np.float32)
-    for a in range(0, B.shape[1], block):
-        b = min(a + block, B.shape[1])
-        C = (XbT @ Xb[:, a:b]).toarray()
-        for j in range(a, b):
-            s, e = B.indptr[j], B.indptr[j + 1]
-            out[s:e] = C[B.indices[s:e], j - a]
-    return out
+                                "min_support": self.min_support, "links": self.LINKS})
