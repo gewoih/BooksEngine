@@ -184,3 +184,39 @@ def prepare(raw_dir: Path, out_dir: Path, editions_path: Path, cache_path: Path,
     con.close()
     translation = apply_translation_signal(out_dir, cache_path, query=translation_query)
     return {"kcore": kcore_step, "export": counts, "translation": translation}
+
+
+def report(manifest: dict, clean_dir: Path) -> str:
+    """reports/amazon_bridge.md — люди/книги/оценки по источникам, сила моста, книги после 2017 без моста
+    с известным переводом (Wikidata) — главное число для решения о следующем шаге."""
+    from booksengine.paths import REPORTS_DIR
+
+    items = pd.read_parquet(clean_dir / "items.parquet")
+    bridge = pd.read_parquet(clean_dir / "bridge.parquet")
+    ratings = pd.read_parquet(clean_dir / "ratings.parquet")
+
+    lines = ["# Amazon Reviews'23: мост на Goodreads и сигнал перевода", ""]
+    kcore = manifest.get("kcore") or {}
+    if kcore:
+        lines.append(f"- **k-core** ({MIN_USER}/{MIN_WORK}): {kcore.get('rows_before', 0):,} → "
+                     f"{kcore.get('rows_after', 0):,} оценок ({kcore.get('users_after', 0):,} человек, "
+                     f"{kcore.get('works_after', 0):,} книг)")
+    for source in ("books", "kindle"):
+        r = ratings[ratings.source == source]
+        lines.append(f"- **{source}**: {r.user_id.nunique():,} человек, {r.parent_asin.nunique():,} книг, "
+                     f"{len(r):,} оценок (после k-core {MIN_USER}/{MIN_WORK})")
+
+    bridged = int(bridge.work_id.notna().sum())
+    lines.append(f"- **Мост на Goodreads**: {bridged:,} из {len(bridge):,} книг "
+                 f"({bridged / len(bridge) * 100:.1f}%)" if len(bridge) else "- **Мост на Goodreads**: нет данных")
+
+    unbridged_asins = set(bridge.loc[bridge.work_id.isna(), "parent_asin"])
+    post2017 = items[(items.year > 2017) & items.parent_asin.isin(unbridged_asins)]
+    with_ru = int(post2017.get("ru_translation_known", pd.Series(dtype=bool)).sum())
+    lines.append(f"- **Книг после 2017 без моста**: {len(post2017):,}, из них с известным переводом "
+                 f"(Wikidata): {with_ru:,}")
+
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    out = REPORTS_DIR / "amazon_bridge.md"
+    out.write_text("\n".join(lines) + "\n")
+    return str(out)

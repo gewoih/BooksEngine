@@ -35,6 +35,20 @@
 **Лицензия датасета — только некоммерческое использование.** Сырые данные и всё, что из них
 получено (`data/`, `reports/`, модели), в репозиторий не попадают.
 
+### Второй источник: Amazon Reviews'23 (опционально)
+
+Для книг после 2017 года (датасет Goodreads ими не пополняется) — `amazon-bridge` строит мост на Goodreads
+по ISBN/ASIN и проверяет сигнал перевода (Wikidata). Сырьё — 4 файла в одну папку `RAW_DIR/
+amazon_reviews_2023/` со страницы [amazon-reviews-2023.github.io](https://amazon-reviews-2023.github.io/)
+(0-Core → rating_only: `Books.csv.gz`, `Kindle_Store.csv.gz`; raw/meta_categories: `meta_Books.jsonl.gz`,
+`meta_Kindle_Store.jsonl.gz`) — сервер источника медленный и рвёт соединение на больших файлах, докачивать
+через `scripts/fetch_amazon_raw.sh` (устойчив к обрывам, можно прерывать и перезапускать).
+
+```bash
+RAW_DIR=~/Downloads scripts/fetch_amazon_raw.sh   # разово, часы из-за скорости источника
+uv run booksengine amazon-bridge                  # -> data/amazon/clean/, reports/amazon_bridge.md
+```
+
 ## Запуск
 
 ```bash
@@ -76,6 +90,7 @@ uv run booksengine load-db                                  # каталог и�
 | `validate` | проверить инварианты готовых данных |
 | `report` | пересобрать отчёт очистки без пересчёта |
 | `load-db [--force]` | загрузить каталог в PostgreSQL, сверить с `manifest.json` |
+| `amazon-bridge` | Amazon Reviews'23: мост на Goodreads по ISBN/ASIN, сигнал перевода (Wikidata) → `data/amazon/clean/`, `reports/amazon_bridge.md` |
 | `split [--force]` | отложенная выборка: ~5 000 человек для настройки, ~6 000 для теста (поровну из этапов 20–39, 40–79, 80–159, 160–319, 320–999 оценок) |
 | **модели и замеры** | |
 | `evaluate <model> --stage val\|test` | стенд `popularity`, `als`, `als_neg`, `knn`, `ease`, `mix`: перебор по NDCG@20 → `models/<model>` / замер на тесте |

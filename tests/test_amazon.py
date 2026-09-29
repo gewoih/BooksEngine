@@ -1,5 +1,6 @@
 import gzip
 import json
+from pathlib import Path
 
 import duckdb
 import pandas as pd
@@ -275,3 +276,32 @@ def test_prepare_end_to_end_with_synthetic_raw_files(tmp_path):
     items = pd.read_parquet(out_dir / "items.parquet")
     assert items.iloc[0]["ru_translation_known"] == True
     assert items.iloc[0]["year"] == 2019
+
+
+def test_report_writes_markdown_with_bridge_and_translation_numbers(tmp_path, monkeypatch):
+    from booksengine import paths
+    monkeypatch.setattr(paths, "REPORTS_DIR", tmp_path)
+
+    pd.DataFrame([
+        {"user_id": "U1", "parent_asin": "B1", "rating": 5.0, "timestamp": 1, "source": "books"},
+        {"user_id": "U1", "parent_asin": "K1", "rating": 4.0, "timestamp": 2, "source": "kindle"},
+    ]).to_parquet(tmp_path / "ratings.parquet")
+    pd.DataFrame([
+        {"parent_asin": "B1", "title": "T1", "author": "A1", "isbn10": None, "isbn13": "9781111111111",
+         "year": 2020, "categories": "Books", "n_ratings": 1, "source": "books",
+         "ru_translation_known": True},
+        {"parent_asin": "K1", "title": "T2", "author": "A2", "isbn10": None, "isbn13": None, "year": 2021,
+         "categories": "Kindle Store", "n_ratings": 1, "source": "kindle",
+         "ru_translation_known": False},
+    ]).to_parquet(tmp_path / "items.parquet")
+    pd.DataFrame([{"parent_asin": "B1", "work_id": None}, {"parent_asin": "K1", "work_id": None}]
+                ).to_parquet(tmp_path / "bridge.parquet")
+
+    manifest = {"kcore": {}, "export": {"ratings": 2, "items": 2, "bridged": 0, "new": 2},
+                "translation": {"candidates": 1, "with_translation": 1}}
+
+    path = amazon.report(manifest, tmp_path)
+    text = Path(path).read_text()
+    assert "books" in text and "kindle" in text
+    assert "Мост на Goodreads" in text
+    assert "1" in text   # с известным переводом

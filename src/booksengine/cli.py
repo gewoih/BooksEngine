@@ -58,6 +58,17 @@ def report() -> None:
     print(r.write(prof, manifest))
 
 
+@app.command("amazon-bridge")
+def amazon_bridge() -> None:
+    """Amazon Reviews'23: приём, мост на Goodreads по ISBN/ASIN, сигнал перевода (Wikidata) ->
+    reports/amazon_bridge.md. Сырьё — RAW_DIR/amazon_reviews_2023/ (scripts/fetch_amazon_raw.sh)."""
+    from booksengine.data import amazon
+    from booksengine.paths import AMAZON_CACHE_PATH, AMAZON_CLEAN_DIR, CLEAN_DIR, RAW_DIR
+    manifest = amazon.prepare(RAW_DIR, AMAZON_CLEAN_DIR, CLEAN_DIR / "editions.parquet", AMAZON_CACHE_PATH)
+    path = amazon.report(manifest, AMAZON_CLEAN_DIR)
+    print(f"Отчёт: {path}")
+
+
 @app.command()
 def split(force: bool = typer.Option(False, "--force", help="пересобрать сплит")) -> None:
     """Отложенная выборка: тест и валидация поровну из этапов 20-39/40-79/80-159/160-319/320-999 оценок, вне обучения (data/<domain>/model/split/)."""
