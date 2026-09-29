@@ -51,6 +51,14 @@ def short_key_sql(col: str) -> str:
     return title_key_sql(f"regexp_replace(coalesce({col}, ''), '\\s*[:(\\[].*$', '')")
 
 
+def unescape_sql(col: str) -> str:
+    """HTML-сущности в названиях Amazon («&amp;», «&quot;», «&#39;») — обычными знаками."""
+    out = col
+    for ent, ch in (("&quot;", '"'), ("&#39;", "''"), ("&lt;", "<"), ("&gt;", ">"), ("&amp;", "&")):
+        out = f"replace({out}, '{ent}', '{ch}')"
+    return out
+
+
 def _category_sql(col: str) -> str:
     return f"CASE WHEN {col} LIKE 'Kindle%' THEN split_part({col}, '|', 3) ELSE split_part({col}, '|', 2) END"
 
@@ -91,8 +99,10 @@ def build(goodreads_dir: Path, amazon_dir: Path, out_dir: Path, *, scale: str = 
         WHERE akey <> '' AND tkey <> '' GROUP BY akey, tkey""")
     con.execute(f"""
         CREATE TEMP TABLE az0 AS
-        SELECT i.parent_asin, i.title, i.author, try_cast(i.year AS INTEGER) AS year, i.categories, i.wikidata::VARCHAR AS wikidata,
-               b.work_id AS by_isbn, {author_key_sql('i.author')} AS akey, {short_key_sql('i.title')} AS tkey
+        SELECT i.parent_asin, {unescape_sql('i.title')} AS title, {unescape_sql('i.author')} AS author,
+               try_cast(i.year AS INTEGER) AS year, i.categories, i.wikidata::VARCHAR AS wikidata,
+               b.work_id AS by_isbn, {author_key_sql(unescape_sql('i.author'))} AS akey,
+               {short_key_sql(unescape_sql('i.title'))} AS tkey
         FROM read_parquet(?) i JOIN read_parquet(?) b USING (parent_asin)
     """, [a["items"], a["bridge"]])
     # только равенство в ON: условие на левую сторону превращает LEFT JOIN в DuckDB во вложенный цикл

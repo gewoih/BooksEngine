@@ -206,3 +206,16 @@ def test_taste_rows_keeps_goodreads_and_dense_amazon_readers():
     assert merged.taste_rows(train, amazon_min=3).user_ids.tolist() == [1, 2, merged.AMAZON_USER_OFFSET + 1]
     assert merged.taste_rows(train, amazon_min=None).user_ids.tolist() == [1, 2]          # только Goodreads
     assert merged.taste_rows(train, amazon_min=0).user_ids.tolist() == users.tolist()     # все
+
+
+def test_new_work_title_has_html_entities_unescaped(tmp_path):
+    """В метаданных Amazon встречаются HTML-сущности («Daisy Jones &amp; The Six») — в каталоге их нет."""
+    gr, az, out = tmp_path / "books" / "clean", tmp_path / "amazon" / "clean", tmp_path / "m" / "clean"
+    _goodreads(gr)
+    _amazon(az)
+    items = pd.read_parquet(az / "items.parquet")
+    items.loc[items.parent_asin.isin(["P3", "K3"]), "title"] = "Educated &amp; Other &quot;Things&quot; Don&#39;t"
+    items.to_parquet(az / "items.parquet")
+    merged.build(gr, az, out, scale="q", min_user=2, min_new_ratings=2)
+    new = pd.read_parquet(out / "works.parquet").query("source == 'amazon'")
+    assert new.title.tolist() == ['Educated & Other "Things" Don\'t']
