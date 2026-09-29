@@ -33,6 +33,13 @@ def domain_profiles(profiles_dir: Path, domain: str) -> list[Path]:
     return movies if domain == "movies" else [p for p in sorted(profiles_dir.glob("*.csv")) if p not in movies]
 
 
+def history_dir(project_root: Path, domain: str) -> Path:
+    """Журнал выдач домена: у книг — profiles/history, у других доменов — своя подпапка (журнал читает только свою
+    папку, запись дня на профиль не затирается выдачей другого домена)."""
+    base = project_root / "profiles" / "history"
+    return base if domain == "books" else base / domain
+
+
 def domain_dirs(project_root: Path, domain: str) -> tuple[Path, Path]:
     """(data_dir, models_dir) для домена — чистая функция, без чтения окружения (тестируется без .env/env)."""
     return project_root / "data" / domain, project_root / "models" / domain

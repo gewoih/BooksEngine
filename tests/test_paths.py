@@ -51,3 +51,10 @@ def test_domain_profiles_split_books_and_movies(tmp_path):
         (tmp_path / name).write_text("")
     assert [p.name for p in domain_profiles(tmp_path, "books")] == ["lera_ratings.csv", "my_ratings.csv"]
     assert [p.name for p in domain_profiles(tmp_path, "movies")] == ["my_movies.csv"]
+
+
+def test_history_dir_is_separate_for_non_book_domains(tmp_path):
+    """Выдача другого домена (единая база с Amazon) не затирает книжную запись дня в журнале: своя подпапка."""
+    from booksengine.paths import history_dir
+    assert history_dir(tmp_path, "books") == tmp_path / "profiles" / "history"
+    assert history_dir(tmp_path, "books-amazon") == tmp_path / "profiles" / "history" / "books-amazon"

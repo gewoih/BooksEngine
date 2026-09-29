@@ -172,9 +172,9 @@ def recommend(ratings: str = typer.Option(..., "--ratings", help="CSV: goodreads
     from pathlib import Path
 
     from booksengine import recommend as rec
-    from booksengine.paths import CLEAN_DIR, MODELS_DIR, PROJECT_ROOT
+    from booksengine.paths import CLEAN_DIR, DOMAIN, MODELS_DIR, PROJECT_ROOT, history_dir
     print(rec.format_result(rec.recommend(Path(ratings), clean_dir=CLEAN_DIR, models_dir=MODELS_DIR, top=top,
-                                          history_dir=PROJECT_ROOT / "profiles" / "history", sections=not one_list)))
+                                          history_dir=history_dir(PROJECT_ROOT, DOMAIN), sections=not one_list)))
 
 
 @app.command()
@@ -182,8 +182,8 @@ def journal() -> None:
     """Журнал выдач (profiles/history/) против оценок, поставленных позже: что прочитано из советов и как оценено
     → reports/journal.md."""
     from booksengine import journal as jr
-    from booksengine.paths import CLEAN_DIR, PROJECT_ROOT, REPORTS_DIR
-    text = jr.report(PROJECT_ROOT / "profiles", PROJECT_ROOT / "profiles" / "history", CLEAN_DIR)
+    from booksengine.paths import CLEAN_DIR, DOMAIN, PROJECT_ROOT, REPORTS_DIR, history_dir
+    text = jr.report(PROJECT_ROOT / "profiles", history_dir(PROJECT_ROOT, DOMAIN), CLEAN_DIR)
     REPORTS_DIR.mkdir(exist_ok=True)
     (REPORTS_DIR / "journal.md").write_text(text)
     print(text)
