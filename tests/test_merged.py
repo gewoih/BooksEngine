@@ -158,3 +158,25 @@ def test_profile_row_without_goodreads_id_matches_new_amazon_book(built, tmp_pat
     # в базе только Goodreads строка без id так и остаётся без id
     p0 = read_profile(prof, catalog_works(gr / "ratings.parquet"), gr)
     assert sorted(n for n, _ in p0.skipped) == ["Неизвестная", "Ученица"]
+
+
+def test_curated_russian_titles_mark_translation_and_give_russian_title(tmp_path):
+    """Перевод новой книги известен и без Wikidata — по разметке config/amazon_ru_titles.csv (автор и название, как у
+    Amazon); оттуда же русское название для выдачи."""
+    gr, az, out = tmp_path / "books" / "clean", tmp_path / "amazon" / "clean", tmp_path / "m" / "clean"
+    _goodreads(gr)
+    _amazon(az)
+    items = pd.read_parquet(az / "items.parquet")
+    items["wikidata"] = None                                   # Wikidata перевода не знает
+    items.to_parquet(az / "items.parquet")
+    ru = tmp_path / "ru.csv"
+    pd.DataFrame([{"author": "Tara Westover", "title": "Educated", "ru_title": "Ученица"}]).to_csv(ru, index=False)
+
+    merged.build(gr, az, out, scale="q", min_user=2, min_new_ratings=2)
+    new = pd.read_parquet(out / "works.parquet").query("source == 'amazon'")
+    assert not new.ru_known.iloc[0] and new.ru_title.isna().all()
+
+    stats = merged.build(gr, az, out, scale="q", min_user=2, min_new_ratings=2, ru_titles=ru)
+    new = pd.read_parquet(out / "works.parquet").query("source == 'amazon'")
+    assert new.ru_known.iloc[0] and new.ru_title.iloc[0] == "Ученица"
+    assert stats["new_with_ru"] == 1

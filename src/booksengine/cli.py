@@ -28,7 +28,8 @@ def prepare(force: bool = typer.Option(False, "--force", help="пересобр�
         from booksengine.data import merged
         from booksengine.paths import AMAZON_CLEAN_DIR, CLEAN_DIR, PROJECT_ROOT, domain_dirs
         books_clean = domain_dirs(PROJECT_ROOT, "books")[0] / "clean"
-        stats = merged.build(books_clean, AMAZON_CLEAN_DIR, CLEAN_DIR, scale=amazon_scale, min_user=amazon_min_user)
+        stats = merged.build(books_clean, AMAZON_CLEAN_DIR, CLEAN_DIR, scale=amazon_scale, min_user=amazon_min_user,
+                             ru_titles=merged.RU_TITLES)
         print(json.dumps(stats, ensure_ascii=False, indent=1))
         return
     if DOMAIN == "movies":

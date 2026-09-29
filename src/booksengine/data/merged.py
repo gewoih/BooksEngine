@@ -27,6 +27,10 @@ AMAZON_USER_OFFSET = 1_000_000
 NEW_WORK_OFFSET = 100_000_000
 NEW_AUTHOR_OFFSET = 100_000_000
 MIN_NEW_RATINGS = 100          # как порог книги в ядре Goodreads
+# Русские переводы популярных новых книг, которых нет в Wikidata (из 197 тыс. новых книг Wikidata знает перевод у 12):
+# разметка по знаниям модели Claude — только книги с уверенно известным русским изданием; остальное — «не знаем»,
+# и правило перевода их не пропускает.
+RU_TITLES = Path(__file__).resolve().parents[3] / "config" / "amazon_ru_titles.csv"
 # верхняя категория Amazon (Books|<она>|…, Kindle Store|Kindle eBooks|<она>|…) — нон-фикшн
 NONFICTION_CATEGORIES = frozenset({
     "Biographies & Memoirs", "History", "Politics & Social Sciences", "Cookbooks, Food & Wine", "Arts & Photography",
@@ -52,8 +56,10 @@ def _category_sql(col: str) -> str:
 
 
 def build(goodreads_dir: Path, amazon_dir: Path, out_dir: Path, *, scale: str = "q", min_user: int = 5,
-          min_new_ratings: int = MIN_NEW_RATINGS, memory_limit: str = "8GB") -> dict:
-    """Собирает out_dir (clean) и копию отложенных людей рядом (`out_dir.parent / model / split`)."""
+          min_new_ratings: int = MIN_NEW_RATINGS, memory_limit: str = "8GB", ru_titles: Path | None = None) -> dict:
+    """Собирает out_dir (clean) и копию отложенных людей рядом (`out_dir.parent / model / split`). ru_titles —
+    разметка «автор, название (как у Amazon), русское название» (`RU_TITLES`): перевод новой книги известен и без
+    Wikidata, а русское название идёт в выдачу."""
     from booksengine.model.filters import work_info
     from booksengine.model.matrix import catalog_works
 
@@ -82,7 +88,7 @@ def build(goodreads_dir: Path, amazon_dir: Path, out_dir: Path, *, scale: str = 
         WHERE akey <> '' AND tkey <> '' GROUP BY akey, tkey""")
     con.execute(f"""
         CREATE TEMP TABLE az0 AS
-        SELECT i.parent_asin, i.title, i.author, try_cast(i.year AS INTEGER) AS year, i.categories, i.wikidata,
+        SELECT i.parent_asin, i.title, i.author, try_cast(i.year AS INTEGER) AS year, i.categories, i.wikidata::VARCHAR AS wikidata,
                b.work_id AS by_isbn, {author_key_sql('i.author')} AS akey, {short_key_sql('i.title')} AS tkey
         FROM read_parquet(?) i JOIN read_parquet(?) b USING (parent_asin)
     """, [a["items"], a["bridge"]])
@@ -152,20 +158,33 @@ def build(goodreads_dir: Path, amazon_dir: Path, out_dir: Path, *, scale: str = 
             AND z.year > {NEW_AFTER_YEAR}
         LEFT JOIN (SELECT parent_asin, count(*) AS n FROM read_parquet('{a['ratings']}') GROUP BY 1) c USING (parent_asin)
         GROUP BY n.work_id""")
+    ru = (pd.read_csv(ru_titles) if ru_titles is not None and Path(ru_titles).exists()
+          else pd.DataFrame(columns=["author", "title", "ru_title"]))
+    con.register("ru_raw", ru.astype(object))
+    con.execute(f"""
+        CREATE TEMP TABLE ru AS
+        SELECT {author_key_sql('author')} AS akey, {short_key_sql('title')} AS tkey, first(ru_title) AS ru_title
+        FROM ru_raw GROUP BY 1, 2""")
+    con.execute("""
+        CREATE TEMP TABLE nw_ru AS
+        SELECT nw.work_id, first(ru.ru_title) AS ru_title FROM nw
+        JOIN new_works n USING (work_id) JOIN ru ON ru.akey || '|' || ru.tkey = n.new_key GROUP BY 1""")
     stats_new = con.execute("""
         SELECT n.work_id, count(*) AS n, avg(rating) AS mean FROM ar JOIN au USING (amazon_user)
         JOIN nw n USING (work_id) GROUP BY 1""").df()
     con.register("nstats", stats_new)
     con.execute(f"""
-        COPY (SELECT *, 'goodreads' AS source, NULL::BOOLEAN AS ru_known FROM read_parquet('{g['works']}')
+        COPY (SELECT *, 'goodreads' AS source, NULL::BOOLEAN AS ru_known, NULL::VARCHAR AS ru_title
+              FROM read_parquet('{g['works']}')
               UNION ALL BY NAME
               SELECT nw.work_id::BIGINT AS work_id, NULL::BIGINT AS best_book_id, title, NULL AS original_title,
                      title AS best_edition_title, year AS publication_year, 'eng' AS language_code,
                      'book' AS media_type, n_editions::INTEGER AS books_count,
                      regexp_matches(lower(title), '{_COLLECTION}') AS is_collection, false AS is_nonbook,
                      true AS in_cf, s.n::BIGINT AS cf_ratings, round(s.mean, 6) AS cf_mean_rating,
-                     'amazon' AS source, coalesce(ru_known, false) AS ru_known
-              FROM nw LEFT JOIN nstats s USING (work_id))
+                     'amazon' AS source, coalesce(nw.ru_known, false) OR r.ru_title IS NOT NULL AS ru_known,
+                     r.ru_title
+              FROM nw LEFT JOIN nstats s USING (work_id) LEFT JOIN nw_ru r USING (work_id))
         TO '{out_dir / 'works.parquet'}' {opts}""")
     con.execute(f"""
         CREATE TEMP TABLE known_author AS
@@ -206,7 +225,8 @@ def build(goodreads_dir: Path, amazon_dir: Path, out_dir: Path, *, scale: str = 
                (SELECT count(*) FROM ar JOIN au USING (amazon_user)) AS amazon_ratings,
                (SELECT count(*) FROM ar JOIN au USING (amazon_user) WHERE work_id < {NEW_WORK_OFFSET}) AS on_core,
                (SELECT count(*) FROM nw) AS new_works,
-               (SELECT count(*) FROM nw WHERE ru_known) AS new_with_ru,
+               (SELECT count(*) FROM nw LEFT JOIN nw_ru USING (work_id) WHERE ru_known OR ru_title IS NOT NULL)
+                   AS new_with_ru,
                (SELECT count(*) FROM az WHERE by_title IS NOT NULL) AS by_title""").df().iloc[0].to_dict()
     con.close()
     shutil.rmtree(spill, ignore_errors=True)

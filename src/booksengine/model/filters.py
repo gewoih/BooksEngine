@@ -100,6 +100,7 @@ def work_info(clean_dir: Path, work_ids: np.ndarray) -> pd.DataFrame:
                               ).df().column_name)
     untranslated = ("w.source = 'amazon' AND NOT coalesce(w.ru_known, false)" if {"source", "ru_known"} <= cols
                     else "false")
+    ru_title = "w.ru_title" if "ru_title" in cols else "NULL::VARCHAR"
     d = duckdb.execute(f"""
         WITH prim AS (
             SELECT work_id, arg_min(author_id, (coalesce(role, '') <> '')::INT * 100000 + position) AS author_id
@@ -109,7 +110,7 @@ def work_info(clean_dir: Path, work_ids: np.ndarray) -> pd.DataFrame:
         SELECT w.work_id, w.title, w.original_title, w.best_edition_title, a.name AS author, p.author_id, e.authors,
                {title_key_sql('w.title')} AS key, {series_no_sql('w.best_edition_title')} AS series_no,
                coalesce(w.is_collection, false) OR w.title LIKE '% / %' AS is_collection,
-               {untranslated} AS no_translation
+               {untranslated} AS no_translation, {ru_title} AS ru_title
         FROM read_parquet(?) w
         LEFT JOIN prim p USING (work_id) LEFT JOIN everyone e USING (work_id) LEFT JOIN read_parquet(?) a USING (author_id)
     """, [str(clean_dir / "work_authors.parquet"), str(clean_dir / "work_authors.parquet"),

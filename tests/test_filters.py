@@ -209,3 +209,16 @@ def test_work_info_without_source_columns_blocks_nothing(tmp_path):
     info = work_info(tmp_path, np.array([1]))
     assert not info.no_translation.any()
     assert ListPicker(info).pick([0], top=1)[0] == [0]
+
+
+def test_work_info_exposes_russian_title_of_new_book(tmp_path):
+    from booksengine.recommend import display_title
+    _write(tmp_path, [(1, "Educated", "Educated", False, 10), (2, "Dune", "Dune", False, 11)],
+           [(10, "Tara Westover"), (11, "Frank Herbert"), (99, "Artist")])
+    w = pd.read_parquet(tmp_path / "works.parquet")
+    w["source"], w["ru_known"], w["ru_title"] = ["amazon", "goodreads"], [True, None], ["Ученица", None]
+    w.to_parquet(tmp_path / "works.parquet")
+    info = work_info(tmp_path, np.array([1, 2]))
+    assert display_title(info, 0) == "Ученица / Educated" and display_title(info, 1) == "Dune"
+    _write(tmp_path, [(1, "Dune", "Dune", False, 11)], [(11, "Frank Herbert"), (99, "Artist")])
+    assert display_title(work_info(tmp_path, np.array([1])), 0) == "Dune"   # база без русских названий

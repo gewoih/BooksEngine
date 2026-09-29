@@ -110,6 +110,12 @@ class Result:
     chance: str = "4–5★"          # какой шанс в скобках (`Chance.label`)
 
 
+def display_title(info: pd.DataFrame, c: int) -> str:
+    """Название книги в выдаче: у новой книги Amazon с известным переводом — «русское / английское»."""
+    ru = info.ru_title[c] if "ru_title" in info else None
+    return f"{ru} / {info.title[c]}" if isinstance(ru, str) and ru else info.title[c]
+
+
 def read_profile(path: Path, work_ids: np.ndarray, clean_dir: Path, id_col: str = "goodreads_work_id") -> Profile:
     """id_col — колонка с id в пространстве work_id (для книг это сам goodreads_work_id; для фильмов —
     предварительно сопоставленный movieId, не imdb_id: канонический профиль фильмов хранит imdb_id, но
@@ -242,7 +248,7 @@ def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int 
         why = explain.reason(contrib[:, k])
         shown = why.because + ([] if why.despite is None else [why.despite])
         note = explain.taste_note(taste[:, k], const[k])
-        recs.append(Rec(int(work_ids[c]), info.title[c], info.author[c] or "", int(round(pct[k] * 100)),
+        recs.append(Rec(int(work_ids[c]), display_title(info, c), info.author[c] or "", int(round(pct[k] * 100)),
                         [names[i] for i in why.because], None if why.despite is None else names[why.despite],
                         {names[i]: stars[i] for i in shown},
                         None if note is None else _taste_text(note, model.taste, c, in_cols, names, x_in, stars),
