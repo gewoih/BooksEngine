@@ -71,6 +71,9 @@ def build(goodreads_dir: Path, amazon_dir: Path, out_dir: Path, *, scale: str = 
     con = duckdb.connect()
     con.execute(f"SET memory_limit='{memory_limit}'")
     con.execute(f"SET temp_directory='{spill}'")
+    con.execute("SET preserve_insertion_order=false")   # потоковая запись: works с описаниями — 1.5 млн длинных строк
+    con.execute("SET threads=4")
+    con.execute("SET enable_progress_bar=false")
     g = {n: str(goodreads_dir / f"{n}.parquet")
          for n in ("ratings", "users", "works", "authors", "work_authors", "work_genres", "work_merges")}
     a = {n: str(amazon_dir / f"{n}.parquet") for n in ("ratings", "items", "bridge")}
