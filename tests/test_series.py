@@ -17,6 +17,12 @@ from booksengine.model.series import SeriesIndex, exclusion, series_keys, withou
     ("1984", []),
     ("Fruits Basket, Vol. 6", []),
     ("Brave New World / Brave New World Revisited", []),
+    # номер не в конце скобки и несколько серий через запятую
+    ("A Storm of Swords: Blood and Gold (A Song of Ice and Fire, #3: Part 2 of 2)", ["a song of ice and fire"]),
+    ("The Dream Hunter (Dark-Hunter #10, Dream-Hunter #1)", ["dark-hunter", "dream-hunter"]),
+    ("Magic Stars (Kate Daniels, #8.5, Grey Wolf, #1)", ["kate daniels", "grey wolf"]),
+    ("Hunters: The Beginning (Hunters, #1 and #2)", ["hunters"]),
+    ("The Ramona Collection, Vol. 1: (Ramona #1-#3,#8)", ["ramona"]),
 ])
 def test_series_keys_from_title(title, keys):
     assert series_keys(title) == keys

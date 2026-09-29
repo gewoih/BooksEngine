@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from booksengine.model.filters import Books, RatedFilter, work_info
 
@@ -116,6 +117,26 @@ def test_books_of_handles_domain_without_any_authors(tmp_path):
     assert f.is_rated_already(0) is False
 
 
+def test_author_with_role_when_nobody_is_without_role(tmp_path):
+    """У «Маленького принца» автор записан с ролью «Author/Illustrator», у адаптации «Хоббита» — «Creator» после
+    адаптатора: это основной автор, и адаптация прочитанной книги — «уже оценено». Одни иллюстраторы — автора нет,
+    вместо имени пустая строка, а не «nan»."""
+    pd.DataFrame([(1, "The Little Prince", None, "The Little Prince", False),
+                  (2, "The Hobbit", None, "The Hobbit", False),
+                  (3, "The Hobbit: Graphic Novel", None, "The Hobbit: Graphic Novel", False),
+                  (4, "Pictures", None, "Pictures", False)],
+                 columns=["work_id", "title", "original_title", "best_edition_title", "is_collection"]
+                 ).to_parquet(tmp_path / "works.parquet")
+    pd.DataFrame([(1, 10, "Author/Illustrator", 1), (1, 11, "Translator", 2), (2, 12, None, 1),
+                  (3, 13, "Adapter", 1), (3, 12, "Creator", 2), (4, 14, "Illustrator", 1)],
+                 columns=["work_id", "author_id", "role", "position"]).to_parquet(tmp_path / "work_authors.parquet")
+    pd.DataFrame([(10, "Saint-Exupéry"), (11, "Howard"), (12, "Tolkien"), (13, "Dixon"), (14, "Artist")],
+                 columns=["author_id", "name"]).to_parquet(tmp_path / "authors.parquet")
+    info = work_info(tmp_path, np.array([1, 2, 3, 4]))
+    assert info.author.tolist() == ["Saint-Exupéry", "Tolkien", "Tolkien", ""]
+    assert RatedFilter(info, np.array([1])).is_rated_already(2)       # прочитан «Хоббит» — не советовать комикс
+
+
 def test_author_cap_is_one_book_per_ten_places():
     from booksengine.model.filters import author_cap
     assert [author_cap(t) for t in (5, 10, 19, 20, 25, 50)] == [1, 1, 1, 2, 2, 5]
@@ -144,3 +165,21 @@ def test_pick_top_matches_full_order_even_with_small_pool(tmp_path):
     for pool in (3, 100):                               # 3 — правила убрали больше, чем кандидатов: весь порядок
         got = pick_top(sc[None, :], cols, picker, [rated], 20, pool=pool)
         assert got[0].tolist() == want
+
+
+@pytest.mark.parametrize("title, later", [
+    ("A Storm of Swords: Blood and Gold (A Song of Ice and Fire, #3: Part 2 of 2)", True),
+    ("Locke & Key, Vol. 6: Alpha & Omega", True),
+    ("The Way of Kings, Part 2 (The Stormlight Archive #1.2)", True),
+    ("1Q84 BOOK 3 (1Q84, #3)", True),
+    ("Preacher, Volume Two", True),
+    ("Mort (Discworld, #4; Death, #1)", False),            # начало подсерии «Смерть»
+    ("Death Note, Vol. 1: Boredom (Death Note, #1)", False),
+    ("Harry Potter Boxset (Harry Potter, #1-7)", False),
+    ("The Book Thief", False),
+    ("Book 13", False),
+    ("Faust, Part One", False),
+])
+def test_later_volume_by_title(title, later):
+    from booksengine.model.filters import later_by_title
+    assert later_by_title(title) is later

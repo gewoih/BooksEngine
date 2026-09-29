@@ -101,6 +101,9 @@ def golden(profiles: dict[str, Path], *, clean_dir: Path, models_dir: Path, tmp_
     inputs, recs = [], []
     for name, csv in profiles.items():
         src = pd.read_csv(csv, dtype={"goodreads_work_id": "Int64"})
+        # книги без оценки («хочу прочитать», «прочитано») C# пока не знает — эталон без них, иначе выдачи разойдутся
+        dnf = src.get("status", pd.Series("", index=src.index)).eq("dnf")
+        src = src[src.rating.notna() | dnf].reset_index(drop=True)
         src["title"] = [f"#{i}" for i in range(len(src))]      # имя в объяснении однозначно → книга
         path = tmp_dir / f"golden_{name}.csv"
         src.to_csv(path, index=False)

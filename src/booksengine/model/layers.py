@@ -40,6 +40,11 @@ WEIGHTS = (0.0, 0.1, 0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 8.0)
 CUTOFFS = (None, 100, 300, 500, 1000)
 REFERENCE = ("mix", 0.0, None)     # прежняя смесь — для сведения
 LIKE_ALS = (0.0, 0.1, 0.25, 0.5, 0.75)   # вес ALS в толпе «ценность»: ALS находит прочитанное, «ценность» — отсеивает плохое
+# ALS в толпе «ценность» сверх её веса — разбить ничьи EASE. У EASE у тысяч книг один и тот же балл: ни одной связи с
+# книгами входа (у популярной книги связей мало — «451° по Фаренгейту» в соседях у 11 книг при медиане 145). С весом
+# ALS 0 хвост списка малого профиля шёл по номеру столбца. Замер 2026-09-29: у проверочных людей качество то же
+# (−0.001, шум), у профилей из 3 оценок то же качество и угадано на 16% больше.
+TIE_ALS = 1e-3
 # угадано в топ-20 — не меньше этой доли от опоры (`anchor`). 90% было выбрано без замера и держало вкус на 1.5;
 # 80% — решение пользователя 2026-09-25 (вкус 2 угадывает 88%, 3 — 78%); проверяется журналом выдач
 GUARD = 0.8
@@ -151,13 +156,17 @@ class Layers:
         a, e = self.like_mix.components(inputs, dnf, shelf)
         return _z(a), _z(e)
 
+    @staticmethod
+    def like_crowd(za: np.ndarray, ze: np.ndarray, als_weight: float) -> np.ndarray:
+        """Толпа «ценность» из z(ALS) и z(EASE) (`like_parts`): ALS с весом als_weight и ещё TIE_ALS — разбить ничьи EASE."""
+        return (als_weight + TIE_ALS) * za + (1 - als_weight) * ze
+
     def crowd(self, kind: str, inputs: sp.csr_matrix, dnf: sp.csr_matrix | None = None,
               als_weight: float = 0.5, shelf: sp.csr_matrix | None = None) -> np.ndarray:
         """z-балл толпы по книгам EASE (строки × 30 000); als_weight — только для «ценности»; shelf — книги профиля без
         оценки с весом во входе EASE (`mix.WANT_INPUT`, `mix.READ_INPUT`)."""
         if kind == "like":
-            za, ze = self.like_parts(inputs, dnf, shelf)
-            return als_weight * za + (1 - als_weight) * ze
+            return self.like_crowd(*self.like_parts(inputs, dnf, shelf), als_weight)
         w, ein, rule, beta = self._mix_cfg
         if kind == "read":
             self.mix.configure(als_weight=w, ease_input=(1.0,) * 5)
@@ -193,13 +202,17 @@ class Layers:
     def combine(crowd: np.ndarray, taste: np.ndarray, excl: np.ndarray, v: Variant) -> np.ndarray:
         """Итоговый балл по книгам EASE; excl — булева маска «не советовать» (вход, начатые серии).
         С cutoff вкус переставляет только первые N толпы, остальные книги — сразу после них, в порядке толпы: список
-        берётся из первых N, а порядок всех книг полный — замер по прочитанным книгам не видит ничьих."""
+        берётся из первых N, а порядок всех книг полный — замер по прочитанным книгам не видит ничьих.
+        Ничья толпы на пороге, с которой «первых» было бы больше N, остаётся вне первых N: у малого профиля это тысячи
+        книг без связи с его книгами, и вкус переставлял бы их все (у 84% проверочных людей с 20–39 оценками
+        «первые 1000» были ~29 700 книг, а у профиля из одной оценки в список шли книги с 18 000-го места толпы)."""
         s = crowd + v.taste_weight * taste
         if v.cutoff:
             c = np.where(excl, -np.inf, crowd)
             k = min(v.cutoff, c.shape[1]) - 1
             thr = np.take_along_axis(c, np.argpartition(-c, k, axis=1)[:, k:k + 1], axis=1)
-            out = (c < thr) & ~excl
+            over = ((c >= thr) & ~excl).sum(axis=1, keepdims=True) > v.cutoff
+            out = np.where(over, c <= thr, c < thr) & ~excl
             floor = np.where(out | excl, np.inf, s).min(axis=1, keepdims=True)     # худший из первых N
             best_out = np.where(out, crowd, -np.inf).max(axis=1, keepdims=True)     # лучший вне первых N
             ok = np.isfinite(floor) & np.isfinite(best_out)
@@ -234,7 +247,7 @@ def evaluate(layers: Layers, hold, info: pd.DataFrame, variants: list[Variant], 
         if any(v.crowd == "like" for v in variants):
             za, ze = layers.like_parts(X)
             for w in {v.als_weight for v in variants if v.crowd == "like"}:
-                crowds[("like", w)] = w * za + (1 - w) * ze
+                crowds[("like", w)] = layers.like_crowd(za, ze, w)
         tz = layers.taste_z(X) if taste is None else taste(X)
         excl = (exclude[s:s + batch][:, top].toarray() != 0)
         rated = [RatedFilter(picker.books, X.indices[X.indptr[i]:X.indptr[i + 1]]) for i in range(X.shape[0])]
@@ -575,8 +588,10 @@ LIKE_JUDGED = (Variant("like", 0.0, None, 0.25), Variant("like", 1.0, None, 0.25
 
 
 def _setting(row: dict) -> tuple:
+    """Настройка толпы: λ, веса звёзд, порог людей, опора связи, урезание связей (`EASELike.LINKS`; «» — прежнее:
+    только у цели и до опоры)."""
     return (float(row["lam"]), tuple(float(w) for w in row["weights"]), int(row.get("min_user", 20)),
-            int(row.get("min_support", 0)))
+            int(row.get("min_support", 0)), row.get("links", ""))
 
 
 def _same_numbers(old: dict, new: dict) -> bool:
@@ -619,11 +634,10 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
     chosen = read_params(models_dir / "layers").get("variant") if (models_dir / "layers" / "params.json").exists() else None
     now = Variant(**chosen) if chosen and chosen["crowd"] == "like" else LIKE_JUDGED[0]
     judged = list(dict.fromkeys([now, *LIKE_JUDGED, ANCHOR_LIKE]))
-    grid = [(float(lam), normalize_weights(w), int(min_user), int(min_support)) for lam, w in grid]
+    grid = [(float(lam), normalize_weights(w), int(min_user), int(min_support), EASELike.LINKS) for lam, w in grid]
     saved = read_params(models_dir / "ease_like") if (models_dir / "ease_like" / "params.json").exists() else {}
     if saved:  # сохранённая толпа — всегда точка сравнения: без неё прогон из одной настройки записал бы худшую
-        cur = (float(saved["lam"]), tuple(saved.get("weights", W0)), int(saved.get("min_user", 20)),
-               int(saved.get("min_support", 0)))
+        cur = _setting(saved | {"weights": saved.get("weights", W0)})
         grid = [cur] + [g for g in grid if g != cur]
     path = eval_dir / "ease_like_tune.json"
     users = [int(u) for u in hold.user_ids]
@@ -637,9 +651,9 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
     reuse = False
     results, best, best_model, baseline, ref_q = [], None, None, None, None
     eval_dir.mkdir(parents=True, exist_ok=True)
-    for lam, weights, mu, ms in grid:
-        is_saved = bool(saved) and cur == (lam, weights, mu, ms)
-        old = prev.get((lam, weights, mu, ms))
+    for lam, weights, mu, ms, links in grid:
+        is_saved = bool(saved) and cur == (lam, weights, mu, ms, links)
+        old = prev.get((lam, weights, mu, ms, links))
         if reuse and old is not None and not is_saved:
             row, ease = old | {"saved": False, "reused": True}, None
         else:
@@ -657,7 +671,8 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
             per = evaluate(layers, hold, info, judged, pop=pop)
             summ = summarize(per, judged[0])
             baseline = baseline or anchor(summ)       # опора — сохранённая толпа (первая настройка) без вкуса
-            row = {"lam": lam, "weights": list(weights), "min_user": mu, "min_support": ms, "fit_seconds": fit_s,
+            row = {"lam": lam, "weights": list(weights), "min_user": mu, "min_support": ms, "links": links,
+                   "fit_seconds": fit_s,
                    "saved": is_saved,
                    "variants": {r["label"]: {k: r["groups"]["all"][k] for k in
                                              ("quality", "hits", "five_minus_low", *STARS)} for r in summ},
@@ -686,13 +701,13 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
               + ("" if d is None or is_saved else f", разница с сохранённой {_f(d, True)}{_ci(d)}")
               + f", {how}", flush=True)
         path.write_text(json.dumps({"user_ids": users, "results": results}, ensure_ascii=False))
-        last = (lam, weights, mu, ms) == grid[-1]
+        last = (lam, weights, mu, ms, links) == grid[-1]
         if (force and last) or (not force and (best is None or (sure and v > best))):
-            best, best_model = v, (lam, weights, mu, ms, ease)
+            best, best_model = v, (lam, weights, mu, ms, links, ease)
         else:
             del ease
-    lam, weights, mu, ms, ease = best_model
-    if not (saved and cur == (lam, weights, mu, ms)):
+    lam, weights, mu, ms, links, ease = best_model
+    if not (saved and cur == (lam, weights, mu, ms, links)):
         if ease is None:   # лучшая посчитана в прошлый прогон — обучить заново, чтобы записать
             print(f"«ценность» λ = {lam:g}, веса {weights}: обучаю заново, чтобы записать", flush=True)
             ease = EASELike(lam=lam, weights=weights, min_user=mu, min_support=ms, **(fit_kw or {}))
@@ -703,20 +718,21 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
         mix.configure(als_weight=0.5, ease_input=weights)
         mix.save(models_dir / "mix_like")
     return {"results": results, "floor": GUARD * _mean(baseline, "hits"),
-            "best": {"lam": lam, "weights": list(weights), "min_user": mu, "min_support": ms},
-            "kept": bool(saved) and cur == (lam, weights, mu, ms)}
+            "best": {"lam": lam, "weights": list(weights), "min_user": mu, "min_support": ms, "links": links},
+            "kept": bool(saved) and cur == (lam, weights, mu, ms, links)}
 
 
 def _setting_name(r: dict) -> str:
     who = ("" if r.get("min_user", 20) == 20 else f", люди с ≥ {r['min_user']} оценок") + (
-        f", опора связи ≥ {r['min_support']}" if r.get("min_support") else "")
+        f", опора связи ≥ {r['min_support']}" if r.get("min_support") else "") + (
+        ", связи у цели и у источника" if r.get("links") == "both" else ", связи только у цели")
     return f"λ {r['lam']:g}, веса {'/'.join(f'{w:g}' for w in r['weights'])}{who}"
 
 
 def report_like(res: dict) -> str:
     b = res["best"]
     best = next(r for r in res["results"]
-                if _setting(r) == (b["lam"], tuple(b["weights"]), b.get("min_user", 20), b.get("min_support", 0)))
+                if _setting(r) == _setting(b))
     if res.get("kept", best.get("saved")):
         verdict = f"**Сохранённая толпа осталась: {_setting_name(best)}** — ни одна настройка не лучше уверенно."
     else:
@@ -780,11 +796,14 @@ def profile_check(*, clean_dir: Path, models_dir: Path, profiles_dir: Path) -> s
             d[c] = 0
             dnf_rows.append(sp.csr_matrix(d[None, :]))
         X, D = sp.vstack(rows).tocsr(), sp.vstack(dnf_rows).tocsr()
-        excl = exclusion(X, series)[:, top].toarray() != 0
+        shelf = sp.vstack([prof.shelf()] * len(ok)).tocsr()
+        # как в выдаче: полка и прочитанное без оценки (с его сериями) — не кандидаты, полка — во входе толпы
+        read = exclusion(prof._row(prof.read, np.ones(len(prof.read))), series)[:, top].toarray() != 0
+        excl = (exclusion(X, series)[:, top].toarray() != 0) | read | np.isin(top, prof.want)[None, :]
         taste = layers.taste_z(X, D)
         places = {}
         for name, v in variants.items():
-            sc = layers.combine(layers.crowd(v.crowd, X, D, v.als_weight), taste, excl, v)
+            sc = layers.combine(layers.crowd(v.crowd, X, D, v.als_weight, shelf), taste, excl, v)
             p = []
             for i, c in enumerate(ok):
                 s_i = sc[i, pos_of[c]]
@@ -853,13 +872,14 @@ def why(*, clean_dir: Path, models_dir: Path, profile_csv: Path, query: str, top
     dnf = sp.csr_matrix(d[None, :])
     series = SeriesIndex(info.title.tolist())
     excl = exclusion(x, series)[:, top_cols].toarray()[0] != 0
+    excl |= np.isin(top_cols, np.setdiff1d(prof.want, [col]))  # полка не советуется, как в выдаче
     shelf = prof.shelf()
     shelf.data[shelf.indices == col] = 0.0                     # спрятанная книга — и не на полке
     shelf.eliminate_zeros()
     za, ze = layers.like_parts(x, dnf, shelf)
     tz = layers.taste_z(x, dnf)
     parts = {"ALS": za[0], "EASE «ценность»": ze[0], "вкус": tz[0],
-             "итог": layers.combine(v.als_weight * za + (1 - v.als_weight) * ze, tz, excl[None, :], v)[0]}
+             "итог": layers.combine(layers.like_crowd(za, ze, v.als_weight), tz, excl[None, :], v)[0]}
 
     def place(s: np.ndarray) -> str:
         s = np.where(excl, -np.inf, s)
@@ -871,16 +891,10 @@ def why(*, clean_dir: Path, models_dir: Path, profile_csv: Path, query: str, top
              "| часть | z-балл книги | место по одной этой части |", "|---|---|---|"]
     lines += [f"| {k} | {s[pos]:+.2f} | {place(s)} |" for k, s in parts.items()]
     m = layers.like_mix
-    w0 = m.als_weight
-    try:
-        m.configure(als_weight=1.0, ease_input=m.ease_input)
-        in_cols, c_als = explain.contributions(m, x, np.array([col]), dnf, shelf)
-        m.configure(als_weight=0.0, ease_input=m.ease_input)
-        _, c_ease = explain.contributions(m, x, np.array([col]), dnf, shelf)
-    finally:
-        m.configure(als_weight=w0, ease_input=m.ease_input)
+    in_cols, c_als = explain.contributions(m, x, np.array([col]), dnf, shelf, weights=(1.0, 0.0))
+    _, c_ease = explain.contributions(m, x, np.array([col]), dnf, shelf, weights=(0.0, 1.0))
     c_als, c_ease = c_als[:, 0], c_ease[:, 0]
-    total = v.als_weight * c_als + (1 - v.als_weight) * c_ease
+    total = (v.als_weight + TIE_ALS) * c_als + (1 - v.als_weight) * c_ease
     rating_of = dict(zip(x.indices.tolist(), metrics.rounded(x.data).tolist()))
     want = set(prof.want.tolist())
     r_in = [f"{rating_of[c]:.0f}" if c in rating_of else ("хочу прочитать" if c in want else "прочитано")

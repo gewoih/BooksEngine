@@ -49,6 +49,30 @@ complete collected selected essential illustrated annotated unabridged edition
 _WITH_OTHERS = re.compile(r"\b(and|&)( \w+)? other (stories|tales|poems|writings|works|plays|essays)\b")
 
 
+# Поздний том, если номер записан не «#N)» в конце названия (его понимает `clean.series_no_sql`, общий с очисткой —
+# там не менять, иначе меняется ядро): все номера серий в скобке — от 2 («(A Song of Ice and Fire, #3: Part 2 of 2)»,
+# «(Wyndham Werewolf, #6, Undead, #6.5)»; «(Discworld, #4; Death, #1)» — начало подсерии, не поздний); том, часть или
+# книга в самом названии — «Locke & Key, Vol. 6», «The Way of Kings, Part 2», «1Q84 BOOK 3». Поздние тома «Песни льда
+# и огня» («#3: Part 2 of 2») попадали в списки проверочных людей 118 раз — и прочитавшим первый том.
+_SERIES_PAREN = re.compile(r"\(([^()]*#[^()]*)\)\s*$")
+_SERIES_NO = re.compile(r"#\s*(\d+(?:\.\d+)?)")
+_VOLUME = re.compile(r"\b(?:vol(?:ume)?\.?|part|book)\s*0*(\d+|two|three|four|five|six|seven|eight|nine|ten|"
+                     r"ii|iii|iv|v|vi|vii|viii|ix|x)\b", re.I)
+_WORD_NO = dict(two=2, three=3, four=4, five=5, six=6, seven=7, eight=8, nine=9, ten=10,
+                ii=2, iii=3, iv=4, v=5, vi=6, vii=7, viii=8, ix=9, x=10)
+
+
+def later_by_title(title) -> bool:
+    """Том #2 и дальше по названию (см. `_SERIES_PAREN`, `_VOLUME`)."""
+    if not isinstance(title, str):
+        return False
+    paren = _SERIES_PAREN.search(title)
+    nos = [float(x) for x in _SERIES_NO.findall(paren.group(1))] if paren else []
+    return (bool(nos) and min(nos) >= 2) or any(
+        (float(g) if g[0].isdigit() else _WORD_NO.get(g.lower(), 0)) >= 2
+        for g in _VOLUME.findall(title, 1))              # не с первого знака: «Book 13» — название, не том
+
+
 def name_words(title) -> frozenset:
     """Значимые слова названия: без хвостовой скобки серии, регистра, диакритики, служебных слов и «and other stories»."""
     if not isinstance(title, str):
@@ -58,13 +82,21 @@ def name_words(title) -> frozenset:
     return frozenset(w for w in re.split(r"[\W_]+", t) if w and w not in _STOP)
 
 
+# Роли, при которых человек — автор книги, хотя роль указана. Основной автор — первый без роли, а если такого нет —
+# первый с такой ролью: у «Маленького принца» (Author/Illustrator), томов комиксов (Writer) и адаптаций (Creator)
+# автора без роли нет. Без запасного правила у 1 580 книг ядра (1.6%) не было автора: не работали «то же
+# произведение» и «одна книга автора на 10 мест», а в выдаче вместо автора было «nan».
+AUTHOR_ROLES = "author|writer|creator|text|story|poet|pseudonym"
+
+
 def work_info(clean_dir: Path, work_ids: np.ndarray) -> pd.DataFrame:
     """Книги ядра по столбцам матрицы: название (и варианты), основной и все авторы, ключ названия, номер в серии,
-    сборник ли."""
+    сборник ли. Основной автор — `AUTHOR_ROLES`; без него author — пустая строка, author_id — NULL."""
     d = duckdb.execute(f"""
         WITH prim AS (
-            SELECT work_id, arg_min(author_id, position) AS author_id
-            FROM read_parquet(?) WHERE coalesce(role, '') = '' GROUP BY 1),
+            SELECT work_id, arg_min(author_id, (coalesce(role, '') <> '')::INT * 100000 + position) AS author_id
+            FROM read_parquet(?)
+            WHERE coalesce(role, '') = '' OR regexp_matches(lower(role), '{AUTHOR_ROLES}') GROUP BY 1),
         everyone AS (SELECT work_id, list(DISTINCT author_id) AS authors FROM read_parquet(?) GROUP BY 1)
         SELECT w.work_id, w.title, w.original_title, w.best_edition_title, a.name AS author, p.author_id, e.authors,
                {title_key_sql('w.title')} AS key, {series_no_sql('w.best_edition_title')} AS series_no,
@@ -76,6 +108,7 @@ def work_info(clean_dir: Path, work_ids: np.ndarray) -> pd.DataFrame:
     d = d.set_index("work_id").reindex(work_ids)
     if d.title.isna().any():
         raise ValueError("в works.parquet нет части книг ядра")
+    d["author"] = d.author.astype(object).where(d.author.notna(), "")   # у фильмов авторов нет — колонка числовая
     return d.reset_index()
 
 
@@ -194,7 +227,7 @@ class ListPicker:
     def __init__(self, info: pd.DataFrame):
         self.books = Books.of(info)
         sno = pd.to_numeric(info.series_no, errors="coerce").to_numpy(dtype=np.float64)
-        self.later = np.nan_to_num(sno, nan=0.0) >= 2
+        self.later = (np.nan_to_num(sno, nan=0.0) >= 2) | np.array([later_by_title(t) for t in info.title], dtype=bool)
 
     def pick(self, order, top: int, rated: RatedFilter | None = None,
              rules: bool = True) -> tuple[list[int], list[tuple[int, str]]]:
