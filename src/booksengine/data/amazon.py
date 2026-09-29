@@ -145,3 +145,25 @@ def export(con: duckdb.DuckDBPyConnection, out_dir: Path) -> dict:
         "USING (parent_asin) WHERE b.work_id IS NOT NULL").fetchone()[0]
     return {"ratings": int(con.execute("SELECT count(*) FROM _az_ratings").fetchone()[0]),
             "items": len(items), "bridged": bridged, "new": len(items) - bridged}
+
+
+def apply_translation_signal(clean_dir: Path, cache_path: Path, query=None) -> dict:
+    """items.parquet получает колонку ru_translation_known: True только для книг без моста на Goodreads, у
+    которых нашёлся русский перевод в Wikidata по ISBN-13. С мостом или без ISBN-13 — False (нет сигнала —
+    не советуем, решение принято на этапе дизайна)."""
+    from booksengine.data import wikidata
+
+    items = pd.read_parquet(clean_dir / "items.parquet")
+    bridge = pd.read_parquet(clean_dir / "bridge.parquet")
+    unbridged = set(bridge.loc[bridge.work_id.isna(), "parent_asin"])
+
+    items["ru_translation_known"] = False
+    candidates = items[items.parent_asin.isin(unbridged) & items.isbn13.notna()]
+    if len(candidates):
+        result = wikidata.check_translations(candidates.isbn13.tolist(), cache_path,
+                                             query=query or wikidata._query)
+        has_ru = candidates.isbn13.map(result).fillna(False)
+        items.loc[candidates.index, "ru_translation_known"] = has_ru.values
+
+    items.to_parquet(clean_dir / "items.parquet", index=False)
+    return {"candidates": len(candidates), "with_translation": int(items.ru_translation_known.sum())}

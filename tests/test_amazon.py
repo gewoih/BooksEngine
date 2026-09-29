@@ -193,3 +193,40 @@ def test_export_writes_ratings_items_and_bridge_parquet(tmp_path, con):
     bridge = pd.read_parquet(tmp_path / "bridge.parquet")
     assert list(bridge.columns) == ["parent_asin", "work_id"]
     assert len(bridge) == 2
+
+
+def test_apply_translation_signal_flags_only_unbridged_books_with_isbn_and_ru_edition(tmp_path):
+    pd.DataFrame([
+        {"parent_asin": "A1", "isbn13": "9780000000001", "n_ratings": 100},   # без моста, есть перевод
+        {"parent_asin": "A2", "isbn13": "9780000000002", "n_ratings": 100},   # без моста, без перевода
+        {"parent_asin": "A3", "isbn13": None, "n_ratings": 100},              # без моста, без ISBN
+        {"parent_asin": "A4", "isbn13": "9780000000001", "n_ratings": 100},   # с мостом — не проверяем
+    ]).to_parquet(tmp_path / "items.parquet")
+    pd.DataFrame([
+        {"parent_asin": "A1", "work_id": None}, {"parent_asin": "A2", "work_id": None},
+        {"parent_asin": "A3", "work_id": None}, {"parent_asin": "A4", "work_id": 1},
+    ]).to_parquet(tmp_path / "bridge.parquet")
+
+    def fake_query(batch):
+        return {"9780000000001": True, "9780000000002": False}
+
+    stats = amazon.apply_translation_signal(tmp_path, tmp_path / "cache.parquet", query=fake_query)
+    assert stats == {"candidates": 2, "with_translation": 1}
+
+    items = pd.read_parquet(tmp_path / "items.parquet").set_index("parent_asin")
+    assert items.loc["A1", "ru_translation_known"] == True
+    assert items.loc["A2", "ru_translation_known"] == False
+    assert items.loc["A3", "ru_translation_known"] == False
+    assert items.loc["A4", "ru_translation_known"] == False
+
+
+def test_apply_translation_signal_is_noop_without_candidates(tmp_path):
+    pd.DataFrame([{"parent_asin": "A1", "isbn13": None, "n_ratings": 100}]).to_parquet(
+        tmp_path / "items.parquet")
+    pd.DataFrame([{"parent_asin": "A1", "work_id": None}]).to_parquet(tmp_path / "bridge.parquet")
+
+    calls = []
+    stats = amazon.apply_translation_signal(tmp_path, tmp_path / "cache.parquet",
+                                             query=lambda b: calls.append(b) or {})
+    assert stats == {"candidates": 0, "with_translation": 0}
+    assert calls == []
