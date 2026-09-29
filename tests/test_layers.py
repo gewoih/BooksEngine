@@ -545,3 +545,17 @@ def test_tune_like_trains_amazon_variant_and_records_it(world, tmp_path):
     assert "Amazon" in ly.report_like(res)
     again = ly.tune_like(grid=[(10.0, ly.W0, "q-5")], amazon_dir=az, **kw)
     assert [r["saved"] for r in again["results"]] == [True]
+
+
+def test_compare_bases_pairs_people_and_reports_zero_for_same_base(world):
+    """Сравнение двух баз (например, только Goodreads и Goodreads + Amazon) на одних отложенных людях: у каждой — свой
+    выбранный вариант; разность качества и угаданного — парная. База, сравнённая сама с собой, — ровно 0."""
+    tp, sd, md = world
+    ly.run("val", clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval")
+    base = (tp, sd, md)
+    res = ly.compare_bases(base, base, stage="test")
+    g = res["groups"]["all"]
+    assert g["quality_diff"]["mean"] == 0 and g["hits_diff"]["mean"] == 0
+    assert g["a"]["hits"]["mean"] > 0 and res["n_users"] > 0
+    text = ly.report_compare(res, "books", "books")
+    assert "Качество" in text and "Угадано" in text

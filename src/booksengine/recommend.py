@@ -129,6 +129,11 @@ def read_profile(path: Path, work_ids: np.ndarray, clean_dir: Path, id_col: str 
     if len(bad):
         raise ValueError(f"{path}: оценка — целое 1–5 (строки {', '.join(str(i + 2) for i in bad.index)})")
 
+    if id_col == "goodreads_work_id" and p[id_col].isna().any() and "title_en" in p.columns:
+        # книги, которых нет в Goodreads (после 2017), — в единой базе с Amazon по названию и автору
+        from booksengine.data.merged import match_new_works
+        found = match_new_works(clean_dir, p.title_en, p.get("author", pd.Series(None, index=p.index)))
+        p[id_col] = p[id_col].fillna(pd.Series(found.to_numpy(), index=p.index, dtype="Int64"))
     merges = pd.read_parquet(clean_dir / "work_merges.parquet").set_index("shadow_work_id").main_work_id
     p["work_id"] = p[id_col].map(lambda w: merges.get(w, w) if pd.notna(w) else w).astype("Int64")
     catalog = set(duckdb.execute("SELECT work_id FROM read_parquet(?)",

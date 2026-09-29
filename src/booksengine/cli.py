@@ -7,16 +7,30 @@ app = typer.Typer(help="BooksEngine: офлайн-часть рекоменда�
 def main(domain: str = typer.Option("books", "--domain", help="books | movies — данные и модели домена "
                                      "(data/<domain>/, models/<domain>/)")) -> None:
     import os
-    if domain not in ("books", "movies"):
-        raise typer.BadParameter("domain: books | movies")
+    if domain not in ("books", "movies", "books-amazon"):
+        raise typer.BadParameter("domain: books | movies | books-amazon")
     os.environ["BOOKSENGINE_DOMAIN"] = domain
 
 
 @app.command()
-def prepare(force: bool = typer.Option(False, "--force", help="пересобрать всё, игнорируя кэш (только books)")) -> None:
+def prepare(force: bool = typer.Option(False, "--force", help="пересобрать всё, игнорируя кэш (только books)"),
+            amazon_scale: str = typer.Option("q", "--amazon-scale", help="books-amazon: шкала звёзд Amazon, raw | q"),
+            amazon_min_user: int = typer.Option(5, "--amazon-min-user",
+                                                help="books-amazon: человек Amazon — от стольких книг")) -> None:
     """books: staging → профилирование → очистка → валидация → отчёт (reports/stage1_report.md).
-    movies: MovieLens → очистка (округление звёзд, k-core) → data/movies/clean/."""
+    movies: MovieLens → очистка (округление звёзд, k-core) → data/movies/clean/.
+    books-amazon: единая база data/books/clean + data/amazon/clean (`amazon-bridge`) → data/books-amazon/clean/,
+    отложенные люди — копия книжных."""
     from booksengine.paths import DOMAIN
+    if DOMAIN == "books-amazon":
+        import json
+
+        from booksengine.data import merged
+        from booksengine.paths import AMAZON_CLEAN_DIR, CLEAN_DIR, PROJECT_ROOT, domain_dirs
+        books_clean = domain_dirs(PROJECT_ROOT, "books")[0] / "clean"
+        stats = merged.build(books_clean, AMAZON_CLEAN_DIR, CLEAN_DIR, scale=amazon_scale, min_user=amazon_min_user)
+        print(json.dumps(stats, ensure_ascii=False, indent=1))
+        return
     if DOMAIN == "movies":
         import json
 
@@ -30,6 +44,35 @@ def prepare(force: bool = typer.Option(False, "--force", help="пересобр�
         return
     from booksengine.data import pipeline
     pipeline.prepare(force=force)
+
+
+@app.command()
+def refit(min_user: int = typer.Option(5, "--min-user", help="толпа «ценность»: человек — от стольких оценок "
+                                        "(у Goodreads в ядре все от 20 — это порог людей Amazon)")) -> None:
+    """books-amazon: все компоненты выдачи на единой базе с настройками моделей models/books (ALS, EASE, смесь, вкус,
+    толпа «ценность»); после — `layers val`, `layers test`, `calibrate layers`, затем `compare-bases books books-amazon`."""
+    from booksengine.data import merged
+    from booksengine.paths import CLEAN_DIR, DOMAIN, MODELS_DIR, PROJECT_ROOT, SPLIT_DIR, domain_dirs
+    if DOMAIN != "books-amazon":
+        raise typer.BadParameter("refit — только для --domain books-amazon")
+    merged.refit(CLEAN_DIR, SPLIT_DIR, MODELS_DIR, domain_dirs(PROJECT_ROOT, "books")[1], min_user=min_user)
+
+
+@app.command("compare-bases")
+def compare_bases(a: str = typer.Argument("books", help="домен A"), b: str = typer.Argument("books-amazon", help="домен B"),
+                  stage: str = typer.Option("test", help="val | test")) -> None:
+    """Две базы на одних отложенных людях, каждая своей выдачей: парная разность качества и угаданного →
+    reports/compare_<a>_<b>.md."""
+    from booksengine.model import layers as ly
+    from booksengine.paths import PROJECT_ROOT, REPORTS_DIR, domain_dirs
+
+    def dirs(domain: str):
+        data, models = domain_dirs(PROJECT_ROOT, domain)
+        return data / "clean", data / "model" / "split", models
+    text = ly.report_compare(ly.compare_bases(dirs(a), dirs(b), stage=stage), a, b)
+    REPORTS_DIR.mkdir(exist_ok=True)
+    (REPORTS_DIR / f"compare_{a}_{b}_{stage}.md").write_text(text)
+    print(text)
 
 
 @app.command()
@@ -76,6 +119,9 @@ def split(force: bool = typer.Option(False, "--force", help="пересобра�
 
     from booksengine.model import split as s
     from booksengine.paths import CLEAN_DIR, DOMAIN, SPLIT_DIR
+    if DOMAIN == "books-amazon":
+        raise typer.BadParameter("books-amazon: отложенные люди — копия книжных (`prepare`), чтобы обе базы судились на "
+                                 "одних людях; своего сплита нет")
     kw = {}
     if DOMAIN == "movies":
         from booksengine.data import movielens
