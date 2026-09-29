@@ -58,3 +58,10 @@ def test_history_dir_is_separate_for_non_book_domains(tmp_path):
     from booksengine.paths import history_dir
     assert history_dir(tmp_path, "books") == tmp_path / "profiles" / "history"
     assert history_dir(tmp_path, "books-amazon") == tmp_path / "profiles" / "history" / "books-amazon"
+
+
+def test_reports_dir_is_separate_for_non_book_domains(tmp_path):
+    """Отчёты другого домена (`layers val`, `calibrate` …) не затирают книжные: своя подпапка."""
+    from booksengine.paths import reports_dir
+    assert reports_dir(tmp_path, "books") == tmp_path / "reports"
+    assert reports_dir(tmp_path, "books-amazon") == tmp_path / "reports" / "books-amazon"

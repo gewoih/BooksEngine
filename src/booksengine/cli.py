@@ -71,7 +71,7 @@ def compare_bases(a: str = typer.Argument("books", help="домен A"), b: str 
         data, models = domain_dirs(PROJECT_ROOT, domain)
         return data / "clean", data / "model" / "split", models
     text = ly.report_compare(ly.compare_bases(dirs(a), dirs(b), stage=stage), a, b)
-    REPORTS_DIR.mkdir(exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     (REPORTS_DIR / f"compare_{a}_{b}_{stage}.md").write_text(text)
     print(text)
 
@@ -158,7 +158,7 @@ def calibrate(model: str = typer.Argument("mix", help="сохранённая м
     from booksengine.paths import EVAL_DIR, MODELS_DIR, REPORTS_DIR, SPLIT_DIR
     out = chance.calibrate(model, ratings_path=RATINGS, split_dir=SPLIT_DIR, models_dir=MODELS_DIR, eval_dir=EVAL_DIR)
     text = chance.report(out)
-    REPORTS_DIR.mkdir(exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     (REPORTS_DIR / f"chance_{model}.md").write_text(text)
     print(text)
 
@@ -184,7 +184,7 @@ def journal() -> None:
     from booksengine import journal as jr
     from booksengine.paths import CLEAN_DIR, DOMAIN, PROJECT_ROOT, REPORTS_DIR, history_dir
     text = jr.report(PROJECT_ROOT / "profiles", history_dir(PROJECT_ROOT, DOMAIN), CLEAN_DIR)
-    REPORTS_DIR.mkdir(exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     (REPORTS_DIR / "journal.md").write_text(text)
     print(text)
 
@@ -195,7 +195,7 @@ def ease_size() -> None:
     from booksengine.model import ease_size as es
     from booksengine.paths import CLEAN_DIR, MODELS_DIR, PROJECT_ROOT, REPORTS_DIR, SPLIT_DIR
     text = es.run(clean_dir=CLEAN_DIR, split_dir=SPLIT_DIR, models_dir=MODELS_DIR, profiles_dir=PROJECT_ROOT / "profiles")
-    REPORTS_DIR.mkdir(exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     (REPORTS_DIR / "ease_size.md").write_text(text)
     print(text)
 
@@ -215,7 +215,7 @@ def taste(factors: str = typer.Option(None, help="размеры через за
         grid = [(f, r) for f in fs for r in rs]
     text = tm.report(tm.tune(ratings_path=RATINGS, split_dir=SPLIT_DIR, models_dir=MODELS_DIR, eval_dir=EVAL_DIR,
                              grid=grid))
-    REPORTS_DIR.mkdir(exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     (REPORTS_DIR / "taste_val.md").write_text(text)
     print(text)
 
@@ -234,7 +234,7 @@ def layers(stage: str = typer.Argument(..., help="val | test | profiles"),
         text = ly.profiles(clean_dir=CLEAN_DIR, models_dir=MODELS_DIR, profiles_dir=PROJECT_ROOT / "profiles", top=top)
     else:
         raise typer.BadParameter("stage: val | test | profiles")
-    REPORTS_DIR.mkdir(exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     (REPORTS_DIR / f"layers_{stage}.md").write_text(text)
     print(text)
 
@@ -272,7 +272,7 @@ def ease_like_tune(lam: float = typer.Option(None, help="одна настрой
                                        min_user=min_user,
                                        min_support=ly.MIN_SUPPORT if min_support is None else min_support,
                                        amazon_dir=AMAZON_CLEAN_DIR))
-    REPORTS_DIR.mkdir(exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     (REPORTS_DIR / "ease_like_tune.md").write_text(text)
     print(text)
 
@@ -283,7 +283,7 @@ def profile_check() -> None:
     from booksengine.model import layers as ly
     from booksengine.paths import CLEAN_DIR, MODELS_DIR, PROJECT_ROOT, REPORTS_DIR
     text = ly.profile_check(clean_dir=CLEAN_DIR, models_dir=MODELS_DIR, profiles_dir=PROJECT_ROOT / "profiles")
-    REPORTS_DIR.mkdir(exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     (REPORTS_DIR / "profile_check.md").write_text(text)
     print(text)
 
@@ -305,7 +305,7 @@ def taste_gap() -> None:
     from booksengine.model.evaluate import RATINGS
     from booksengine.paths import EVAL_DIR, MODELS_DIR, REPORTS_DIR, SPLIT_DIR
     text = tg.report(tg.run(ratings_path=RATINGS, split_dir=SPLIT_DIR, models_dir=MODELS_DIR, eval_dir=EVAL_DIR))
-    REPORTS_DIR.mkdir(exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     (REPORTS_DIR / "taste_gap.md").write_text(text)
     print(text)
 
