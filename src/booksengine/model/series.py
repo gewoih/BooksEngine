@@ -16,15 +16,22 @@ import scipy.sparse as sp
 from booksengine.model.matrix import Holdout
 
 _PAREN = re.compile(r"\(([^()]*#[^()]*)\)")
-_PART = re.compile(r"^\s*(.+?),?\s*#\s*[\d.]+(?:\s*[-–]\s*[\d.]+)?\s*$")
+_NUMBER = re.compile(r"#\s*[\d.]+(?:\s*[-–]\s*[\d.]+)?")
+_EDGE = re.compile(r"^(?:[\s,;:&-]|and\b|part\b)+|[\s,;:&-]+$", re.I)
 
 
 def series_keys(title: str) -> list[str]:
+    """Серии книги из скобки названия: имя серии — текст перед каждым «#N» после предыдущего номера. Так читаются и
+    «(A Song of Ice and Fire, #3: Part 2 of 2)», «(Dark-Hunter #10, Dream-Hunter #1)», «(Discworld, #4; Death, #1)»;
+    без имени («Hunters, #1 and #2») номер продолжает ту же серию."""
     out = []
     for group in _PAREN.findall(title or ""):
-        for part in group.split(";"):
-            if m := _PART.match(part):
-                out.append(m.group(1).strip().lower())
+        start = 0
+        for m in _NUMBER.finditer(group):
+            name = _EDGE.sub("", group[start:m.start()]).lower()
+            if any(ch.isalpha() for ch in name) and name not in out:
+                out.append(name)
+            start = m.end()
     return out
 
 

@@ -57,3 +57,14 @@ def test_report_splits_taste_lifted_and_bold(tmp_path):
     assert "- поставила толпа: прочитано 1 — пятёрок 0%" in text
     assert "книг вне показанных 2, прочитано 1 — пятёрок 100%" in text
     assert "| 5,000 | 5 |" in text and "| да |" in text
+
+
+def test_history_keeps_code_version(tmp_path):
+    from booksengine.recommend import code_fingerprint
+    for f in ("a.py", "b.py"):
+        (tmp_path / f).write_text("x = 1\n")
+    before = code_fingerprint(tmp_path, ("a.py", "b.py"))
+    (tmp_path / "b.py").write_text("x = 2\n")
+    assert code_fingerprint(tmp_path, ("a.py", "b.py")) != before       # правка кода — другой отпечаток
+    path = journal.save([Rec(10, "Ten", "A", 80, [], None)], "me", "fp", tmp_path / "history", code=before)
+    assert pd.read_csv(path, dtype={"code": str}).code.tolist() == [before]

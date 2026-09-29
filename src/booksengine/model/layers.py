@@ -588,8 +588,10 @@ LIKE_JUDGED = (Variant("like", 0.0, None, 0.25), Variant("like", 1.0, None, 0.25
 
 
 def _setting(row: dict) -> tuple:
+    """Настройка толпы: λ, веса звёзд, порог людей, опора связи, урезание связей (`EASELike.LINKS`; «» — прежнее:
+    только у цели и до опоры)."""
     return (float(row["lam"]), tuple(float(w) for w in row["weights"]), int(row.get("min_user", 20)),
-            int(row.get("min_support", 0)))
+            int(row.get("min_support", 0)), row.get("links", ""))
 
 
 def _same_numbers(old: dict, new: dict) -> bool:
@@ -632,11 +634,10 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
     chosen = read_params(models_dir / "layers").get("variant") if (models_dir / "layers" / "params.json").exists() else None
     now = Variant(**chosen) if chosen and chosen["crowd"] == "like" else LIKE_JUDGED[0]
     judged = list(dict.fromkeys([now, *LIKE_JUDGED, ANCHOR_LIKE]))
-    grid = [(float(lam), normalize_weights(w), int(min_user), int(min_support)) for lam, w in grid]
+    grid = [(float(lam), normalize_weights(w), int(min_user), int(min_support), EASELike.LINKS) for lam, w in grid]
     saved = read_params(models_dir / "ease_like") if (models_dir / "ease_like" / "params.json").exists() else {}
     if saved:  # сохранённая толпа — всегда точка сравнения: без неё прогон из одной настройки записал бы худшую
-        cur = (float(saved["lam"]), tuple(saved.get("weights", W0)), int(saved.get("min_user", 20)),
-               int(saved.get("min_support", 0)))
+        cur = _setting(saved | {"weights": saved.get("weights", W0)})
         grid = [cur] + [g for g in grid if g != cur]
     path = eval_dir / "ease_like_tune.json"
     users = [int(u) for u in hold.user_ids]
@@ -650,9 +651,9 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
     reuse = False
     results, best, best_model, baseline, ref_q = [], None, None, None, None
     eval_dir.mkdir(parents=True, exist_ok=True)
-    for lam, weights, mu, ms in grid:
-        is_saved = bool(saved) and cur == (lam, weights, mu, ms)
-        old = prev.get((lam, weights, mu, ms))
+    for lam, weights, mu, ms, links in grid:
+        is_saved = bool(saved) and cur == (lam, weights, mu, ms, links)
+        old = prev.get((lam, weights, mu, ms, links))
         if reuse and old is not None and not is_saved:
             row, ease = old | {"saved": False, "reused": True}, None
         else:
@@ -670,7 +671,8 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
             per = evaluate(layers, hold, info, judged, pop=pop)
             summ = summarize(per, judged[0])
             baseline = baseline or anchor(summ)       # опора — сохранённая толпа (первая настройка) без вкуса
-            row = {"lam": lam, "weights": list(weights), "min_user": mu, "min_support": ms, "fit_seconds": fit_s,
+            row = {"lam": lam, "weights": list(weights), "min_user": mu, "min_support": ms, "links": links,
+                   "fit_seconds": fit_s,
                    "saved": is_saved,
                    "variants": {r["label"]: {k: r["groups"]["all"][k] for k in
                                              ("quality", "hits", "five_minus_low", *STARS)} for r in summ},
@@ -699,13 +701,13 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
               + ("" if d is None or is_saved else f", разница с сохранённой {_f(d, True)}{_ci(d)}")
               + f", {how}", flush=True)
         path.write_text(json.dumps({"user_ids": users, "results": results}, ensure_ascii=False))
-        last = (lam, weights, mu, ms) == grid[-1]
+        last = (lam, weights, mu, ms, links) == grid[-1]
         if (force and last) or (not force and (best is None or (sure and v > best))):
-            best, best_model = v, (lam, weights, mu, ms, ease)
+            best, best_model = v, (lam, weights, mu, ms, links, ease)
         else:
             del ease
-    lam, weights, mu, ms, ease = best_model
-    if not (saved and cur == (lam, weights, mu, ms)):
+    lam, weights, mu, ms, links, ease = best_model
+    if not (saved and cur == (lam, weights, mu, ms, links)):
         if ease is None:   # лучшая посчитана в прошлый прогон — обучить заново, чтобы записать
             print(f"«ценность» λ = {lam:g}, веса {weights}: обучаю заново, чтобы записать", flush=True)
             ease = EASELike(lam=lam, weights=weights, min_user=mu, min_support=ms, **(fit_kw or {}))
@@ -716,20 +718,21 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
         mix.configure(als_weight=0.5, ease_input=weights)
         mix.save(models_dir / "mix_like")
     return {"results": results, "floor": GUARD * _mean(baseline, "hits"),
-            "best": {"lam": lam, "weights": list(weights), "min_user": mu, "min_support": ms},
-            "kept": bool(saved) and cur == (lam, weights, mu, ms)}
+            "best": {"lam": lam, "weights": list(weights), "min_user": mu, "min_support": ms, "links": links},
+            "kept": bool(saved) and cur == (lam, weights, mu, ms, links)}
 
 
 def _setting_name(r: dict) -> str:
     who = ("" if r.get("min_user", 20) == 20 else f", люди с ≥ {r['min_user']} оценок") + (
-        f", опора связи ≥ {r['min_support']}" if r.get("min_support") else "")
+        f", опора связи ≥ {r['min_support']}" if r.get("min_support") else "") + (
+        ", связи у цели и у источника" if r.get("links") == "both" else ", связи только у цели")
     return f"λ {r['lam']:g}, веса {'/'.join(f'{w:g}' for w in r['weights'])}{who}"
 
 
 def report_like(res: dict) -> str:
     b = res["best"]
     best = next(r for r in res["results"]
-                if _setting(r) == (b["lam"], tuple(b["weights"]), b.get("min_user", 20), b.get("min_support", 0)))
+                if _setting(r) == _setting(b))
     if res.get("kept", best.get("saved")):
         verdict = f"**Сохранённая толпа осталась: {_setting_name(best)}** — ни одна настройка не лучше уверенно."
     else:
