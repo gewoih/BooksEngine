@@ -110,6 +110,21 @@ def test_build_matches_model_and_recommend(world):
     assert inp.dnf.to_dict() == {100: False, 104: False, 110: False, 111: False, 112: True}
 
 
+def test_golden_ignores_shelf_that_app_does_not_know(world):
+    """Полка («хочу прочитать») меняет вход толпы, а C# её пока не знает: эталон считается без неё."""
+    clean, models, profiles, tmp = world
+    shelf = tmp.parent / "shelf.csv"
+    p = pd.read_csv(profiles["me"])
+    books = list(range(113, 133))
+    pd.concat([p, pd.DataFrame({"goodreads_work_id": books, "rating": None, "status": "want",
+                                "title": [f"w{b}" for b in books]})]).to_csv(shelf, index=False)
+    e = ex.build(clean_dir=clean, models_dir=models, profiles={"me": shelf}, tmp_dir=tmp, top=5)
+    want = rec.recommend(profiles["me"], clean_dir=clean, models_dir=models, top=5, model="mix", rules=False,
+                         sections=False)
+    assert list(e.golden_recs.gr_work_id) == [r.work_id for r in want.recs]
+    assert not e.golden_inputs.gr_work_id.isin(books).any()
+
+
 # ---------- запись в БД ----------
 
 

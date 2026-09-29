@@ -37,6 +37,23 @@ def _code_hash() -> str:
     return h.hexdigest()[:16]
 
 
+def profile_key(raw: dict) -> dict:
+    """Ключ кэша profile.json: сырые файлы и код профилирования — правка profile.py пересчитывает метрики."""
+    return {"raw": json.dumps(raw, sort_keys=True),
+            "code": hashlib.sha256(Path(profile.__file__).read_bytes()).hexdigest()[:16]}
+
+
+def cached_profile(path: Path, key: dict, compute, force: bool = False) -> dict:
+    """Метрики профилирования из `path`, если ключ совпал; иначе compute() и запись вместе с ключом."""
+    old = json.loads(path.read_text()) if path.exists() else {}
+    if not force and old and all(old.get(k) == v for k, v in key.items()):
+        print("[profile] из кэша")
+        return old["metrics"]
+    metrics = compute()
+    path.write_text(json.dumps({**key, "metrics": metrics}, ensure_ascii=False, indent=1, default=str))
+    return metrics
+
+
 def _export(con, sql: str, name: str) -> dict:
     out = CLEAN_DIR / f"{name}.parquet"
     con.execute(f"COPY ({sql}) TO '{out}' {PARQUET}")
@@ -132,15 +149,8 @@ def prepare(force: bool = False) -> dict:
     for t in STAGING_TABLES:
         con.execute(f"CREATE OR REPLACE VIEW {t} AS SELECT * FROM '{STAGING_DIR / t}.parquet'")
 
-    profile_path = CLEAN_DIR.parent / "profile.json"
-    raw_fp = json.dumps(fingerprint["raw"], sort_keys=True)
-    if profile_path.exists() and not force and json.loads(profile_path.read_text()).get("raw") == raw_fp:
-        prof = json.loads(profile_path.read_text())["metrics"]
-        print("[profile] из кэша")
-    else:
-        prof = profile.run(con)
-        profile_path.write_text(json.dumps({"raw": raw_fp, "metrics": prof}, ensure_ascii=False, indent=1,
-                                           default=str))
+    prof = cached_profile(CLEAN_DIR.parent / "profile.json", profile_key(fingerprint["raw"]),
+                          lambda: profile.run(con), force)
 
     print("[clean]")
     clean.SPILL_DIR = TMP_DIR / "clean"

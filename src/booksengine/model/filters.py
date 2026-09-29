@@ -58,13 +58,21 @@ def name_words(title) -> frozenset:
     return frozenset(w for w in re.split(r"[\W_]+", t) if w and w not in _STOP)
 
 
+# Роли, при которых человек — автор книги, хотя роль указана. Основной автор — первый без роли, а если такого нет —
+# первый с такой ролью: у «Маленького принца» (Author/Illustrator), томов комиксов (Writer) и адаптаций (Creator)
+# автора без роли нет. Без запасного правила у 1 580 книг ядра (1.6%) не было автора: не работали «то же
+# произведение» и «одна книга автора на 10 мест», а в выдаче вместо автора было «nan».
+AUTHOR_ROLES = "author|writer|creator|text|story|poet|pseudonym"
+
+
 def work_info(clean_dir: Path, work_ids: np.ndarray) -> pd.DataFrame:
     """Книги ядра по столбцам матрицы: название (и варианты), основной и все авторы, ключ названия, номер в серии,
-    сборник ли."""
+    сборник ли. Основной автор — `AUTHOR_ROLES`; без него author — пустая строка, author_id — NULL."""
     d = duckdb.execute(f"""
         WITH prim AS (
-            SELECT work_id, arg_min(author_id, position) AS author_id
-            FROM read_parquet(?) WHERE coalesce(role, '') = '' GROUP BY 1),
+            SELECT work_id, arg_min(author_id, (coalesce(role, '') <> '')::INT * 100000 + position) AS author_id
+            FROM read_parquet(?)
+            WHERE coalesce(role, '') = '' OR regexp_matches(lower(role), '{AUTHOR_ROLES}') GROUP BY 1),
         everyone AS (SELECT work_id, list(DISTINCT author_id) AS authors FROM read_parquet(?) GROUP BY 1)
         SELECT w.work_id, w.title, w.original_title, w.best_edition_title, a.name AS author, p.author_id, e.authors,
                {title_key_sql('w.title')} AS key, {series_no_sql('w.best_edition_title')} AS series_no,
@@ -76,6 +84,7 @@ def work_info(clean_dir: Path, work_ids: np.ndarray) -> pd.DataFrame:
     d = d.set_index("work_id").reindex(work_ids)
     if d.title.isna().any():
         raise ValueError("в works.parquet нет части книг ядра")
+    d["author"] = d.author.astype(object).where(d.author.notna(), "")   # у фильмов авторов нет — колонка числовая
     return d.reset_index()
 
 

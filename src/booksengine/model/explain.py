@@ -23,17 +23,19 @@ TASTE_SHOWN = 0.5
 
 
 def contributions(mix: Mix, x: sp.csr_matrix, cols: np.ndarray, dnf: sp.csr_matrix | None = None,
-                  shelf: sp.csr_matrix | None = None) -> tuple[np.ndarray, np.ndarray]:
+                  shelf: sp.csr_matrix | None = None,
+                  weights: tuple[float, float] | None = None) -> tuple[np.ndarray, np.ndarray]:
     """Вклады книг входа одного человека (x — строка 1 × книги ядра, dnf — недочитанные, shelf — книги без оценки,
     как в `Mix.score`) в балл смеси книг cols. Возвращает (столбцы входа, матрица вкладов вход × cols); вход — оценённые
-    и полка, у книг полки вклад только через EASE. cols — только книги EASE."""
+    и полка, у книг полки вклад только через EASE. cols — только книги EASE. weights — веса z(ALS) и z(EASE), по
+    умолчанию — смеси (w, 1 − w)."""
     top = mix.ease.top_cols
     pos = np.searchsorted(top, cols)
     if not np.array_equal(top[np.minimum(pos, len(top) - 1)], cols):
         raise ValueError("объясняются только книги EASE: у остальных нет балла смеси")
     in_cols = x.indices if shelf is None or shelf.nnz == 0 else np.union1d(x.indices, shelf.indices)
     s_als, s_ease = mix.components(x, dnf, shelf)
-    w_als = mix.als_weight
+    w_als, w_ease = weights or (mix.als_weight, 1 - mix.als_weight)
 
     A, Yu, w = mix.als.fold_in_system(x.indices, x.data)
     G = np.linalg.solve(A, Yu.T).T * w[:, None]                 # вклад книги i в вектор человека
@@ -49,7 +51,7 @@ def contributions(mix: Mix, x: sp.csr_matrix, cols: np.ndarray, dnf: sp.csr_matr
     c_ease = c_ease_all[:, pos] - c_ease_all.mean(axis=1, keepdims=True)
 
     sd_als, sd_ease = (max(float(s.std()), 1e-9) for s in (s_als[0], s_ease[0]))
-    return in_cols, w_als * c_als / sd_als + (1 - w_als) * c_ease / sd_ease
+    return in_cols, w_als * c_als / sd_als + w_ease * c_ease / sd_ease
 
 
 @dataclass
@@ -92,19 +94,15 @@ def layers_parts(layers, x: sp.csr_matrix, cols: np.ndarray, dnf: sp.csr_matrix 
     """Вклады книг входа в балл слоёв «толпа + вкус» (`Layers.score`) книг cols — отдельно толпа и вкус (с его весом),
     и постоянная часть вкуса («как книгу обычно оценивают»). Толпа + вкус + постоянная = балл, точно.
     Возвращает (вход, толпа, вкус, постоянная)."""
+    from booksengine.model.layers import TIE_ALS
     v = layers.variant
-    if v.crowd == "like":
-        m, w = layers.like_mix, v.als_weight
+    if v.crowd == "like":      # как `Layers.like_crowd`: ALS ещё и разбивает ничьи EASE
+        m, weights = layers.like_mix, (v.als_weight + TIE_ALS, 1 - v.als_weight)
     elif v.crowd == "mix":
-        m, w = layers.mix, layers.mix.als_weight
+        m, weights = layers.mix, None
     else:
         raise ValueError(f"объяснение для толпы «{v.crowd}» не сделано")
-    w0 = m.als_weight
-    try:
-        m.configure(als_weight=w, ease_input=m.ease_input)
-        in_cols, c = contributions(m, x, cols, dnf, shelf)
-    finally:
-        m.configure(als_weight=w0, ease_input=m.ease_input)
+    in_cols, c = contributions(m, x, cols, dnf, shelf, weights)
     t, const = np.zeros_like(c), np.zeros(len(cols))
     if v.taste_weight:
         # вход вкуса — с недочитанными чуть ниже обычной оценки (`Layers.taste_input`); полки во вкусе нет
