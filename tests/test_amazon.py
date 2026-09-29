@@ -1,3 +1,4 @@
+import gzip
 import json
 
 import duckdb
@@ -230,3 +231,47 @@ def test_apply_translation_signal_is_noop_without_candidates(tmp_path):
                                              query=lambda b: calls.append(b) or {})
     assert stats == {"candidates": 0, "with_translation": 0}
     assert calls == []
+
+
+def _write_gz(path, text: str) -> None:
+    with gzip.open(path, "wt") as f:
+        f.write(text)
+
+
+def test_prepare_end_to_end_with_synthetic_raw_files(tmp_path):
+    raw = tmp_path / "raw"
+    base = raw / "amazon_reviews_2023"
+    base.mkdir(parents=True)
+
+    ratings_rows = "user_id,parent_asin,rating,timestamp\n" + "".join(
+        f"U{u},B1,5.0,{1000 + u}\n" for u in range(5))
+    _write_gz(base / "Books.csv.gz", ratings_rows)
+    _write_gz(base / "Kindle_Store.csv.gz", "user_id,parent_asin,rating,timestamp\n")
+
+    meta_row = json.dumps({
+        "parent_asin": "B1", "title": "Test Book", "author": {"name": "A. Uthor"},
+        "details": {"ISBN 10": "1111111111", "ISBN 13": "9781111111111", "Publisher": "Pub (2019)",
+                    "Language": "English"},
+        "categories": ["Books", "Fiction"],
+    })
+    _write_gz(base / "meta_Books.jsonl.gz", meta_row + "\n")
+    _write_gz(base / "meta_Kindle_Store.jsonl.gz", "")
+
+    # пустой editions — мост не найдётся, B1 останется книгой без пары в Goodreads
+    editions_path = tmp_path / "editions.parquet"
+    pd.DataFrame(columns=["work_id", "isbn", "isbn13", "kindle_asin"]).astype(
+        {"work_id": "int64"}).to_parquet(editions_path)
+
+    out_dir = tmp_path / "clean"
+    cache_path = tmp_path / "wikidata_cache.parquet"
+
+    manifest = amazon.prepare(raw, out_dir, editions_path, cache_path, min_user=1, min_work=1,
+                              translation_query=lambda batch: {"9781111111111": True})
+
+    assert manifest["kcore"]["rule"] == "kcore"
+    assert manifest["export"] == {"ratings": 5, "items": 1, "bridged": 0, "new": 1}
+    assert manifest["translation"] == {"candidates": 1, "with_translation": 1}
+
+    items = pd.read_parquet(out_dir / "items.parquet")
+    assert items.iloc[0]["ru_translation_known"] == True
+    assert items.iloc[0]["year"] == 2019

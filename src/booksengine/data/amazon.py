@@ -167,3 +167,20 @@ def apply_translation_signal(clean_dir: Path, cache_path: Path, query=None) -> d
 
     items.to_parquet(clean_dir / "items.parquet", index=False)
     return {"candidates": len(candidates), "with_translation": int(items.ru_translation_known.sum())}
+
+
+def prepare(raw_dir: Path, out_dir: Path, editions_path: Path, cache_path: Path, min_user: int = MIN_USER,
+           min_work: int = MIN_WORK, translation_query=None) -> dict:
+    """Полный прогон: raw_dir/amazon_reviews_2023/{Books,Kindle_Store}.csv.gz + meta_*.jsonl.gz -> staging ->
+    k-core -> мост на Goodreads (editions_path) -> экспорт -> сигнал перевода (Wikidata, кэш в cache_path) ->
+    out_dir. `translation_query` — подменяется в тестах, без него — настоящий Wikidata."""
+    base = raw_dir / "amazon_reviews_2023"
+    con = duckdb.connect()
+    stage_ratings(con, base / "Books.csv.gz", base / "Kindle_Store.csv.gz")
+    stage_meta(con, base / "meta_Books.jsonl.gz", base / "meta_Kindle_Store.jsonl.gz")
+    kcore_step = apply_kcore(con, min_user, min_work)
+    build_bridge(con, editions_path)
+    counts = export(con, out_dir)
+    con.close()
+    translation = apply_translation_signal(out_dir, cache_path, query=translation_query)
+    return {"kcore": kcore_step, "export": counts, "translation": translation}
