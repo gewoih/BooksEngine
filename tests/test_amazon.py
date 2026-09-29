@@ -1,6 +1,7 @@
 import json
 
 import duckdb
+import pandas as pd
 import pytest
 
 from booksengine.data import amazon
@@ -84,3 +85,64 @@ def test_extract_year_returns_none_without_plausible_year():
     assert amazon.extract_year(None) is None
     assert amazon.extract_year("") is None
     assert amazon.extract_year("No year mentioned here") is None
+
+
+def test_build_bridge_matches_books_by_isbn_and_kindle_by_asin(tmp_path, con):
+    editions = pd.DataFrame([
+        {"work_id": 1, "isbn": "0701169850", "isbn13": "9780701169855", "kindle_asin": None},
+        {"work_id": 2, "isbn": None, "isbn13": None, "kindle_asin": "B0192CTMWI"},
+    ])
+    editions_path = tmp_path / "editions.parquet"
+    editions.to_parquet(editions_path)
+
+    con.execute("CREATE OR REPLACE TEMP TABLE _az_meta AS SELECT * FROM (VALUES "
+                "('0701169850', 'books', '0701169850', '978-0701169855')) "
+                "t(parent_asin, source, isbn10, isbn13)")
+    con.execute("CREATE OR REPLACE TEMP TABLE _az_ratings AS SELECT * FROM (VALUES "
+                "('U1', '0701169850', 5.0, 1000, 'books'), "
+                "('U1', 'B0192CTMWI', 5.0, 1001, 'kindle'), "
+                "('U1', 'ZZZUNKNOWN', 3.0, 1002, 'kindle')) "
+                "t(user_id, parent_asin, rating, timestamp, source)")
+
+    amazon.build_bridge(con, editions_path)
+
+    rows = dict(con.execute("SELECT parent_asin, work_id FROM bridge").fetchall())
+    assert rows == {"0701169850": 1, "B0192CTMWI": 2, "ZZZUNKNOWN": None}
+
+
+def test_build_bridge_treats_missing_isbn_as_no_match(tmp_path, con):
+    editions = pd.DataFrame([{"work_id": 1, "isbn": "1111111111", "isbn13": "9781111111111",
+                              "kindle_asin": None}])
+    editions_path = tmp_path / "editions.parquet"
+    editions.to_parquet(editions_path)
+
+    con.execute("CREATE OR REPLACE TEMP TABLE _az_meta AS SELECT * FROM (VALUES "
+                "('NOISBN', 'books', NULL, NULL)) t(parent_asin, source, isbn10, isbn13)")
+    con.execute("CREATE OR REPLACE TEMP TABLE _az_ratings AS SELECT * FROM (VALUES "
+                "('U1', 'NOISBN', 5.0, 1000, 'books')) t(user_id, parent_asin, rating, timestamp, source)")
+
+    amazon.build_bridge(con, editions_path)
+
+    row = con.execute("SELECT work_id FROM bridge WHERE parent_asin = 'NOISBN'").fetchone()
+    assert row == (None,)
+
+
+def test_build_bridge_does_not_fan_out_on_duplicate_isbn_in_editions(tmp_path, con):
+    # данные Goodreads не идеальны: два разных work_id с одним и тем же ISBN
+    editions = pd.DataFrame([
+        {"work_id": 1, "isbn": "2222222222", "isbn13": None, "kindle_asin": None},
+        {"work_id": 2, "isbn": "2222222222", "isbn13": None, "kindle_asin": None},
+    ])
+    editions_path = tmp_path / "editions.parquet"
+    editions.to_parquet(editions_path)
+
+    con.execute("CREATE OR REPLACE TEMP TABLE _az_meta AS SELECT * FROM (VALUES "
+                "('DUP', 'books', '2222222222', NULL)) t(parent_asin, source, isbn10, isbn13)")
+    con.execute("CREATE OR REPLACE TEMP TABLE _az_ratings AS SELECT * FROM (VALUES "
+                "('U1', 'DUP', 5.0, 1000, 'books')) t(user_id, parent_asin, rating, timestamp, source)")
+
+    amazon.build_bridge(con, editions_path)
+
+    rows = con.execute("SELECT parent_asin, work_id FROM bridge WHERE parent_asin = 'DUP'").fetchall()
+    assert len(rows) == 1   # ровно одна строка мостa, не две — дубль ISBN не размножает bridge
+    assert rows[0][1] in (1, 2)

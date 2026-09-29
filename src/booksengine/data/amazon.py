@@ -70,3 +70,35 @@ def extract_year(publisher_raw: str | None) -> int | None:
     years = [int(y) for y in re.findall(r"(?:19|20)\d{2}", publisher_raw)]
     plausible = [y for y in years if 1900 <= y <= CURRENT_YEAR]
     return min(plausible) if plausible else None
+
+
+def build_bridge(con: duckdb.DuckDBPyConnection, editions_path: Path) -> None:
+    """bridge: parent_asin, work_id (NULL — книги без пары в Goodreads). Books — по isbn10/isbn13 из
+    _az_meta (только цифры и X, без дефисов) на editions.isbn/isbn13; Kindle — parent_asin напрямую на
+    editions.kindle_asin, метаданные не нужны. Покрывает все parent_asin из _az_ratings, даже без записи в
+    _az_meta (не распарсилась/нет ISBN) — тогда просто нет сигнала для сопоставления, work_id = NULL.
+    GROUP BY + max() в конце — защита от дублей ISBN в editions (не размножает строки моста)."""
+    con.execute("""
+        CREATE OR REPLACE TEMP TABLE _editions_norm AS
+        SELECT work_id, regexp_replace(upper(coalesce(isbn::VARCHAR, '')), '[^0-9X]', '', 'g') AS isbn10_n,
+               regexp_replace(coalesce(isbn13::VARCHAR, ''), '[^0-9]', '', 'g') AS isbn13_n,
+               kindle_asin::VARCHAR AS kindle_asin
+        FROM read_parquet(?)
+    """, [str(editions_path)])
+    con.execute("""
+        CREATE OR REPLACE TEMP TABLE bridge AS
+        SELECT parent_asin, max(work_id) AS work_id FROM (
+            SELECT i.parent_asin,
+                   CASE WHEN i.source = 'kindle' THEN ek.work_id
+                        ELSE coalesce(e10.work_id, e13.work_id) END AS work_id
+            FROM (SELECT DISTINCT parent_asin, source FROM _az_ratings) i
+            LEFT JOIN (SELECT parent_asin,
+                              regexp_replace(upper(coalesce(isbn10::VARCHAR, '')), '[^0-9X]', '', 'g') AS isbn10_n,
+                              regexp_replace(coalesce(isbn13::VARCHAR, ''), '[^0-9]', '', 'g') AS isbn13_n
+                       FROM _az_meta WHERE source = 'books') m ON m.parent_asin = i.parent_asin
+            LEFT JOIN _editions_norm e10 ON e10.isbn10_n = m.isbn10_n AND m.isbn10_n != ''
+            LEFT JOIN _editions_norm e13 ON e13.isbn13_n = m.isbn13_n AND m.isbn13_n != ''
+            LEFT JOIN _editions_norm ek ON ek.kindle_asin = i.parent_asin AND i.source = 'kindle'
+        )
+        GROUP BY parent_asin
+    """)
