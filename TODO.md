@@ -140,9 +140,6 @@
 
 ## Техдолг
 
-- **Отпечаток модели не знает кода выдачи**: `base.fingerprint` — только файлы `models/…`, поэтому правка кода (как
-  исправление отсечения вкуса 2026-09-29) не меняет `model` в журнале, и `journal` не различает выдачи до и после.
-  Писать в выдачу ещё хэш кода выдачи (`layers.py`, `filters.py`, `recommend.py`, `chance.py`).
 - **Отчёты книг и фильмов затирают друг друга**: `cli.py` пишет `reports/layers_{stage}.md`, `chance_{model}.md`,
   `taste_val.md`, `ease_like_tune.md`, `profile_check.md`, `taste_gap.md`, `ease_size.md` без домена в имени, а
   `--domain movies` пишет туда же (сейчас в `reports/layers_val.md` — фильмы: 4 977 человек, «ALS 0.5 · вкус 8 ·

@@ -20,9 +20,9 @@ from booksengine.paths import domain_profiles
 
 
 def save(recs, profile: str, model_fp: str, history_dir: Path,
-         bold: list[tuple[int, str, str, str]] | None = None, chance_of: str = "4–5★") -> Path:
-    """Выдача в журнал: место, книга, шанс (chance_of — на что: «5★» или «4–5★», `Chance.label`), отпечаток модели,
-    подпись и отладка слоёв (`Rec.debug`); строки
+         bold: list[tuple[int, str, str, str]] | None = None, chance_of: str = "4–5★", code: str = "") -> Path:
+    """Выдача в журнал: место, книга, шанс (chance_of — на что: «5★» или «4–5★», `Chance.label`), отпечатки модели и
+    кода выдачи (`recommend.code_fingerprint`), подпись и отладка слоёв (`Rec.debug`); строки
     `list = bold` — «смелая» выдача (id, название, автор, список), не показанная человеку. `section` — список
     (художественная / нон-фикшн), место — внутри него. Одна выдача в день на профиль —
     повторный запуск перезаписывает. recs — `recommend.Rec`."""
@@ -30,12 +30,12 @@ def save(recs, profile: str, model_fp: str, history_dir: Path,
     history_dir.mkdir(parents=True, exist_ok=True)
     path = history_dir / f"{profile}-{date.today().isoformat()}.csv"
     rows = [{"list": "main", "section": r.section, "rank": k, "goodreads_work_id": r.work_id, "title": r.title,
-             "author": r.author, "chance": r.chance, "chance_of": chance_of, "model": model_fp,
+             "author": r.author, "chance": r.chance, "chance_of": chance_of, "model": model_fp, "code": code,
              "why": " | ".join(why_text(r)), **r.debug}
             for r, k in zip(recs, _ranks([r.section for r in recs]))]
     bold = [b if len(b) == 4 else (*b, "") for b in bold or []]
     rows += [{"list": "bold", "section": sec, "rank": k, "goodreads_work_id": w, "title": t, "author": a,
-              "model": model_fp} for (w, t, a, sec), k in zip(bold, _ranks([b[3] for b in bold]))]
+              "model": model_fp, "code": code} for (w, t, a, sec), k in zip(bold, _ranks([b[3] for b in bold]))]
     pd.DataFrame(rows).to_csv(path, index=False)
     return path
 

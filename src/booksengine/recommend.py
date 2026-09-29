@@ -12,6 +12,7 @@ EASE недочитанная книга весит 0 — `mix.DNF_INPUT`) и `t
 Тень из `work_merges.parquet` заменяется главным произведением,
 несколько строк одного произведения — средней оценкой (как издания при очистке).
 """
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -60,6 +61,20 @@ class Profile:
     def not_advised(self) -> np.ndarray:
         """Столбцы, которые не советуются по сути (`RatedFilter`): оценённое, прочитанное без оценки, полка."""
         return np.union1d(np.union1d(self.x.indices, self.read), self.want)
+
+
+# Код, от которого зависит состав выдачи: его отпечаток пишется в журнал рядом с отпечатком модели (файлы models/) —
+# правка кода меняет выдачу при тех же моделях (как исправление отсечения вкуса 2026-09-29)
+CODE = ("recommend.py", "model/layers.py", "model/filters.py", "model/series.py", "model/mix.py", "model/als.py",
+        "model/taste.py", "model/ease.py", "model/chance.py")
+
+
+def code_fingerprint(root: Path = Path(__file__).parent, files: tuple[str, ...] = CODE) -> str:
+    h = hashlib.blake2b(digest_size=8)
+    for f in files:
+        h.update(f.encode())
+        h.update((root / f).read_bytes())
+    return h.hexdigest()
 
 
 # «Смелая» выдача для журнала: вкус 4 при том же отсечении, что у выбранного варианта, — смелее порога
@@ -233,7 +248,7 @@ def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int 
     res = Result(recs, [(f"{info.title[c]} — {info.author[c] or '?'}", WHY_REMOVED[w]) for c, w in removed],
                  prof.skipped, prof.x.nnz, len(prof.read), len(prof.want), chance.label())
     if history_dir is not None:
-        journal.save(res.recs, ratings_csv.stem, model_fp, history_dir, chance_of=res.chance,
+        journal.save(res.recs, ratings_csv.stem, model_fp, history_dir, chance_of=res.chance, code=code_fingerprint(),
                      bold=[(int(work_ids[c]), info.title[c], info.author[c] or "", sec) for sec, c in bold])
     return res
 
