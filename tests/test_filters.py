@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from booksengine.model.filters import Books, RatedFilter, work_info
 
@@ -164,3 +165,21 @@ def test_pick_top_matches_full_order_even_with_small_pool(tmp_path):
     for pool in (3, 100):                               # 3 — правила убрали больше, чем кандидатов: весь порядок
         got = pick_top(sc[None, :], cols, picker, [rated], 20, pool=pool)
         assert got[0].tolist() == want
+
+
+@pytest.mark.parametrize("title, later", [
+    ("A Storm of Swords: Blood and Gold (A Song of Ice and Fire, #3: Part 2 of 2)", True),
+    ("Locke & Key, Vol. 6: Alpha & Omega", True),
+    ("The Way of Kings, Part 2 (The Stormlight Archive #1.2)", True),
+    ("1Q84 BOOK 3 (1Q84, #3)", True),
+    ("Preacher, Volume Two", True),
+    ("Mort (Discworld, #4; Death, #1)", False),            # начало подсерии «Смерть»
+    ("Death Note, Vol. 1: Boredom (Death Note, #1)", False),
+    ("Harry Potter Boxset (Harry Potter, #1-7)", False),
+    ("The Book Thief", False),
+    ("Book 13", False),
+    ("Faust, Part One", False),
+])
+def test_later_volume_by_title(title, later):
+    from booksengine.model.filters import later_by_title
+    assert later_by_title(title) is later
