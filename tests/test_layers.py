@@ -559,3 +559,11 @@ def test_compare_bases_pairs_people_and_reports_zero_for_same_base(world):
     assert g["a"]["hits"]["mean"] > 0 and res["n_users"] > 0
     text = ly.report_compare(res, "books", "books")
     assert "Качество" in text and "Угадано" in text
+
+
+def test_compare_report_keeps_stars_in_one_cell(world):
+    tp, sd, md = world
+    ly.run("val", clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval")
+    text = ly.report_compare(ly.compare_bases((tp, sd, md), (tp, sd, md), stage="test"), "books", "books")
+    row = next(l for l in text.splitlines() if l.startswith("| 5★"))  # 5★ / 4★ …
+    assert row.count("|") == 5                     # 4 колонки таблицы — не разъезжается

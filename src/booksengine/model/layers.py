@@ -982,7 +982,8 @@ def report_compare(res: dict, name_a: str, name_b: str) -> str:
              "| | " + name_a + " | " + name_b + " | разница |", "|---|---|---|---|"]
     for label, m in (("Качество", "quality"), ("Угадано", "hits")):
         lines.append(f"| {label} | {_f(g['a'][m])} | {_f(g['b'][m])} | {_f(g[m + '_diff'], True)}{_ci(g[m + '_diff'])} |")
-    lines.append(f"| 5★ … 1★ | {_stars(g['a'])} | {_stars(g['b'])} | |")
+    stars = lambda x: " / ".join(f"{x[k]['mean'] * 100:.1f}" if x[k]["mean"] is not None else "—" for k in reversed(STARS))
+    lines.append(f"| 5★ / 4★ / 3★ / 2★ / 1★, % | {stars(g['a'])} | {stars(g['b'])} | |")
     lines.append(f"| Известность (медиана оценок книг списка) | {g['a']['known']['mean']:,.0f} | "
                  f"{g['b']['known']['mean']:,.0f} | |")
     lines += ["", "По этапам (оценок у человека):", "", "| этап | качество: разница | угадано: разница |", "|---|---|---|"]

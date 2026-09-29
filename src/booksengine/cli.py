@@ -49,14 +49,17 @@ def prepare(force: bool = typer.Option(False, "--force", help="пересобр�
 
 @app.command()
 def refit(min_user: int = typer.Option(5, "--min-user", help="толпа «ценность»: человек — от стольких оценок "
-                                        "(у Goodreads в ядре все от 20 — это порог людей Amazon)")) -> None:
+                                        "(у Goodreads в ядре все от 20 — это порог людей Amazon)"),
+          taste_goodreads: bool = typer.Option(False, "--taste-goodreads", help="вкус — только на людях Goodreads"),
+          taste_only: bool = typer.Option(False, "--taste-only", help="переобучить только вкус")) -> None:
     """books-amazon: все компоненты выдачи на единой базе с настройками моделей models/books (ALS, EASE, смесь, вкус,
     толпа «ценность»); после — `layers val`, `layers test`, `calibrate layers`, затем `compare-bases books books-amazon`."""
     from booksengine.data import merged
     from booksengine.paths import CLEAN_DIR, DOMAIN, MODELS_DIR, PROJECT_ROOT, SPLIT_DIR, domain_dirs
     if DOMAIN != "books-amazon":
         raise typer.BadParameter("refit — только для --domain books-amazon")
-    merged.refit(CLEAN_DIR, SPLIT_DIR, MODELS_DIR, domain_dirs(PROJECT_ROOT, "books")[1], min_user=min_user)
+    merged.refit(CLEAN_DIR, SPLIT_DIR, MODELS_DIR, domain_dirs(PROJECT_ROOT, "books")[1], min_user=min_user,
+                 taste_goodreads=taste_goodreads, taste_only=taste_only)
 
 
 @app.command("compare-bases")

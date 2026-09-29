@@ -180,3 +180,16 @@ def test_curated_russian_titles_mark_translation_and_give_russian_title(tmp_path
     new = pd.read_parquet(out / "works.parquet").query("source == 'amazon'")
     assert new.ru_known.iloc[0] and new.ru_title.iloc[0] == "Ученица"
     assert stats["new_with_ru"] == 1
+
+
+def test_goodreads_rows_keeps_columns_and_drops_amazon_people():
+    """Вкус в единой базе можно учить только на людях Goodreads: столбцы (книги, в том числе новые) — те же, люди
+    Amazon (user_id от AMAZON_USER_OFFSET) — не входят."""
+    import scipy.sparse as sp
+    from booksengine.model.matrix import RatingMatrix
+    X = sp.csr_matrix(np.array([[5, 0, 3], [0, 4, 0], [2, 2, 2]], dtype=np.float32))
+    users = np.array([1, 2, merged.AMAZON_USER_OFFSET + 1])
+    got = merged.goodreads_rows(RatingMatrix(X, users, np.array([10, 20, merged.NEW_WORK_OFFSET + 1])))
+    assert got.user_ids.tolist() == [1, 2] and got.X.shape == (2, 3)
+    assert got.work_ids.tolist() == [10, 20, merged.NEW_WORK_OFFSET + 1]
+    np.testing.assert_array_equal(got.X.toarray(), [[5, 0, 3], [0, 4, 0]])

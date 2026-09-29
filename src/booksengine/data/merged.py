@@ -262,11 +262,13 @@ def match_new_works(clean_dir: Path, titles, authors) -> pd.Series:
     return out
 
 
-def refit(clean_dir: Path, split_dir: Path, models_dir: Path, source_models: Path, min_user: int, log=print) -> None:
+def refit(clean_dir: Path, split_dir: Path, models_dir: Path, source_models: Path, min_user: int, log=print,
+          taste_goodreads: bool = False, taste_only: bool = False) -> None:
     """Все компоненты выдачи на единой базе — с теми же настройками, что у моделей source_models (только Goodreads):
     ALS, EASE, смесь, вкус, толпа «ценность» (порог людей — min_user: у Goodreads в ядре все от 20, так что это порог
     людей Amazon) и её смесь; выбор варианта слоёв — копия, `layers val` выберет заново. Подбора настроек здесь нет:
-    сравнивается база, а не настройки."""
+    сравнивается база, а не настройки. taste_goodreads — вкус только на людях Goodreads (`goodreads_rows`): у людей
+    Amazon редкие оценки и втрое больше пятёрок; taste_only — переобучить только вкус."""
     import time
 
     from booksengine.model.als import ALS
@@ -283,6 +285,18 @@ def refit(clean_dir: Path, split_dir: Path, models_dir: Path, source_models: Pat
 
     train = load_train(clean_dir / "ratings.parquet", split_dir / "holdout_users.parquet")
     log(f"обучение: {train.X.shape[0]:,} человек × {train.X.shape[1]:,} книг, {train.X.nnz:,} оценок")
+
+    def fit_taste():
+        p = read_params(source_models / "taste")
+        taste = Taste(factors=p["factors"], reg=p["reg"], iterations=p["iterations"], seed=p["seed"])
+        rows = goodreads_rows(train) if taste_goodreads else train
+        timed("вкус" + (" (только люди Goodreads)" if taste_goodreads else ""),
+              lambda: taste.fit(rows, log=lambda *a: None))
+        taste.save(models_dir / "taste")
+
+    if taste_only:
+        fit_taste()
+        return
     p = read_params(source_models / "als_neg")
     als = ALS(**{k: p[k] for k in ("factors", "regularization", "alpha", "iterations", "seed")})
     timed("ALS", lambda: als.fit(train))
@@ -300,11 +314,7 @@ def refit(clean_dir: Path, split_dir: Path, models_dir: Path, source_models: Pat
     mix.fit(train)
     mix.configure(als_weight=p["als_weight"], ease_input=p["ease_input"])
     mix.save(models_dir / "mix")
-    p = read_params(source_models / "taste")
-    taste = Taste(factors=p["factors"], reg=p["reg"], iterations=p["iterations"], seed=p["seed"])
-    timed("вкус", lambda: taste.fit(train, log=lambda *a: None))
-    taste.save(models_dir / "taste")
-    del taste
+    fit_taste()
     p = read_params(source_models / "ease_like")
     like = EASELike(lam=p["lam"], n_top=p["n_top"], block=p["block"], topk=p["topk"], weights=p["weights"],
                     min_user=min_user, min_support=p.get("min_support", 0), amazon="в базе")
@@ -316,3 +326,10 @@ def refit(clean_dir: Path, split_dir: Path, models_dir: Path, source_models: Pat
     mix_like.save(models_dir / "mix_like")
     (models_dir / "layers").mkdir(parents=True, exist_ok=True)
     shutil.copy(source_models / "layers" / "params.json", models_dir / "layers" / "params.json")
+
+
+def goodreads_rows(train):
+    """Только люди Goodreads (user_id меньше AMAZON_USER_OFFSET), столбцы — все книги единой базы."""
+    from booksengine.model.matrix import RatingMatrix
+    keep = train.user_ids < AMAZON_USER_OFFSET
+    return RatingMatrix(train.X[keep], train.user_ids[keep], train.work_ids)
