@@ -263,12 +263,13 @@ def match_new_works(clean_dir: Path, titles, authors) -> pd.Series:
 
 
 def refit(clean_dir: Path, split_dir: Path, models_dir: Path, source_models: Path, min_user: int, log=print,
-          taste_goodreads: bool = False, taste_only: bool = False) -> None:
+          taste_goodreads: bool = False, taste_only: bool = False, taste_amazon_min: int | None = None) -> None:
     """Все компоненты выдачи на единой базе — с теми же настройками, что у моделей source_models (только Goodreads):
     ALS, EASE, смесь, вкус, толпа «ценность» (порог людей — min_user: у Goodreads в ядре все от 20, так что это порог
     людей Amazon) и её смесь; выбор варианта слоёв — копия, `layers val` выберет заново. Подбора настроек здесь нет:
     сравнивается база, а не настройки. taste_goodreads — вкус только на людях Goodreads (`goodreads_rows`): у людей
-    Amazon редкие оценки и втрое больше пятёрок; taste_only — переобучить только вкус."""
+    Amazon редкие оценки и втрое больше пятёрок; taste_amazon_min — вкус на людях Goodreads и людях Amazon от стольких
+    книг; taste_only — переобучить только вкус."""
     import time
 
     from booksengine.model.als import ALS
@@ -289,8 +290,10 @@ def refit(clean_dir: Path, split_dir: Path, models_dir: Path, source_models: Pat
     def fit_taste():
         p = read_params(source_models / "taste")
         taste = Taste(factors=p["factors"], reg=p["reg"], iterations=p["iterations"], seed=p["seed"])
-        rows = goodreads_rows(train) if taste_goodreads else train
-        timed("вкус" + (" (только люди Goodreads)" if taste_goodreads else ""),
+        amazon_min = None if taste_goodreads else (taste_amazon_min or 0)
+        rows = taste_rows(train, amazon_min)
+        timed("вкус" + (" (только люди Goodreads)" if amazon_min is None else
+                        f" (люди Amazon от {amazon_min} книг)" if amazon_min else "") + f": {rows.X.shape[0]:,} человек",
               lambda: taste.fit(rows, log=lambda *a: None))
         taste.save(models_dir / "taste")
 
@@ -330,6 +333,13 @@ def refit(clean_dir: Path, split_dir: Path, models_dir: Path, source_models: Pat
 
 def goodreads_rows(train):
     """Только люди Goodreads (user_id меньше AMAZON_USER_OFFSET), столбцы — все книги единой базы."""
+    return taste_rows(train, amazon_min=None)
+
+
+def taste_rows(train, amazon_min: int | None):
+    """Люди Goodreads и люди Amazon от amazon_min книг (None — без людей Amazon, 0 — все); столбцы — все книги."""
     from booksengine.model.matrix import RatingMatrix
     keep = train.user_ids < AMAZON_USER_OFFSET
+    if amazon_min is not None:
+        keep |= train.X.getnnz(axis=1) >= amazon_min
     return RatingMatrix(train.X[keep], train.user_ids[keep], train.work_ids)

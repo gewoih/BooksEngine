@@ -193,3 +193,16 @@ def test_goodreads_rows_keeps_columns_and_drops_amazon_people():
     assert got.user_ids.tolist() == [1, 2] and got.X.shape == (2, 3)
     assert got.work_ids.tolist() == [10, 20, merged.NEW_WORK_OFFSET + 1]
     np.testing.assert_array_equal(got.X.toarray(), [[5, 0, 3], [0, 4, 0]])
+
+
+def test_taste_rows_keeps_goodreads_and_dense_amazon_readers():
+    """Вкус единой базы: люди Goodreads и плотные читатели Amazon (от amazon_min книг) — у новых книг появляются
+    координаты вкуса, а люди с парой оценок не сдвигают его."""
+    import scipy.sparse as sp
+    from booksengine.model.matrix import RatingMatrix
+    X = sp.csr_matrix(np.array([[5, 0, 3], [0, 4, 0], [2, 2, 2], [5, 0, 0]], dtype=np.float32))
+    users = np.array([1, 2, merged.AMAZON_USER_OFFSET + 1, merged.AMAZON_USER_OFFSET + 2])
+    train = RatingMatrix(X, users, np.array([10, 20, merged.NEW_WORK_OFFSET + 1]))
+    assert merged.taste_rows(train, amazon_min=3).user_ids.tolist() == [1, 2, merged.AMAZON_USER_OFFSET + 1]
+    assert merged.taste_rows(train, amazon_min=None).user_ids.tolist() == [1, 2]          # только Goodreads
+    assert merged.taste_rows(train, amazon_min=0).user_ids.tolist() == users.tolist()     # все
