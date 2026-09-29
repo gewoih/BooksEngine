@@ -28,6 +28,24 @@ def test_combine_excludes_input_and_orders_cutoff_without_ties():
     assert np.argsort(-s[0])[:4].tolist() == [2, 1, 3, 4]        # внутри первых 2 порядок решает вкус
 
 
+def test_cutoff_tie_at_threshold_stays_outside():
+    """У малого профиля у тысяч книг один балл толпы (нет связи с его книгами): ничья на пороге не проходит в первые
+    N целиком — иначе вкус переставлял бы все книги и поднимал бы в список книгу с самого низа толпы."""
+    crowd = np.array([[3.0, 2.0, 0.0, 0.0, 0.0]])
+    taste = np.array([[0.0, 0.0, 0.0, 0.0, 10.0]])
+    s = ly.Layers.combine(crowd, taste, np.zeros((1, 5), bool), ly.Variant("like", 1.0, 3, 0.0))
+    assert np.argsort(-s[0], kind="stable").tolist() == [0, 1, 2, 3, 4]   # книгу 4 вкус не поднял
+    s = ly.Layers.combine(crowd, taste, np.zeros((1, 5), bool), ly.Variant("like", 1.0, 5, 0.0))
+    assert np.argmax(s[0]) == 4                                   # ничья целиком внутри первых 5 — вкус решает
+
+
+def test_like_crowd_breaks_ease_ties_by_als():
+    ze = np.array([[2.0, 0.0, 0.0, 0.0]])
+    za = np.array([[0.0, -1.0, 3.0, 1.0]])
+    c = ly.Layers.like_crowd(za, ze, 0.0)
+    assert np.argsort(-c[0]).tolist() == [0, 2, 3, 1]             # EASE решает, ALS — только среди равных
+
+
 def test_choose_keeps_hits():
     def row(label, quality, hits):
         return {"label": label, "groups": {"all": {"quality": {"mean": quality}, "hits": {"mean": hits}}}}
@@ -211,7 +229,9 @@ def test_val_includes_value_crowd_when_trained(world):
     assert L.crowds() == ("mix", "like")
     x = train.X[:3]
     top = L.like_mix.ease.top_cols
-    np.testing.assert_allclose(L.crowd("like", x, als_weight=0.5), L.like_mix.score(x)[:, top], rtol=1e-5, atol=1e-5)
+    za = L.like_parts(x)[0]                                       # толпа — смесь «ценность» и ALS, разбивающий ничьи
+    np.testing.assert_allclose(L.crowd("like", x, als_weight=0.5), L.like_mix.score(x)[:, top] + ly.TIE_ALS * za,
+                               rtol=1e-5, atol=1e-5)
     assert not np.allclose(L.crowd("like", x, als_weight=0.0), L.crowd("like", x, als_weight=0.5))
     val = ly.run("val", clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval")
     assert len(val["summary"]) == 1 + len(ly.grid(L))            # прежняя смесь + перебор толпы «ценность»
@@ -254,6 +274,17 @@ def test_profile_check_places_each_hidden_book(world):
                   "rating": [5, 5, 4, 5, 4, 1, 2]}).to_csv(prof / "p.csv", index=False)
     text = ly.profile_check(clean_dir=tp, models_dir=md, profiles_dir=prof)
     assert "## p: 7 книг из 7" in text and "| 5★ | 3 |" in text and "Взвешенная точность (новая)" in text
+    # полка и прочитанное без оценки — не кандидаты, как в выдаче
+    import re
+    from booksengine.model.matrix import catalog_works
+    pd.DataFrame({"goodreads_work_id": [100, 101, 102, 103, 104, 125, 126, 105, 106, 107],
+                  "rating": [5, 5, 4, 5, 4, 1, 2, None, None, None],
+                  "status": ["read"] * 7 + ["want", "want", "read"]}).to_csv(prof / "p.csv", index=False)
+    shelf = ly.profile_check(clean_dir=tp, models_dir=md, profiles_dir=prof)
+    work_ids, top = catalog_works(tp / "ratings.parquet"), ly.Layers.from_models(md).mix.ease.top_cols
+    in_top = int(np.isin(np.searchsorted(work_ids, [105, 106, 107]), top).sum())
+    n = [int(re.search(r"кандидатов ~(\d+)", t).group(1)) for t in (text, shelf)]
+    assert in_top and n[1] == n[0] - in_top
 
 
 def test_tune_like_force_saves_requested_setting(world):
