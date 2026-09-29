@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 import duckdb
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -403,3 +404,35 @@ def test_report_shows_bridge_per_source_and_translation_funnel(tmp_path, monkeyp
     assert "| с русским изданием | 1 | 1 |" in text
     assert "Educated — Tara Westover, 2019, 900 оценок" in text
     assert "не ответила для 3 книг" in text
+
+
+def test_bridged_matrix_puts_amazon_readers_into_core_columns_with_scale_and_threshold(tmp_path):
+    """Люди Amazon — строки в столбцах ядра Goodreads: только книги с мостом и из ядра, 0★ отброшены, два издания одной
+    книги у человека (Books и Kindle) — одна оценка (среднее), порог — книг ядра у человека, шкала q: 4★ Amazon → 3★."""
+    pd.DataFrame([
+        {"user_id": "U1", "parent_asin": "B1", "rating": 5.0, "timestamp": 1, "source": "books"},
+        {"user_id": "U1", "parent_asin": "K1", "rating": 4.0, "timestamp": 1, "source": "kindle"},  # то же, что B1
+        {"user_id": "U1", "parent_asin": "B2", "rating": 4.0, "timestamp": 1, "source": "books"},
+        {"user_id": "U1", "parent_asin": "B3", "rating": 3.0, "timestamp": 1, "source": "books"},   # вне ядра
+        {"user_id": "U1", "parent_asin": "B4", "rating": 5.0, "timestamp": 1, "source": "books"},   # без моста
+        {"user_id": "U2", "parent_asin": "B2", "rating": 5.0, "timestamp": 1, "source": "books"},   # 1 книга ядра
+        {"user_id": "U3", "parent_asin": "B1", "rating": 0.0, "timestamp": 1, "source": "books"},   # 0★ — нет оценки
+        {"user_id": "U3", "parent_asin": "B2", "rating": 2.0, "timestamp": 1, "source": "books"},
+    ]).to_parquet(tmp_path / "ratings.parquet")
+    pd.DataFrame([{"parent_asin": "B1", "work_id": 10}, {"parent_asin": "K1", "work_id": 10},
+                  {"parent_asin": "B2", "work_id": 20}, {"parent_asin": "B3", "work_id": 99},
+                  {"parent_asin": "B4", "work_id": None}]).to_parquet(tmp_path / "bridge.parquet")
+    work_ids = np.array([10, 20, 30])
+
+    X = amazon.bridged_matrix(tmp_path, work_ids, "q-2").toarray()
+    # U1: книга 10 — среднее 4.5 → 5 → q: 5; книга 20 — 4 → q: 3. U2 и U3 — меньше 2 книг ядра.
+    np.testing.assert_array_equal(X, [[5, 3, 0]])
+
+    raw = amazon.bridged_matrix(tmp_path, work_ids, "raw-1").toarray()
+    assert raw.shape == (3, 3)
+    assert sorted(map(tuple, raw.tolist())) == [(0, 2, 0), (0, 5, 0), (5, 4, 0)]
+
+
+def test_bridged_matrix_rejects_unknown_tag(tmp_path):
+    with pytest.raises(ValueError):
+        amazon.bridged_matrix(tmp_path, np.array([1]), "zzz-5")

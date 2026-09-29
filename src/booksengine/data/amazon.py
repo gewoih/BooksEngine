@@ -174,6 +174,44 @@ def export(con: duckdb.DuckDBPyConnection, out_dir: Path) -> dict:
             "items": len(items), "bridged": bridged, "new": len(items) - bridged}
 
 
+# Шкала звёзд Amazon во входе толпы. raw — как есть; q — по квантилям Goodreads: у Amazon 64% пятёрок против 33%,
+# и 4★ Amazon по месту в распределении — это 3★ Goodreads (ниже 37% оценок Amazon — ниже 30% у Goodreads).
+AMAZON_SCALES = {"raw": (1, 2, 3, 4, 5), "q": (1, 2, 3, 3, 5)}
+
+
+def bridged_matrix(clean_dir: Path, work_ids, tag: str):
+    """Люди Amazon строками обучения толпы (`EASELike.fit(extra=...)`): оценки книг, у которых есть мост на Goodreads и
+    которые входят в ядро (`work_ids` — столбцы матрицы обучения). tag — «<шкала>-<порог>»: шкала из AMAZON_SCALES,
+    порог — не меньше стольких книг ядра у человека. Несколько изданий одной книги у человека (Books и Kindle) —
+    среднее, округлённое как у Goodreads; 0★ — не оценка."""
+    import numpy as np
+    import scipy.sparse as sp
+
+    from booksengine.model.matrix import columns
+    from booksengine.model.metrics import rounded
+
+    scale, _, threshold = tag.partition("-")
+    if scale not in AMAZON_SCALES or not threshold.isdigit():
+        raise ValueError(f"тег Amazon «{tag}»: нужно <{'|'.join(AMAZON_SCALES)}>-<порог>, например q-5")
+    con = duckdb.connect()
+    con.register("core", pd.DataFrame({"work_id": np.asarray(work_ids)}))
+    d = con.execute("""
+        WITH w AS (
+            SELECT r.user_id, b.work_id, avg(r.rating) AS rating
+            FROM read_parquet(?) r JOIN read_parquet(?) b USING (parent_asin)
+            WHERE b.work_id IS NOT NULL AND r.rating >= 1 AND b.work_id IN (SELECT work_id FROM core)
+            GROUP BY 1, 2)
+        SELECT user_id, work_id, rating FROM w
+        WHERE user_id IN (SELECT user_id FROM w GROUP BY 1 HAVING count(*) >= ?)
+        ORDER BY user_id, work_id
+    """, [str(clean_dir / "ratings.parquet"), str(clean_dir / "bridge.parquet"), int(threshold)]).fetchnumpy()
+    con.close()
+    stars = np.asarray(AMAZON_SCALES[scale], dtype=np.float32)[rounded(d["rating"]).astype(int) - 1]
+    _, rows = np.unique(d["user_id"], return_inverse=True)
+    return sp.csr_matrix((stars, (rows, columns(np.asarray(work_ids), d["work_id"].astype(np.int64)))),
+                         shape=(int(rows.max()) + 1 if len(rows) else 0, len(work_ids)))
+
+
 def apply_translation_signal(clean_dir: Path, cache_path: Path, query=None, **check_kwargs) -> dict:
     """items.parquet получает колонки: isbn13_n — ISBN-13 цифрами (из isbn13, иначе из isbn10); wikidata — статус
     проверки: 'ru' (есть русское издание), 'found' (в Wikidata есть, русского нет), 'absent' (в Wikidata нет),

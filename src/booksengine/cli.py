@@ -199,20 +199,32 @@ def ease_like_tune(lam: float = typer.Option(None, help="одна настрой
                    min_user: int = typer.Option(20, "--min-user", help="обучать только на людях с ≥ N оценок"),
                    min_support: int = typer.Option(None, "--min-support",
                                                    help="связь книг — только при ≥ N общих читателях (по умолчанию "
-                                                        "layers.MIN_SUPPORT)")) -> None:
+                                                        "layers.MIN_SUPPORT)"),
+                   amazon: str = typer.Option(None, "--amazon",
+                                              help="варианты с людьми Amazon при λ и весах сохранённой толпы: "
+                                                   "«шкала-порог» через запятую, шкала raw | q, например q-5,raw-20 "
+                                                   "(нужен amazon-bridge)")) -> None:
     """Подбор толпы «ценность» (λ, веса звёзд) на валидации → лучшая в models/ease_like и models/mix_like;
     сетка ~50–70 мин. Сохранённая толпа всегда в сравнении; --lam / --weights — проверить одну настройку против неё
     (без --weights берутся −2/−1/0/1/2). После — `layers val` и `layers test`."""
     from booksengine.model import layers as ly
     from booksengine.paths import CLEAN_DIR, EVAL_DIR, MODELS_DIR, REPORTS_DIR, SPLIT_DIR
+    from booksengine.paths import AMAZON_CLEAN_DIR
     grid = ly.LIKE_GRID
     if lam is not None or weights:
         grid = [(lam if lam is not None else 500.0,
                  tuple(float(w) for w in weights.split(",")) if weights else ly.W0)]
+    if amazon:
+        from booksengine.model.base import read_params
+        saved = read_params(MODELS_DIR / "ease_like")
+        grid = [(lam if lam is not None else saved["lam"],
+                 tuple(float(w) for w in weights.split(",")) if weights else tuple(saved["weights"]), tag.strip())
+                for tag in amazon.split(",")]
     text = ly.report_like(ly.tune_like(clean_dir=CLEAN_DIR, split_dir=SPLIT_DIR, models_dir=MODELS_DIR,
                                        eval_dir=EVAL_DIR, grid=grid, force=force and (lam is not None or bool(weights)),
                                        min_user=min_user,
-                                       min_support=ly.MIN_SUPPORT if min_support is None else min_support))
+                                       min_support=ly.MIN_SUPPORT if min_support is None else min_support,
+                                       amazon_dir=AMAZON_CLEAN_DIR))
     REPORTS_DIR.mkdir(exist_ok=True)
     (REPORTS_DIR / "ease_like_tune.md").write_text(text)
     print(text)

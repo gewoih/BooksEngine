@@ -126,21 +126,27 @@ class EASELike(EASE):
     LINKS = "both"   # в params.json: связи урезаны с обеих сторон после опоры (у прежних толп поля нет)
 
     def __init__(self, lam: float = 500.0, n_top: int = 30_000, block: int = 2_000, topk: int = 500,
-                 weights=(-2.0, -1.0, 0.0, 1.0, 2.0), min_user: int = 20, min_support: int = 0):
+                 weights=(-2.0, -1.0, 0.0, 1.0, 2.0), min_user: int = 20, min_support: int = 0, amazon: str = ""):
         super().__init__(lam, n_top, block)
         self.topk_target, self.weights = int(topk), normalize_weights(weights)
         self.min_user, self.min_support = int(min_user), int(min_support)
+        self.amazon = amazon
 
-    def fit(self, train: RatingMatrix) -> None:
+    def fit(self, train: RatingMatrix, extra: sp.csr_matrix | None = None) -> None:
         """min_user — учиться только на людях с ≥ min_user оценок (гипотеза пользователя: читающие последовательнее).
-        30 000 книг выбираются по всем людям — те же, что у EASE смеси, иначе толпы несравнимы."""
+        30 000 книг выбираются по всем людям — те же, что у EASE смеси, иначе толпы несравнимы.
+        extra — люди второго источника (Amazon, `amazon.bridged_matrix`) в тех же столбцах: учат связи наравне с
+        людьми Goodreads, но в выбор 30 000 книг и в порог min_user не входят (свой порог — при сборке строк)."""
         from booksengine.model.metrics import rounded
         counts = train.X.getnnz(axis=0)
         n = min(self.n_top, len(counts))
         self.top_cols = np.sort(np.argsort(-counts, kind="stable")[:n])
         self.n_items = train.X.shape[1]
         rows = np.flatnonzero(train.X.getnnz(axis=1) >= self.min_user)
-        X = train.X[rows][:, self.top_cols].tocsc()
+        X = train.X[rows][:, self.top_cols]
+        if extra is not None:
+            X = sp.vstack([X, extra.tocsr()[:, self.top_cols]], format="csr")
+        X = X.tocsc()
         r = rounded(X.data).astype(int)
         Xw = X.copy()
         Xw.data = np.asarray(self.weights, dtype=np.float32)[r - 1]
@@ -203,4 +209,4 @@ class EASELike(EASE):
         super().save(path)
         p = read_params(path)
         write_params(path, p | {"target": "rating-3", "weights": list(self.weights), "min_user": self.min_user,
-                                "min_support": self.min_support, "links": self.LINKS})
+                                "min_support": self.min_support, "links": self.LINKS, "amazon": self.amazon})
