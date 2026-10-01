@@ -12,13 +12,14 @@
 - Перевод: у новой книги works.ru_known — есть ли известный русский перевод (Wikidata, `amazon.apply_translation_signal`,
   или разметка), ru_title — русское название для выдачи. Советуется книга и без перевода: читать ли в оригинале —
   решает читатель. У книг Goodreads ru_known пусто.
-- Отложенные люди — те же, что у книг (копия `data/books/model/split`): судья меряет обе базы на одних людях, а люди
-  Amazon в проверку не попадают.
+- Отложенные люди — те же, что у книг (копия `data/books/model/split`): судья меряет обе базы на одних людях. Плюс
+  отложенные люди Amazon (`amazon_holdout`) — замер новых книг (`model.new_books`): люди Goodreads их не читали.
 """
 import shutil
 from pathlib import Path
 
 import duckdb
+import numpy as np
 import pandas as pd
 
 from booksengine.data.amazon import AMAZON_SCALES, NEW_AFTER_YEAR
@@ -27,6 +28,9 @@ from booksengine.data.clean import title_key_sql
 AMAZON_USER_OFFSET = 1_000_000
 NEW_WORK_OFFSET = 100_000_000
 NEW_AUTHOR_OFFSET = 100_000_000
+AMAZON_HOLDOUT = 6_000         # отложенные люди Amazon для замера новых книг — как тест людей Goodreads
+AMAZON_HOLDOUT_MIN_OLD = 20    # старых книг (из Goodreads) — как у читателей, ради которых выдача (20+ книг)
+AMAZON_HOLDOUT_MIN_NEW = 3
 MIN_NEW_RATINGS = 100          # как порог книги в ядре Goodreads
 # Русские переводы популярных новых книг, которых нет в Wikidata (из 197 тыс. новых книг Wikidata знает перевод у 12):
 # разметка по знаниям модели Claude — только книги с уверенно известным русским изданием; русское название идёт в
@@ -65,10 +69,12 @@ def _category_sql(col: str) -> str:
 
 
 def build(goodreads_dir: Path, amazon_dir: Path, out_dir: Path, *, scale: str = "q", min_user: int = 5,
-          min_new_ratings: int = MIN_NEW_RATINGS, memory_limit: str = "8GB", ru_titles: Path | None = None) -> dict:
+          min_new_ratings: int = MIN_NEW_RATINGS, memory_limit: str = "8GB", ru_titles: Path | None = None,
+          amazon_holdout_n: int = AMAZON_HOLDOUT) -> dict:
     """Собирает out_dir (clean) и копию отложенных людей рядом (`out_dir.parent / model / split`). ru_titles —
     разметка «автор, название (как у Amazon), русское название» (`RU_TITLES`): перевод новой книги известен и без
-    Wikidata, а русское название идёт в выдачу."""
+    Wikidata, а русское название идёт в выдачу. К копии отложенных людей добавляются отложенные люди Amazon
+    (`amazon_holdout`, не больше amazon_holdout_n)."""
     from booksengine.model.filters import work_info
     from booksengine.model.matrix import catalog_works
 
@@ -233,6 +239,7 @@ def build(goodreads_dir: Path, amazon_dir: Path, out_dir: Path, *, scale: str = 
     if split_dst.exists():
         shutil.rmtree(split_dst)
     shutil.copytree(split_src, split_dst)
+    held = amazon_holdout(out_dir, split_dst, n=amazon_holdout_n)
 
     stats = con.execute(f"""
         SELECT (SELECT count(*) FROM au) AS amazon_users,
@@ -244,7 +251,40 @@ def build(goodreads_dir: Path, amazon_dir: Path, out_dir: Path, *, scale: str = 
                (SELECT count(*) FROM az WHERE by_title IS NOT NULL) AS by_title""").df().iloc[0].to_dict()
     con.close()
     shutil.rmtree(spill, ignore_errors=True)
-    return {k: int(v) for k, v in stats.items()}
+    return {**{k: int(v) for k, v in stats.items()}, **held}
+
+
+def amazon_holdout(clean_dir: Path, split_dir: Path, *, n: int = AMAZON_HOLDOUT,
+                   min_old: int = AMAZON_HOLDOUT_MIN_OLD, min_new: int = AMAZON_HOLDOUT_MIN_NEW) -> dict:
+    """Отложенные люди Amazon (группа «amazon» в holdout_users.parquet): от min_old старых книг и от min_new новых,
+    не больше n — с наименьшим хэшем внешнего id (`split.hash01`, стабильно между сборками). Вход — старые книги,
+    скрыто — все новые: как у читателя выдачи, профиль из книг до 2017, вопрос — какие новинки ему советовать.
+    Из обучения они исключены целиком (`load_train`), как отложенные люди Goodreads."""
+    from booksengine.model.split import SEED, bucket_of, hash01
+    con = duckdb.connect()
+    cand = con.execute(f"""
+        SELECT r.user_id, u.external_id, count(*) FILTER (WHERE r.work_id < {NEW_WORK_OFFSET}) AS n_old
+        FROM read_parquet(?) r JOIN read_parquet(?) u USING (user_id)
+        WHERE r.user_id >= {AMAZON_USER_OFFSET}
+        GROUP BY ALL
+        HAVING n_old >= ? AND count(*) FILTER (WHERE r.work_id >= {NEW_WORK_OFFSET}) >= ?""",
+                       [str(clean_dir / "ratings.parquet"), str(clean_dir / "users.parquet"), min_old, min_new]).df()
+    cand["draw"] = hash01(cand.external_id.to_numpy(), SEED)
+    picked = cand.nsmallest(n, "draw").sort_values("user_id")
+    con.register("ids", picked[["user_id"]])
+    r = con.execute("SELECT r.user_id, r.work_id, r.rating FROM read_parquet(?) r JOIN ids USING (user_id) "
+                    "ORDER BY 1, 2", [str(clean_dir / "ratings.parquet")]).df()
+    con.close()
+    new = r.work_id >= NEW_WORK_OFFSET
+    r[~new].to_parquet(split_dir / "amazon_input.parquet", index=False)
+    r[new].to_parquet(split_dir / "amazon_hidden.parquet", index=False)
+    users = pd.read_parquet(split_dir / "holdout_users.parquet")
+    n_old = picked.n_old.to_numpy()
+    mine = pd.DataFrame({"user_id": picked.user_id.to_numpy(), "group": "amazon", "n_ratings": n_old,
+                         "bucket": bucket_of(np.clip(n_old, 20, 999))})
+    pd.concat([users[users.group != "amazon"], mine.astype(users.dtypes.to_dict())], ignore_index=True).to_parquet(
+        split_dir / "holdout_users.parquet", index=False)
+    return {"amazon_holdout": int(len(picked)), "input": int((~new).sum()), "hidden": int(new.sum())}
 
 
 def match_new_works(clean_dir: Path, titles, authors) -> pd.Series:

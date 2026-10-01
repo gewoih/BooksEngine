@@ -81,6 +81,18 @@ def compare_bases(a: str = typer.Argument("books", help="домен A"), b: str 
     print(text)
 
 
+@app.command("new-books")
+def new_books() -> None:
+    """Новые книги (единая база, `--domain books-amazon`) на отложенных людях Amazon: список новинок выдачи против
+    самых популярных и лучших по оценкам → reports/<domain>/new_books.md."""
+    from booksengine.model import new_books as nb
+    from booksengine.paths import CLEAN_DIR, EVAL_DIR, MODELS_DIR, REPORTS_DIR, SPLIT_DIR
+    text = nb.report(nb.run(clean_dir=CLEAN_DIR, split_dir=SPLIT_DIR, models_dir=MODELS_DIR, eval_dir=EVAL_DIR))
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    (REPORTS_DIR / "new_books.md").write_text(text)
+    print(text)
+
+
 @app.command()
 def validate() -> None:
     """Проверить инварианты уже очищенных данных."""

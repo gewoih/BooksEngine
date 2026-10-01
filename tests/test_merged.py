@@ -219,3 +219,54 @@ def test_new_work_title_has_html_entities_unescaped(tmp_path):
     merged.build(gr, az, out, scale="q", min_user=2, min_new_ratings=2)
     new = pd.read_parquet(out / "works.parquet").query("source == 'amazon'")
     assert new.title.tolist() == ['Educated & Other "Things" Don\'t']
+
+
+def _holdout_base(d):
+    """Единая база: Goodreads-человек 1 (уже отложен), люди Amazon 1_000_000+: у 1_000_000 и 1_000_001 по 3 старых и
+    2 новых книги, у 1_000_002 — 1 старая (мало), у 1_000_003 — новых нет."""
+    d.mkdir(parents=True)
+    old, new = [10, 20, 30], [merged.NEW_WORK_OFFSET + 1, merged.NEW_WORK_OFFSET + 2]
+    rows = [(1, 10, 5.0), (1, 20, 4.0)]
+    for u in (1_000_000, 1_000_001):
+        rows += [(u, w, 4.0) for w in old] + [(u, w, 5.0) for w in new]
+    rows += [(1_000_002, 10, 5.0), (1_000_002, new[0], 5.0)] + [(1_000_003, w, 3.0) for w in old]
+    pd.DataFrame(rows, columns=["user_id", "work_id", "rating"]).astype({"rating": "float32"}).to_parquet(
+        d / "ratings.parquet")
+    ids = [1, 1_000_000, 1_000_001, 1_000_002, 1_000_003]
+    pd.DataFrame({"user_id": ids, "external_id": ["g1"] + [f"amazon:A{i}" for i in range(4)]}).to_parquet(
+        d / "users.parquet")
+    split = d.parent / "model" / "split"
+    split.mkdir(parents=True)
+    pd.DataFrame({"user_id": [1], "group": ["test"], "n_ratings": [2], "bucket": ["20-39"]}).to_parquet(
+        split / "holdout_users.parquet")
+    return split
+
+
+def test_amazon_holdout_hides_new_books_of_people_with_enough_old_ones(tmp_path):
+    """Отложенные люди Amazon: от min_old старых книг (Goodreads) и от min_new новых; вход — старые, скрыто — все
+    новые; люди Goodreads в отложенных остаются, а обучение не видит ни тех, ни других."""
+    from booksengine.model.matrix import catalog_works, load_holdout, load_train
+    clean = tmp_path / "books-amazon" / "clean"
+    split = _holdout_base(clean)
+    stats = merged.amazon_holdout(clean, split, n=10, min_old=3, min_new=2)
+    assert stats == {"amazon_holdout": 2, "input": 6, "hidden": 4}
+    users = pd.read_parquet(split / "holdout_users.parquet")
+    assert sorted(users[users.group == "amazon"].user_id) == [1_000_000, 1_000_001]
+    assert users[users.group == "test"].user_id.tolist() == [1]
+    work_ids = catalog_works(clean / "ratings.parquet")
+    hold = load_holdout(split, "amazon", work_ids)
+    assert all((work_ids[c] >= merged.NEW_WORK_OFFSET).all() for c in hold.hidden_cols)
+    assert (work_ids[hold.inputs.indices] < merged.NEW_WORK_OFFSET).all()
+    train = load_train(clean / "ratings.parquet", split / "holdout_users.parquet")
+    assert sorted(train.user_ids) == [1_000_002, 1_000_003]
+
+
+def test_amazon_holdout_is_stable_and_capped(tmp_path):
+    """Не больше n человек; выбор — по хэшу внешнего id: тот же при повторе."""
+    clean = tmp_path / "books-amazon" / "clean"
+    split = _holdout_base(clean)
+    merged.amazon_holdout(clean, split, n=1, min_old=3, min_new=2)
+    first = pd.read_parquet(split / "amazon_input.parquet").user_id.unique().tolist()
+    merged.amazon_holdout(clean, split, n=1, min_old=3, min_new=2)
+    users = pd.read_parquet(split / "holdout_users.parquet")
+    assert len(first) == 1 and users[users.group == "amazon"].user_id.tolist() == first
