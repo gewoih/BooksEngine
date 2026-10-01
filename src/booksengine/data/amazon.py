@@ -217,7 +217,7 @@ def apply_translation_signal(clean_dir: Path, cache_path: Path, query=None, **ch
     проверки: 'ru' (есть русское издание), 'found' (в Wikidata есть, русского нет), 'absent' (в Wikidata нет),
     пусто — не проверялась (с мостом, не новее NEW_AFTER_YEAR, без валидного ISBN, запрос не прошёл);
     ru_translation_known = (wikidata == 'ru'). Проверяются только новые книги без моста: ради них сигнал и
-    нужен — без перевода книгу не советуем. `check_kwargs` — в wikidata.check_translations (повторы, паузы)."""
+    нужен (у книг с мостом перевод виден по Goodreads). `check_kwargs` — в wikidata.check_translations (повторы, паузы)."""
     from booksengine.data import wikidata
 
     items = pd.read_parquet(clean_dir / "items.parquet")

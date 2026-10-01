@@ -185,10 +185,10 @@ def test_later_volume_by_title(title, later):
     assert later_by_title(title) is later
 
 
-def test_list_skips_new_amazon_book_without_known_russian_translation(tmp_path):
-    """Новая книга Amazon (после 2017, её нет в Goodreads) без известного русского перевода не советуется: читают
-    по-русски, книга без перевода — мусор. У книг Goodreads (ru_known пусто) правило не действует."""
-    from booksengine.model.filters import UNTRANSLATED, ListPicker
+def test_list_keeps_new_amazon_book_without_known_russian_translation(tmp_path):
+    """Новая книга Amazon без известного русского перевода советуется как любая: читать ли в оригинале — решает
+    читатель (известный перевод виден по русскому названию в выдаче)."""
+    from booksengine.model.filters import ListPicker
     works = [(1, "Old Goodreads Book", "Old Goodreads Book", False, 10),
              (2, "New Without Translation", "New Without Translation", False, 11),
              (3, "New With Translation", "New With Translation", False, 12)]
@@ -199,16 +199,7 @@ def test_list_skips_new_amazon_book_without_known_russian_translation(tmp_path):
     w.to_parquet(tmp_path / "works.parquet")
     info = work_info(tmp_path, np.array([1, 2, 3]))
     picked, removed = ListPicker(info).pick([0, 1, 2], top=3)
-    assert picked == [0, 2] and removed == [(1, UNTRANSLATED)]
-    assert ListPicker(info).pick([0, 1, 2], top=3, rules=False)[0] == [0, 1, 2]
-
-
-def test_work_info_without_source_columns_blocks_nothing(tmp_path):
-    from booksengine.model.filters import ListPicker
-    _write(tmp_path, [(1, "A Book", "A Book", False, 10)], [(10, "A"), (99, "Artist")])
-    info = work_info(tmp_path, np.array([1]))
-    assert not info.no_translation.any()
-    assert ListPicker(info).pick([0], top=1)[0] == [0]
+    assert picked == [0, 1, 2] and removed == []
 
 
 def test_work_info_exposes_russian_title_of_new_book(tmp_path):

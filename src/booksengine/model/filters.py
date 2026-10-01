@@ -31,9 +31,7 @@ from booksengine.data.clean import series_no_sql, title_key_sql
 
 # почему книга не попала в список
 RATED, COLLECTION, LATER, AUTHOR, DUPLICATE = "rated", "collection", "later", "author", "duplicate"
-UNTRANSLATED = "untranslated"
 WHY_REMOVED = {RATED: "уже оценено по сути (то же произведение под другим названием, сборник с ним или его часть)",
-               UNTRANSLATED: "новая книга (Amazon, после 2017) без известного русского перевода",
                DUPLICATE: "то же произведение, что книга выше в списке",
                COLLECTION: "сборник — советуется сама книга",
                LATER: "поздний том неначатой серии — первая книга серии советуется только по своему баллу",
@@ -93,13 +91,10 @@ AUTHOR_ROLES = "author|writer|creator|text|story|poet|pseudonym"
 
 def work_info(clean_dir: Path, work_ids: np.ndarray) -> pd.DataFrame:
     """Книги ядра по столбцам матрицы: название (и варианты), основной и все авторы, ключ названия, номер в серии,
-    сборник ли, нет ли перевода. Основной автор — `AUTHOR_ROLES`; без него author — пустая строка, author_id — NULL.
-    no_translation — новая книга Amazon без известного русского перевода (`data.merged`; в базе только Goodreads
-    таких нет)."""
+    сборник ли, русское название новой книги Amazon (`data.merged`; в базе только Goodreads — пусто). Основной автор —
+    `AUTHOR_ROLES`; без него author — пустая строка, author_id — NULL."""
     cols = set(duckdb.execute("DESCRIBE SELECT * FROM read_parquet(?)", [str(clean_dir / "works.parquet")]
                               ).df().column_name)
-    untranslated = ("w.source = 'amazon' AND NOT coalesce(w.ru_known, false)" if {"source", "ru_known"} <= cols
-                    else "false")
     ru_title = "w.ru_title" if "ru_title" in cols else "NULL::VARCHAR"
     d = duckdb.execute(f"""
         WITH prim AS (
@@ -110,7 +105,7 @@ def work_info(clean_dir: Path, work_ids: np.ndarray) -> pd.DataFrame:
         SELECT w.work_id, w.title, w.original_title, w.best_edition_title, a.name AS author, p.author_id, e.authors,
                {title_key_sql('w.title')} AS key, {series_no_sql('w.best_edition_title')} AS series_no,
                coalesce(w.is_collection, false) OR w.title LIKE '% / %' AS is_collection,
-               {untranslated} AS no_translation, {ru_title} AS ru_title
+               {ru_title} AS ru_title
         FROM read_parquet(?) w
         LEFT JOIN prim p USING (work_id) LEFT JOIN everyone e USING (work_id) LEFT JOIN read_parquet(?) a USING (author_id)
     """, [str(clean_dir / "work_authors.parquet"), str(clean_dir / "work_authors.parquet"),
@@ -225,7 +220,6 @@ class ListPicker:
     """Список выдачи из кандидатов по убыванию балла.
 
     Всегда убирается «уже оценено по сути» (`RatedFilter`). Правила списка (`rules=True`):
-    - новая книга Amazon без известного русского перевода не советуется (читают по-русски);
     - сборник или бокс-сет не советуется — советуется сама книга;
     - поздний том (#2 и дальше) неначатой серии не советуется. Первая книга серии не встаёт на его место, а идёт по
       своему баллу: поздние тома читают только те, кому понравилось начало, их оценки завышены, и вкус их поднимает.
@@ -237,8 +231,6 @@ class ListPicker:
 
     def __init__(self, info: pd.DataFrame):
         self.books = Books.of(info)
-        self.untranslated = (info.no_translation.fillna(False).to_numpy(dtype=bool) if "no_translation" in info
-                             else np.zeros(len(info), dtype=bool))
         sno = pd.to_numeric(info.series_no, errors="coerce").to_numpy(dtype=np.float64)
         self.later = (np.nan_to_num(sno, nan=0.0) >= 2) | np.array([later_by_title(t) for t in info.title], dtype=bool)
 
@@ -261,9 +253,6 @@ class ListPicker:
                 continue
             if not rules:
                 picked.append(c)
-                continue
-            if self.untranslated[c]:
-                removed.append((c, UNTRANSLATED))
                 continue
             if b.collection[c]:
                 removed.append((c, COLLECTION))

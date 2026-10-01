@@ -51,8 +51,9 @@ uv run booksengine amazon-bridge                  # -> data/amazon/clean/, repor
 
 Единая база Goodreads + Amazon — домен `books-amazon` (`data/books-amazon/`, `models/books-amazon/`,
 `reports/books-amazon/`, журнал — `profiles/history/books-amazon/`): люди Amazon — дополнительные читатели,
-новые книги (после 2017, их нет в Goodreads) — свои произведения; новая книга советуется, только если известен
-русский перевод (Wikidata или разметка `config/amazon_ru_titles.csv`). Отложенные люди — копия книжных, поэтому
+новые книги (после 2017, их нет в Goodreads) — свои произведения; у новой книги с известным переводом (Wikidata или
+разметка `config/amazon_ru_titles.csv`) в выдаче русское название, без него — английское: читать ли в оригинале,
+решает читатель. Отложенные люди — копия книжных, поэтому
 обе базы судятся на одних людях:
 
 ```bash
