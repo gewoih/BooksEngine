@@ -152,4 +152,6 @@
   наугад; дубли (человек, книга) между Books и Kindle не схлопываются до k-core; `extract_year` берёт наименьший год
   без границ цифр («Imprint 2001 Media; (June 2, 2019)» → 2001), а переиздание старой книги после 2017 считается новой;
   `scripts/fetch_amazon_raw.sh` без `curl --fail` пишет страницу ошибки в файл; `amazon-bridge --domain movies` падает
-  только после staging; `models/books/mix_like/params.json` ссылается на пути копии `BooksEngine-audit`.
+  только после staging; `models/books/mix_like/params.json` ссылается на пути копии `BooksEngine-audit`; у новых
+  книг номер тома в названии Amazon бывает не указан («The Night Window: A Jane Hawk Novel» — пятый том) — правило
+  поздних томов их не ловит.
