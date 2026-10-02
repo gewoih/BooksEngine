@@ -592,3 +592,30 @@ def test_new_books_list_says_its_chance_is_rough():
     r = rec.Rec(100_000_001, "Ученица / Educated", "Tara Westover", 23, [], None, section=rec.NEW)
     text = rec.format_result(rec.Result([r]))
     assert f"## {rec.NEW}" in text and rec.NEW_NOTE in text
+
+
+def test_refit_with_reuse_changes_only_ease_size(world):
+    """Опыт с размером EASE: ALS и вкус — копией из готовых моделей, EASE и толпа «ценность» — заново на ease_top
+    книгах с настройками (и порогом людей толпы) готовых моделей; слои собираются из новой папки."""
+    import filecmp
+
+    from booksengine.data import merged
+    from booksengine.model.base import read_params
+    from booksengine.model.ease import EASELike
+    tp, sd, md = world
+    train = load_train(tp / "ratings.parquet", sd / "holdout_users.parquet")
+    like = EASELike(lam=10.0, topk=20, weights=ly.W3, min_user=3)
+    like.fit(train)
+    like.save(md / "ease_like")
+    (md / "layers").mkdir()
+    (md / "layers" / "params.json").write_text(json.dumps({"variant": {"crowd": "like", "taste_weight": 1.0}}))
+    md2 = tp / "models-15"
+    merged.refit(tp, sd, md2, tp / "нет", min_user=99, reuse=md, ease_top=15, ease_block=4, log=lambda *_: None)
+    for d in ("als_neg", "taste"):
+        assert not filecmp.dircmp(md / d, md2 / d).diff_files
+    assert read_params(md2 / "ease")["n_top"] == 15 and len(np.load(md2 / "ease" / "top_cols.npy")) == 15
+    p = read_params(md2 / "ease_like")
+    assert (p["n_top"], p["min_user"], p["lam"], p["block"]) == (15, 3, 10.0, 4)
+    L = ly.Layers.from_models(md2)                                        # 15 книг у обеих толп
+    assert len(L.mix.ease.top_cols) == len(L.like_mix.ease.top_cols) == 15
+    assert json.loads((md2 / "layers" / "params.json").read_text())["variant"]["taste_weight"] == 1.0

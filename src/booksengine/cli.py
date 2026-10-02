@@ -5,11 +5,15 @@ app = typer.Typer(help="BooksEngine: офлайн-часть рекоменда�
 
 @app.callback()
 def main(domain: str = typer.Option("books", "--domain", help="books | movies — данные и модели домена "
-                                     "(data/<domain>/, models/<domain>/)")) -> None:
+                                     "(data/<domain>/, models/<domain>/)"),
+         models: str = typer.Option(None, "--models", help="другая папка моделей на тех же данных (опыт): "
+                                    "models/<имя>/, отчёты — reports/<имя>/")) -> None:
     import os
     if domain not in ("books", "movies", "books-amazon"):
         raise typer.BadParameter("domain: books | movies | books-amazon")
     os.environ["BOOKSENGINE_DOMAIN"] = domain
+    if models:
+        os.environ["BOOKSENGINE_MODELS"] = models
 
 
 @app.command()
@@ -53,44 +57,73 @@ def refit(min_user: int = typer.Option(5, "--min-user", help="толпа «це�
           taste_goodreads: bool = typer.Option(False, "--taste-goodreads", help="вкус — только на людях Goodreads"),
           taste_only: bool = typer.Option(False, "--taste-only", help="переобучить только вкус"),
           taste_amazon_min: int = typer.Option(None, "--taste-amazon-min",
-                                               help="вкус — на людях Goodreads и людях Amazon от стольких книг")) -> None:
+                                               help="вкус — на людях Goodreads и людях Amazon от стольких книг"),
+          ease_top: int = typer.Option(None, "--ease-top", help="сколько книг видят EASE и толпа «ценность» "
+                                       "(по умолчанию — как в моделях-источнике)"),
+          ease_block: int = typer.Option(None, "--ease-block", help="блок столбцов при обучении EASE: меньше — "
+                                         "меньше памяти, результат тот же"),
+          reuse: str = typer.Option(None, "--reuse", help="папка моделей этой базы: ALS и вкус — копией (от размера "
+                                    "EASE не зависят), настройки остальных — оттуда же")) -> None:
     """books-amazon: все компоненты выдачи на единой базе с настройками моделей models/books (ALS, EASE, смесь, вкус,
-    толпа «ценность»); после — `layers val`, `layers test`, `calibrate layers`, затем `compare-bases books books-amazon`."""
+    толпа «ценность»); после — `layers val`, `layers test`, `calibrate layers`, затем `compare-bases books books-amazon`.
+    Опыт с размером EASE: `--models <имя> refit --ease-top 40000 --reuse books-amazon`."""
     from booksengine.data import merged
     from booksengine.paths import CLEAN_DIR, DOMAIN, MODELS_DIR, PROJECT_ROOT, SPLIT_DIR, domain_dirs
     if DOMAIN != "books-amazon":
         raise typer.BadParameter("refit — только для --domain books-amazon")
+    if reuse and domain_dirs(PROJECT_ROOT, reuse)[1] == MODELS_DIR:
+        raise typer.BadParameter("--reuse — другая папка моделей, чем та, что переобучается (--models)")
     merged.refit(CLEAN_DIR, SPLIT_DIR, MODELS_DIR, domain_dirs(PROJECT_ROOT, "books")[1], min_user=min_user,
-                 taste_goodreads=taste_goodreads, taste_only=taste_only, taste_amazon_min=taste_amazon_min)
+                 taste_goodreads=taste_goodreads, taste_only=taste_only, taste_amazon_min=taste_amazon_min,
+                 ease_top=ease_top, ease_block=ease_block,
+                 reuse=None if reuse is None else domain_dirs(PROJECT_ROOT, reuse)[1])
 
 
 @app.command("compare-bases")
-def compare_bases(a: str = typer.Argument("books", help="домен A"), b: str = typer.Argument("books-amazon", help="домен B"),
+def compare_bases(a: str = typer.Argument("books", help="домен A (или домен:папка моделей)"),
+                  b: str = typer.Argument("books-amazon", help="домен B (или домен:папка моделей)"),
                   stage: str = typer.Option("test", help="val | test")) -> None:
-    """Две базы на одних отложенных людях, каждая своей выдачей: парная разность качества и угаданного →
-    reports/compare_<a>_<b>.md."""
+    """Две базы (или две папки моделей одной базы — `books-amazon:books-amazon-40k`) на одних отложенных людях, каждая
+    своей выдачей: парная разность качества и угаданного → reports/compare_<a>_<b>.md."""
     from booksengine.model import layers as ly
     from booksengine.paths import PROJECT_ROOT, REPORTS_DIR, domain_dirs
 
-    def dirs(domain: str):
-        data, models = domain_dirs(PROJECT_ROOT, domain)
-        return data / "clean", data / "model" / "split", models
-    text = ly.report_compare(ly.compare_bases(dirs(a), dirs(b), stage=stage), a, b)
+    def dirs(name: str):
+        domain, _, models = name.partition(":")
+        data = domain_dirs(PROJECT_ROOT, domain)[0]
+        return data / "clean", data / "model" / "split", domain_dirs(PROJECT_ROOT, models or domain)[1]
+
+    def label(name: str) -> str:
+        return name.split(":")[-1]
+    text = ly.report_compare(ly.compare_bases(dirs(a), dirs(b), stage=stage), label(a), label(b))
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    (REPORTS_DIR / f"compare_{a}_{b}_{stage}.md").write_text(text)
+    (REPORTS_DIR / f"compare_{label(a)}_{label(b)}_{stage}.md").write_text(text)
     print(text)
 
 
 @app.command("new-books")
-def new_books() -> None:
+def new_books(vs: str = typer.Option(None, "--vs", help="папка моделей той же базы: парное сравнение списков "
+                                      "новинок (у неё сначала свой `new-books`)")) -> None:
     """Новые книги (единая база, `--domain books-amazon`) на отложенных людях Amazon: список новинок выдачи против
-    самых популярных и лучших по оценкам → reports/<domain>/new_books.md."""
+    самых популярных и лучших по оценкам → reports/<domain>/new_books.md; с --vs — ещё парная разность с другой
+    папкой моделей → new_books_vs_<vs>.md."""
+    import pandas as pd
+
     from booksengine.model import new_books as nb
-    from booksengine.paths import CLEAN_DIR, EVAL_DIR, MODELS_DIR, REPORTS_DIR, SPLIT_DIR
+    from booksengine.paths import CLEAN_DIR, EVAL_DIR, MODELS_DIR, MODELS_NAME, PROJECT_ROOT, REPORTS_DIR, SPLIT_DIR, \
+        domain_dirs
     text = nb.report(nb.run(clean_dir=CLEAN_DIR, split_dir=SPLIT_DIR, models_dir=MODELS_DIR, eval_dir=EVAL_DIR))
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     (REPORTS_DIR / "new_books.md").write_text(text)
     print(text)
+    if vs:
+        other = domain_dirs(PROJECT_ROOT, vs)[1] / "eval" / "new_books_per_user.parquet"
+        if not other.exists():
+            raise typer.BadParameter(f"нет {other}: сначала `new-books` для {vs}")
+        text = nb.report_paired(nb.paired(pd.read_parquet(other), pd.read_parquet(EVAL_DIR / "new_books_per_user.parquet")),
+                                vs, MODELS_NAME)
+        (REPORTS_DIR / f"new_books_vs_{vs}.md").write_text(text)
+        print(text)
 
 
 @app.command()

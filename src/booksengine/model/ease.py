@@ -162,11 +162,12 @@ class EASELike(EASE):
         for a in range(0, n, self.block):
             b = min(a + self.block, n)
             G[:, a:b] = (XwT @ Xw[:, a:b]).toarray()
+        del Xw                                         # дальше нужна только XwT — меньше памяти на время обращения
         G[np.diag_indices(n)] += self.lam
         P = scipy.linalg.inv(G.T, overwrite_a=True, check_finite=False)  # G симметрична точно — см. EASE.fit
         if not np.shares_memory(P, G):
             raise MemoryError("EASELike: обращение не на месте — вторая копия матрицы n × n")
-        del G, Xw
+        del G
         diag = np.diag(P).copy()
         k = min(self.topk_target, n)
         rc, cc, vc = [], [], []                        # сильнейшие у каждой цели (столбцы)

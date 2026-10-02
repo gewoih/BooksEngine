@@ -332,13 +332,17 @@ def new_work_keys(clean_dir: Path) -> pd.Series:
 
 
 def refit(clean_dir: Path, split_dir: Path, models_dir: Path, source_models: Path, min_user: int, log=print,
-          taste_goodreads: bool = False, taste_only: bool = False, taste_amazon_min: int | None = None) -> None:
+          taste_goodreads: bool = False, taste_only: bool = False, taste_amazon_min: int | None = None,
+          ease_top: int | None = None, ease_block: int | None = None, reuse: Path | None = None) -> None:
     """Все компоненты выдачи на единой базе — с теми же настройками, что у моделей source_models (только Goodreads):
     ALS, EASE, смесь, вкус, толпа «ценность» (порог людей — min_user: у Goodreads в ядре все от 20, так что это порог
     людей Amazon) и её смесь; выбор варианта слоёв — копия, `layers val` выберет заново. Подбора настроек здесь нет:
     сравнивается база, а не настройки. taste_goodreads — вкус только на людях Goodreads (`goodreads_rows`): у людей
     Amazon редкие оценки и втрое больше пятёрок; taste_amazon_min — вкус на людях Goodreads и людях Amazon от стольких
-    книг; taste_only — переобучить только вкус."""
+    книг; taste_only — переобучить только вкус. ease_top — сколько книг видят EASE и толпа «ценность» (по умолчанию —
+    как у источника), ease_block — блок столбцов при их обучении (меньше — меньше памяти, результат тот же).
+    reuse — готовые модели этой же базы: ALS и вкус копируются (от размера EASE они не зависят), настройки EASE, смеси
+    и толпы (с её порогом людей) — оттуда же, так что опыт отличается от них только ease_top."""
     import time
 
     from booksengine.model.als import ALS
@@ -369,15 +373,24 @@ def refit(clean_dir: Path, split_dir: Path, models_dir: Path, source_models: Pat
     if taste_only:
         fit_taste()
         return
-    p = read_params(source_models / "als_neg")
-    als = ALS(**{k: p[k] for k in ("factors", "regularization", "alpha", "iterations", "seed")})
-    timed("ALS", lambda: als.fit(train))
-    als.configure(p["neg_rule"], p["neg_weight"])
-    als.save(models_dir / "als_neg")
-    del als
+    if reuse is not None:
+        source_models = reuse
+        for d in ("als_neg", "taste"):
+            if (models_dir / d).exists():
+                shutil.rmtree(models_dir / d)
+            shutil.copytree(reuse / d, models_dir / d)
+        min_user = read_params(reuse / "ease_like")["min_user"]
+        log(f"ALS и вкус — копией из {reuse}")
+    else:
+        p = read_params(source_models / "als_neg")
+        als = ALS(**{k: p[k] for k in ("factors", "regularization", "alpha", "iterations", "seed")})
+        timed("ALS", lambda: als.fit(train))
+        als.configure(p["neg_rule"], p["neg_weight"])
+        als.save(models_dir / "als_neg")
+        del als
     p = read_params(source_models / "ease")
-    ease = EASE(lam=p["lam"], n_top=p["n_top"], block=p["block"])
-    timed("EASE", lambda: ease.fit(train))
+    ease = EASE(lam=p["lam"], n_top=ease_top or p["n_top"], block=ease_block or p["block"])
+    timed(f"EASE ({ease.n_top:,} книг)", lambda: ease.fit(train))
     ease.configure(topk=p["topk"])
     ease.save(models_dir / "ease")
     del ease
@@ -386,15 +399,20 @@ def refit(clean_dir: Path, split_dir: Path, models_dir: Path, source_models: Pat
     mix.fit(train)
     mix.configure(als_weight=p["als_weight"], ease_input=p["ease_input"])
     mix.save(models_dir / "mix")
-    fit_taste()
+    del mix
+    if reuse is None:
+        fit_taste()
     p = read_params(source_models / "ease_like")
-    like = EASELike(lam=p["lam"], n_top=p["n_top"], block=p["block"], topk=p["topk"], weights=p["weights"],
+    like = EASELike(lam=p["lam"], n_top=ease_top or p["n_top"], block=ease_block or p["block"], topk=p["topk"],
+                    weights=p["weights"],
                     min_user=min_user, min_support=p.get("min_support", 0), amazon="в базе")
-    timed("толпа «ценность»", lambda: like.fit(train))
+    timed(f"толпа «ценность» ({like.n_top:,} книг)", lambda: like.fit(train))
     like.save(models_dir / "ease_like")
+    weights = like.weights
+    del like
     mix_like = Mix(models_dir / "als_neg", models_dir / "ease_like")
     mix_like.fit(train)
-    mix_like.configure(als_weight=0.5, ease_input=like.weights)
+    mix_like.configure(als_weight=0.5, ease_input=weights)
     mix_like.save(models_dir / "mix_like")
     (models_dir / "layers").mkdir(parents=True, exist_ok=True)
     shutil.copy(source_models / "layers" / "params.json", models_dir / "layers" / "params.json")
