@@ -567,3 +567,28 @@ def test_compare_report_keeps_stars_in_one_cell(world):
     text = ly.report_compare(ly.compare_bases((tp, sd, md), (tp, sd, md), stage="test"), "books", "books")
     row = next(l for l in text.splitlines() if l.startswith("| 5★"))  # 5★ / 4★ …
     assert row.count("|") == 5                     # 4 колонки таблицы — не разъезжается
+
+
+def test_list_parts_put_new_books_into_their_own_list(tmp_path):
+    """Новые книги (единая база) — отдельным списком «Новинки» из NEW_TOP книг, в основных списках их нет; в базе без
+    новых книг списка нет."""
+    from booksengine import recommend as rec
+    from booksengine.data.merged import NEW_WORK_OFFSET
+    pd.DataFrame({"work_id": [1, 2, NEW_WORK_OFFSET + 1, NEW_WORK_OFFSET + 2], "genre": ["fiction", "non-fiction"] * 2,
+                  "votes": 5, "share": 1.0}).to_parquet(tmp_path / "work_genres.parquet")
+    ids = np.array([1, 2, NEW_WORK_OFFSET + 1, NEW_WORK_OFFSET + 2])
+    parts = rec.list_parts(tmp_path, ids, top=20)
+    assert list(parts) == [rec.FICTION, rec.NONFICTION, rec.NEW]
+    assert parts[rec.NEW][0].tolist() == [False, False, True, True] and parts[rec.NEW][1] == rec.NEW_TOP == 10
+    assert not (parts[rec.FICTION][0] & parts[rec.NEW][0]).any()
+    assert not (parts[rec.NONFICTION][0] & parts[rec.NEW][0]).any()
+    assert parts[rec.FICTION][1] == parts[rec.NONFICTION][1] == 20
+    assert list(rec.list_parts(tmp_path, ids[:2], top=20)) == [rec.FICTION, rec.NONFICTION]
+    assert rec.list_parts(tmp_path, ids, top=20, sections=False) == {"": (None, 20)}
+
+
+def test_new_books_list_says_its_chance_is_rough():
+    from booksengine import recommend as rec
+    r = rec.Rec(100_000_001, "Ученица / Educated", "Tara Westover", 23, [], None, section=rec.NEW)
+    text = rec.format_result(rec.Result([r]))
+    assert f"## {rec.NEW}" in text and rec.NEW_NOTE in text

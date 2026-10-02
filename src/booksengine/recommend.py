@@ -83,6 +83,12 @@ BOLD_TASTE = 4.0
 # два списка: художественная литература и нон-фикшн (`filters.nonfiction`) — у читателя двух областей одна не
 # вытесняет другую, список выбирается под настроение
 FICTION, NONFICTION = "Художественная литература", "Нон-фикшн"
+# новые книги единой базы (после 2017, `data.merged`) — своим списком: в общем модель их занижает (люди Goodreads не
+# могли их прочесть, а для неё это «не взяли»), а среди новых выбирает хорошо — на людях Amazon 5 её новинок угаданы
+# вдвое чаще 5 самых популярных (`model.new_books`)
+NEW, NEW_TOP = "Новинки (после 2017)", 10
+NEW_NOTE = ("Шанс у новинок примерный: он настроен на людях Goodreads, а новинок они не читали. Место в списке — "
+            "по той же модели, что и выше.")
 
 
 @dataclass
@@ -184,14 +190,28 @@ def load_model(models_dir: Path, model: str | None = None):
     return model, Chance.load(d / "chance.json", model_fp=fingerprint(d)), fingerprint(d)
 
 
-def pick_sections(order: np.ndarray, top: int, picker: ListPicker, rated: RatedFilter, rules: bool,
-                  sections: dict[str, np.ndarray | None]) -> tuple[list[tuple[str, int]], list[tuple[int, str]]]:
-    """По top книг в каждый список sections (название → маска столбцов ядра, None — все книги); правила списка —
-    в каждом отдельно. Возвращает (список, столбец) по порядку и убранные правилами."""
+def list_parts(clean_dir: Path, work_ids: np.ndarray, top: int,
+               sections: bool = True) -> dict[str, tuple[np.ndarray | None, int]]:
+    """Списки выдачи: название → (маска столбцов ядра, None — все книги; сколько книг). sections — художественная
+    литература и нон-фикшн по top книг и, если в базе есть новые книги, «Новинки» (NEW_TOP); иначе один общий."""
+    if not sections:
+        return {"": (None, top)}
+    from booksengine.data.merged import NEW_WORK_OFFSET
+    nf, new = nonfiction(clean_dir, work_ids), work_ids >= NEW_WORK_OFFSET
+    parts = {FICTION: (~nf & ~new, top), NONFICTION: (nf & ~new, top)}
+    if new.any():
+        parts[NEW] = (new, NEW_TOP)
+    return parts
+
+
+def pick_sections(order: np.ndarray, picker: ListPicker, rated: RatedFilter, rules: bool,
+                  sections: dict[str, tuple[np.ndarray | None, int]]) -> tuple[list[tuple[str, int]], list[tuple[int, str]]]:
+    """В каждый список sections (`list_parts`) — его число книг; правила списка — в каждом отдельно. Возвращает
+    (список, столбец) по порядку и убранные правилами."""
     picked, removed = [], []
-    for name, mask in sections.items():
+    for name, (mask, k) in sections.items():
         o = order if mask is None else order[mask[order]]
-        p, r = picker.pick(o, top, rated, rules=rules)
+        p, r = picker.pick(o, k, rated, rules=rules)
         picked += [(name, c) for c in p]
         removed += r
     return picked, removed
@@ -202,7 +222,7 @@ def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int 
               sections: bool = True) -> Result:
     """rules=False — без правил списка (сборники, поздние тома, книги автора), только «уже оценено»: так считает
     приложение, и его эталон строится без них. sections — два списка по top книг (художественная литература и
-    нон-фикшн), иначе один общий (приложение)."""
+    нон-фикшн) и «Новинки», если они есть в базе (`list_parts`), иначе один общий (приложение)."""
     work_ids = catalog_works(clean_dir / "ratings.parquet")
     prof = read_profile(ratings_csv, work_ids, clean_dir)
     if prof.x.nnz == 0:
@@ -224,12 +244,8 @@ def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int 
 
     picker = ListPicker(info)
     rated = RatedFilter(picker.books, np.concatenate([prof.not_advised(), np.arange(n, len(info))]))
-    if sections:
-        nf = nonfiction(clean_dir, work_ids)
-        parts = {FICTION: ~nf, NONFICTION: nf}
-    else:
-        parts = {"": None}
-    got, removed = pick_sections(order, top, picker, rated, rules, parts)
+    parts = list_parts(clean_dir, work_ids, top, sections)
+    got, removed = pick_sections(order, picker, rated, rules, parts)
     picked = np.array([c for _, c in got], dtype=np.int64)
 
     r = metrics.rounded(prof.x.data)
@@ -255,7 +271,7 @@ def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int 
                         section=got[k][0]))
     bold = []
     if not isinstance(model, Mix):
-        bold = _debug(model, prof, recs, picked, ex, picker, rated, top, rules, clean_dir, work_ids, parts)
+        bold = _debug(model, prof, recs, picked, ex, picker, rated, rules, clean_dir, work_ids, parts)
     res = Result(recs, [(f"{info.title[c]} — {info.author[c] or '?'}", WHY_REMOVED[w]) for c, w in removed],
                  prof.skipped, prof.x.nnz, len(prof.read), len(prof.want), chance.label())
     if history_dir is not None:
@@ -289,8 +305,8 @@ def _taste_text(note: explain.TasteNote, taste, col: int, in_cols: np.ndarray, n
 
 
 def _debug(layers, prof: Profile, recs: list[Rec], picked: np.ndarray, ex: sp.csr_matrix, picker: ListPicker,
-           rated: RatedFilter, top: int, rules: bool, clean_dir: Path, work_ids: np.ndarray,
-           parts: dict[str, np.ndarray | None]) -> list[tuple[str, int]]:
+           rated: RatedFilter, rules: bool, clean_dir: Path, work_ids: np.ndarray,
+           parts: dict[str, tuple[np.ndarray | None, int]]) -> list[tuple[str, int]]:
     """Отладка слоёв для журнала (пишет в `Rec.debug`): известность книги, её место у толпы без вкуса, поднял ли её
     вкус в список (списка толпы без вкуса она бы не попала), баллы толпы и вкуса. Возвращает «смелую» выдачу
     (вкус BOLD_TASTE) — (список, столбец ядра), по тем же спискам."""
@@ -310,7 +326,7 @@ def _debug(layers, prof: Profile, recs: list[Rec], picked: np.ndarray, ex: sp.cs
 
     def pick(s: np.ndarray) -> list[tuple[str, int]]:
         order = np.argsort(-s, kind="stable")
-        return pick_sections(order[np.isfinite(s[order])], top, picker, rated, rules, parts)[0]
+        return pick_sections(order[np.isfinite(s[order])], picker, rated, rules, parts)[0]
 
     c_full = full(crowd)
     by_crowd = {c for _, c in pick(c_full)}
@@ -368,6 +384,7 @@ def format_result(res: Result) -> str:
         if r.section != section:
             section, i = r.section, 0
             out += ["", f"## {section}", ""] if section else [""]
+            out += [NEW_NOTE, ""] if section == NEW else []
         i += 1
         out.append(f"{i:3}. {r.title} — {r.author}  [{r.chance}%]")
         out += [f"      {w}" for w in why_text(r)]
