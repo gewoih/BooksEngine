@@ -94,13 +94,16 @@ class Mix:
         return out
 
     def save(self, path: Path) -> None:
-        write_params(path, {"als_dir": self.als_dir, "ease_dir": self.ease_dir, "als_weight": self.als_weight,
-                            "ease_input": list(self.ease_input), "component_fingerprints": self._fps})
+        def rel(d: str) -> str:   # компонент из той же папки моделей — именем: папку можно переносить целиком
+            return Path(d).name if Path(d).resolve().parent == Path(path).resolve().parent else d
+        write_params(path, {"als_dir": rel(self.als_dir), "ease_dir": rel(self.ease_dir),
+                            "als_weight": self.als_weight, "ease_input": list(self.ease_input),
+                            "component_fingerprints": self._fps})
 
     @classmethod
     def load(cls, path: Path) -> "Mix":
         p = read_params(path)
-        m = cls(p["als_dir"], p["ease_dir"])
+        m = cls(*(d if Path(d).is_absolute() else str(Path(path).parent / d) for d in (p["als_dir"], p["ease_dir"])))
         m._load_components()
         if m._fps != p["component_fingerprints"]:
             raise ValueError(f"{path}: ALS или EASE переобучены после сборки смеси — пересоберите "

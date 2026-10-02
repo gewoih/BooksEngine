@@ -96,3 +96,26 @@ def test_fit_rejects_components_trained_on_other_catalog(components):
     other = RatingMatrix(sp.csr_matrix((3, 7), dtype=np.float32), np.arange(3), np.arange(7))
     with pytest.raises(ValueError, match="переобучите"):
         Mix(a, e).fit(other)
+
+
+def test_components_next_to_mix_are_saved_by_name_and_folder_can_move(components, tmp_path):
+    import shutil
+
+    from booksengine.model.base import read_params
+    train, als_dir, ease_dir = components
+    md = tmp_path / "models"
+    shutil.copytree(als_dir, md / "als_neg")
+    shutil.copytree(ease_dir, md / "ease")
+    m = Mix(md / "als_neg", md / "ease")
+    m.fit(train)
+    m.save(md / "mix")
+    p = read_params(md / "mix")
+    assert (p["als_dir"], p["ease_dir"]) == ("als_neg", "ease")
+    moved = tmp_path / "moved"
+    md.rename(moved)
+    x = train.X[:2]
+    np.testing.assert_array_equal(Mix.load(moved / "mix").score(x), m.score(x))
+    other = Mix(als_dir, md.parent / "moved" / "ease")                      # чужой компонент — абсолютным путём
+    other.fit(train)
+    other.save(moved / "mix2")
+    assert read_params(moved / "mix2")["als_dir"] == str(als_dir)
