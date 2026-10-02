@@ -54,13 +54,14 @@ uv run booksengine amazon-bridge                  # -> data/amazon/clean/, repor
 новые книги (после 2017, их нет в Goodreads) — свои произведения; у новой книги с известным переводом (Wikidata или
 разметка `config/amazon_ru_titles.csv`) в выдаче русское название, без него — английское: читать ли в оригинале,
 решает читатель. Отложенные люди — копия книжных, поэтому
-обе базы судятся на одних людях:
+обе базы судятся на одних людях; новые книги (людям Goodreads неизвестные) — на отложенных людях Amazon:
 
 ```bash
 uv run booksengine --domain books-amazon prepare                  # база (~1 мин), --amazon-scale q|raw, --amazon-min-user
 uv run booksengine --domain books-amazon refit                    # компоненты с настройками models/books (~40 мин)
 uv run booksengine --domain books-amazon layers val               # затем layers test, calibrate layers
 uv run booksengine compare-bases books books-amazon --stage test  # парное сравнение → reports/compare_*.md
+uv run booksengine --domain books-amazon new-books                # новинки на отложенных людях Amazon
 uv run booksengine --domain books-amazon recommend --ratings profiles/my_ratings.csv
 ```
 
@@ -109,6 +110,7 @@ uv run booksengine load-db                                  # каталог и�
 | `--domain books-amazon prepare` | единая база Goodreads + Amazon → `data/books-amazon/clean/`, отложенные люди — копия книжных |
 | `--domain books-amazon refit [--min-user N]` | все компоненты выдачи на единой базе с настройками `models/books` |
 | `compare-bases A B [--stage test\|val]` | две базы на одних отложенных людях, каждая своей выдачей: парная разность качества и угаданного по этапам → `reports/compare_A_B_<stage>.md` |
+| `--domain books-amazon new-books` | новые книги на отложенных людях Amazon (от 20 старых книг и 3 новых; вход — старые, скрыты новые): список новинок выдачи против самых популярных и лучших по оценкам → `reports/books-amazon/new_books.md` |
 | `split [--force]` | отложенная выборка: ~5 000 человек для настройки, ~6 000 для теста (поровну из этапов 20–39, 40–79, 80–159, 160–319, 320–999 оценок) |
 | **модели и замеры** | |
 | `evaluate <model> --stage val\|test` | стенд `popularity`, `als`, `als_neg`, `knn`, `ease`, `mix`: перебор по NDCG@20 → `models/<model>` / замер на тесте |
