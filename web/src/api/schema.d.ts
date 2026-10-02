@@ -249,41 +249,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/reload-model": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ReloadDto"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/me/import": {
         parameters: {
             query?: never;
@@ -439,11 +404,6 @@ export interface components {
             myDnf: boolean;
             inCore: boolean;
         };
-        BookRef: {
-            /** Format: int64 */
-            workId: number;
-            title: string;
-        };
         CreateUserRequest: {
             name: string;
         };
@@ -488,17 +448,26 @@ export interface components {
         RecommendationDto: {
             book: components["schemas"]["BookDto"];
             /** Format: int32 */
+            rank: number;
+            /** Format: int32 */
             chancePct: number;
-            because: components["schemas"]["BookRef"][];
-            despite: null | components["schemas"]["BookRef"];
+            why: string[];
+            /** Format: int32 */
+            previousRank: null | number;
+            isNew: boolean;
         };
         RecommendationsDto: {
-            items: components["schemas"]["RecommendationDto"][];
+            sections: components["schemas"]["RecommendationSectionDto"][];
             /** Format: int32 */
             usedRatings: number;
+            chanceLabel: string;
+            legend: string;
+            changes: string[];
         };
-        ReloadDto: {
-            fingerprint: null | string;
+        RecommendationSectionDto: {
+            name: string;
+            note: null | string;
+            items: components["schemas"]["RecommendationDto"][];
         };
         SessionRequest: {
             /** Format: int64 */
@@ -517,6 +486,7 @@ export interface components {
             genres: string[];
             /** Format: int32 */
             chancePct: null | number;
+            chanceLabel: null | string;
             inModel: boolean;
             similar: components["schemas"]["BookDto"][];
         };

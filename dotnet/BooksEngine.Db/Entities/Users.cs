@@ -36,3 +36,18 @@ public class ShelfEntry
     public DateTime AddedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }
+
+/// <summary>
+/// Выдача при одном наборе оценок пользователя: места книг (work_id → место в своём списке) и сами оценки
+/// (work_id → «5», «dnf»). Хранятся два последних набора: текущий и прежний — по ним видно, как сдвинулись книги
+/// после последней оценки.
+/// </summary>
+public class RecommendationSnapshot
+{
+    public long Id { get; set; }
+    public long UserId { get; set; }
+    public required string RatingsHash { get; set; }
+    public required string Ratings { get; set; }
+    public required string Ranks { get; set; }
+    public DateTime CreatedAt { get; set; }
+}

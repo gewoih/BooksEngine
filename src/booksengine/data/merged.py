@@ -313,6 +313,24 @@ def match_new_works(clean_dir: Path, titles, authors) -> pd.Series:
     return out
 
 
+def new_work_keys(clean_dir: Path) -> pd.Series:
+    """work_id новой книги Amazon → её постоянный ключ «автор|название» (`author_key_sql`, `short_key_sql` — те же, что
+    склейка изданий). work_id новых книг — номер по порядку при сборке и после пересборки базы сдвигается, ключ — нет:
+    по нему книгу знает приложение (`app_export`, `serve`). База без новых книг — пусто."""
+    works = clean_dir / "works.parquet"
+    cols = set(duckdb.execute("DESCRIBE SELECT * FROM read_parquet(?)", [str(works)]).df().column_name)
+    if "source" not in cols:
+        return pd.Series(dtype=object, name="key")
+    d = duckdb.execute(f"""
+        SELECT w.work_id, {author_key_sql('a.name')} || '|' || {short_key_sql('w.title')} AS key
+        FROM read_parquet(?) w JOIN read_parquet(?) wa USING (work_id) JOIN read_parquet(?) a USING (author_id)
+        WHERE w.source = 'amazon' AND wa.position = 1 ORDER BY 1
+    """, [str(works), str(clean_dir / "work_authors.parquet"), str(clean_dir / "authors.parquet")]).df()
+    if d.key.duplicated().any():
+        raise ValueError(f"у новых книг повторяется ключ: {d.key[d.key.duplicated()].head(3).tolist()}")
+    return d.set_index("work_id").key
+
+
 def refit(clean_dir: Path, split_dir: Path, models_dir: Path, source_models: Path, min_user: int, log=print,
           taste_goodreads: bool = False, taste_only: bool = False, taste_amazon_min: int | None = None) -> None:
     """Все компоненты выдачи на единой базе — с теми же настройками, что у моделей source_models (только Goodreads):

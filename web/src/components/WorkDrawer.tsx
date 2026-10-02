@@ -23,8 +23,8 @@ export default function WorkDrawer() {
             <Stack gap={4}>
               <Text>{w.authors.join(", ")}</Text>
               {w.book.year && <Text c="dimmed">{w.book.year}</Text>}
-              <Text size="sm" c="dimmed">оценок в Goodreads-ядре: {w.book.cfRatings}</Text>
-              {w.chancePct != null && <Badge size="lg">понравится: {w.chancePct}%</Badge>}
+              <Text size="sm" c="dimmed">оценок у читателей базы: {w.book.cfRatings}</Text>
+              {w.chancePct != null && <Badge size="lg">шанс {w.chanceLabel}: {w.chancePct}%</Badge>}
               {w.chancePct == null && w.book.myRating == null && !w.inModel && <Badge color="gray">мало данных</Badge>}
               <RatingControl book={w.book} alwaysVisible />
             </Stack>

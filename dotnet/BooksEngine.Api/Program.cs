@@ -22,7 +22,11 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         o.Events.OnRedirectToLogin = ctx => { ctx.Response.StatusCode = 401; return Task.CompletedTask; };
     });
 builder.Services.AddAuthorization();
-builder.Services.AddSingleton<ModelStore>();
+builder.Services.AddHttpClient<RecommenderClient>(c =>
+{
+    c.BaseAddress = new Uri(builder.Configuration["Recommender:Url"] ?? RecommenderClient.DefaultUrl);
+    c.Timeout = TimeSpan.FromSeconds(60);
+});
 
 var app = builder.Build();
 app.UseAuthentication();
@@ -35,13 +39,8 @@ api.MapLibrary();
 api.MapRatings();
 api.MapRecommendations();
 api.MapWorks();
-api.MapAdmin();
 api.MapImport();
 
-// Модель не читается (например, load-db каскадом удалил её строки) — API всё равно стартует: библиотека и оценки
-// работают, выдача отвечает 503 до export-model и reload
-try { await app.Services.GetRequiredService<ModelStore>().ReloadAsync(CancellationToken.None); }
-catch (Exception e) { app.Logger.LogError(e, "Модель не загружена: uv run booksengine export-model, затем reload-model"); }
 await app.RunAsync();
 
 public partial class Program;   // для WebApplicationFactory в тестах

@@ -16,8 +16,8 @@ public sealed class LibraryTests(TestDb db)
         await using var api = new ApiFactory(db);
         var c = await api.LoggedInClientAsync("lib");
         var page = await Get(c, "");
-        Assert.Equal(5, page.Total);                                               // Rare Book вне ядра — нет
-        Assert.Equal(["The Hobbit", "Dune", "Emma", "Dune Messiah", "Solaris"], page.Items.Select(b => b.Title));
+        Assert.Equal(6, page.Total);                                               // Rare Book вне ядра — нет
+        Assert.Equal(["The Hobbit", "Dune", "Emma", "Dune Messiah", "Solaris", "Новая / New Book"], page.Items.Select(b => b.Title));
         var dune = page.Items.Single(b => b.WorkId == 1001);
         Assert.Equal(("Frank Herbert", (int?)1965, "https://images.gr-assets.com/books/1m/1.jpg", true),
                      (dune.Author, dune.Year, dune.CoverUrl, dune.InCore));

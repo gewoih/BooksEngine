@@ -195,6 +195,14 @@ def recommend(ratings: str = typer.Option(..., "--ratings", help="CSV: goodreads
 
 
 @app.command()
+def serve(port: int = typer.Option(5090, "--port", help="порт на localhost; его же ждёт API (Recommender:Url)")) -> None:
+    """Выдача для приложения: модели домена в памяти, API спрашивает по HTTP (тот же код, что у `recommend`)."""
+    from booksengine import serve as sv
+    from booksengine.paths import CLEAN_DIR, DOMAIN, MODELS_DIR
+    sv.run(clean_dir=CLEAN_DIR, models_dir=MODELS_DIR, domain=DOMAIN, port=port)
+
+
+@app.command()
 def journal() -> None:
     """Журнал выдач (profiles/history/) против оценок, поставленных позже: что прочитано из советов и как оценено
     → reports/journal.md."""
@@ -327,15 +335,14 @@ def taste_gap() -> None:
     print(text)
 
 
-@app.command("export-model")
-def export_model() -> None:
-    """Смесь models/mix → PostgreSQL для C# API: перезаписывает модель целиком (веб-интерфейс)."""
-    from booksengine import export_model as ex
+@app.command("export-app")
+def export_app() -> None:
+    """Данные приложения → PostgreSQL: новые книги единой базы (`--domain books-amazon`), обложки, слияния теней.
+    Выдачу приложению считает `serve`."""
+    from booksengine import app_export
     from booksengine.db_load import pg_dsn
-    from booksengine.paths import CLEAN_DIR, MODELS_DIR, PROJECT_ROOT, TMP_DIR
-    ex.run(clean_dir=CLEAN_DIR, models_dir=MODELS_DIR, profiles_dir=PROJECT_ROOT / "profiles",
-           tmp_dir=TMP_DIR / "export", dsn=pg_dsn())
-
+    from booksengine.paths import CLEAN_DIR, PROJECT_ROOT, domain_dirs
+    app_export.run(clean_dir=CLEAN_DIR, goodreads_dir=domain_dirs(PROJECT_ROOT, "books")[0] / "clean", dsn=pg_dsn())
 
 @app.command("report-3a")
 def report_3a() -> None:

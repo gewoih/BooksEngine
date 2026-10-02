@@ -1,7 +1,7 @@
 """`booksengine recommend`: оценки человека из CSV → топ книг с шансом и объяснением; выдача пишется в журнал.
 
-Модель — слои «толпа + вкус» (models/layers), если выбраны, иначе смесь (models/mix); `model="mix"` — смесь явно
-(ею считает приложение). Список собирают правила `filters.ListPicker`: без сборников и поздних томов неначатых серий,
+Модель — слои «толпа + вкус» (models/layers), если выбраны, иначе смесь (models/mix); `model="mix"` — смесь явно.
+Приложение берёт ту же выдачу (`Engine` в памяти, `serve`). Список собирают правила `filters.ListPicker`: без сборников и поздних томов неначатых серий,
 не больше одной книги автора на каждые 10 мест.
 
 CSV: `goodreads_work_id`, `rating` 1–5, необязательно `status` (`dnf` без оценки = 1; во входе
@@ -14,6 +14,7 @@ EASE недочитанная книга весит 0 — `mix.DNF_INPUT`) и `t
 """
 import hashlib
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 import duckdb
@@ -25,7 +26,7 @@ from booksengine import journal
 from booksengine.model import explain, metrics
 from booksengine.model.base import fingerprint
 from booksengine.model.chance import Chance, personal_pct
-from booksengine.model.filters import WHY_REMOVED, ListPicker, RatedFilter, nonfiction, work_info
+from booksengine.model.filters import WHY_REMOVED, Books, ListPicker, RatedFilter, nonfiction, work_info
 from booksengine.model.matrix import catalog_works
 from booksengine.model.mix import READ_INPUT, WANT_INPUT, Mix
 from booksengine.model.series import SeriesIndex, exclusion
@@ -114,6 +115,8 @@ class Result:
     n_read: int = 0               # прочитано без оценки: не советуется, во входе толпы — слабый плюс
     n_want: int = 0               # «хочу прочитать»: то же
     chance: str = "4–5★"          # какой шанс в скобках (`Chance.label`)
+    bold: list[tuple[int, str, str, str]] = field(default_factory=list)  # «смелая» выдача для журнала: id, название, автор, список
+    ranks: dict[int, list[tuple[str, int]]] = field(default_factory=dict)  # размер → (список, work_id) по порядку
 
 
 def display_title(info: pd.DataFrame, c: int) -> str:
@@ -126,10 +129,17 @@ def read_profile(path: Path, work_ids: np.ndarray, clean_dir: Path, id_col: str 
     """id_col — колонка с id в пространстве work_id (для книг это сам goodreads_work_id; для фильмов —
     предварительно сопоставленный movieId, не imdb_id: канонический профиль фильмов хранит imdb_id, но
     read_profile работает с уже сопоставленным id, как и для книг — `movielens.materialize_profile`)."""
-    p = pd.read_csv(path, dtype={id_col: "Int64"})
+    return profile_from_frame(pd.read_csv(path, dtype={id_col: "Int64"}), work_ids, clean_dir, id_col, where=str(path))
+
+
+def profile_from_frame(p: pd.DataFrame, work_ids: np.ndarray, clean_dir: Path, id_col: str = "goodreads_work_id",
+                       where: str = "профиль") -> Profile:
+    """То же, что `read_profile`, из таблицы в памяти (приложение: `serve`); where — как назвать источник в ошибке."""
+    p = p.copy()
     for col in (id_col, "rating"):
         if col not in p.columns:
-            raise ValueError(f"{path}: нет колонки {col}")
+            raise ValueError(f"{where}: нет колонки {col}")
+    p[id_col] = p[id_col].astype("Int64")
     if "title" not in p.columns:
         p["title"] = None
     status = p.get("status", pd.Series("", index=p.index)).fillna("")
@@ -139,17 +149,15 @@ def read_profile(path: Path, work_ids: np.ndarray, clean_dir: Path, id_col: str 
     wanted = unrated & status.eq("want").to_numpy()
     bad = p[~unrated & ~p.rating.isin([1, 2, 3, 4, 5])]
     if len(bad):
-        raise ValueError(f"{path}: оценка — целое 1–5 (строки {', '.join(str(i + 2) for i in bad.index)})")
+        raise ValueError(f"{where}: оценка — целое 1–5 (строки {', '.join(str(i + 2) for i in bad.index)})")
 
     if id_col == "goodreads_work_id" and p[id_col].isna().any() and "title_en" in p.columns:
         # книги, которых нет в Goodreads (после 2017), — в единой базе с Amazon по названию и автору
         from booksengine.data.merged import match_new_works
         found = match_new_works(clean_dir, p.title_en, p.get("author", pd.Series(None, index=p.index)))
         p[id_col] = p[id_col].fillna(pd.Series(found.to_numpy(), index=p.index, dtype="Int64"))
-    merges = pd.read_parquet(clean_dir / "work_merges.parquet").set_index("shadow_work_id").main_work_id
+    merges, catalog = _catalog(clean_dir)
     p["work_id"] = p[id_col].map(lambda w: merges.get(w, w) if pd.notna(w) else w).astype("Int64")
-    catalog = set(duckdb.execute("SELECT work_id FROM read_parquet(?)",
-                                 [str(clean_dir / "works.parquet")]).fetchnumpy()["work_id"].tolist())
     name = p.title.fillna(p[id_col].astype(str))
     why = np.select([p.work_id.isna(), ~p.work_id.isin(catalog), ~p.work_id.isin(work_ids)],
                     [NO_ID, NOT_IN_CATALOG, NOT_IN_CORE], "")
@@ -176,9 +184,19 @@ def read_profile(path: Path, work_ids: np.ndarray, clean_dir: Path, id_col: str 
     return Profile(x, d, names, skipped, outside, read, want)
 
 
+@lru_cache(maxsize=4)
+def _catalog(clean_dir: Path) -> tuple[dict, set]:
+    """Слияния теней (тень → главное) и все work_id каталога — читаются один раз на папку (приложение спрашивает
+    выдачу много раз за запуск)."""
+    m = pd.read_parquet(clean_dir / "work_merges.parquet")
+    catalog = set(duckdb.execute("SELECT work_id FROM read_parquet(?)",
+                                 [str(clean_dir / "works.parquet")]).fetchnumpy()["work_id"].tolist())
+    return dict(zip(m.shadow_work_id.tolist(), m.main_work_id.tolist())), catalog
+
+
 def load_model(models_dir: Path, model: str | None = None):
     """Модель выдачи и её шанс: лучшая — слои «толпа + вкус» (models/layers), если выбрана; иначе смесь (models/mix).
-    model="mix" — смесь явно (приложение и его эталон пока считают ею)."""
+    model="mix" — смесь явно."""
     from booksengine.model.layers import Layers
     layers_dir = models_dir / "layers"
     if model != "mix" and (layers_dir / "params.json").exists():
@@ -217,66 +235,111 @@ def pick_sections(order: np.ndarray, picker: ListPicker, rated: RatedFilter, rul
     return picked, removed
 
 
+class Engine:
+    """Всё для выдачи, что не зависит от человека: модель и шанс, книги ядра, серии, правила списка. Грузится один раз
+    (единая база — ~10 с); `recommend` — выдача одного профиля за доли секунды. Приложение держит его в памяти
+    (`serve`), консольный `recommend` строит на один профиль."""
+
+    def __init__(self, clean_dir: Path, models_dir: Path, model: str | None = None):
+        self.clean_dir = clean_dir
+        self.work_ids = catalog_works(clean_dir / "ratings.parquet")
+        self.model, self.chance, self.model_fp = load_model(models_dir, model)
+        self.info = work_info(clean_dir, self.work_ids)
+        self.series = SeriesIndex(self.info.title.tolist())
+        self.picker = ListPicker(self.info)
+        self._parts: dict[tuple[int, bool], dict] = {}
+
+    def parts(self, top: int, sections: bool) -> dict[str, tuple[np.ndarray | None, int]]:
+        if (top, sections) not in self._parts:
+            self._parts[top, sections] = list_parts(self.clean_dir, self.work_ids, top, sections)
+        return self._parts[top, sections]
+
+    def profile(self, frame: pd.DataFrame) -> Profile:
+        return profile_from_frame(frame, self.work_ids, self.clean_dir)
+
+    def scores(self, prof: Profile) -> tuple[np.ndarray, sp.csr_matrix]:
+        """Баллы по всем книгам ядра (−∞ — не кандидат) и исключённые: как при калибровке шанса — вход, начатые серии
+        и полка не кандидаты (и мест в отсечении вкуса не занимают)."""
+        ex = (exclusion(prof.seen(), self.series) + prof._row(prof.want, np.ones(len(prof.want)))).tocsr()
+        sc = self.model.score(prof.x, prof.dnf, prof.shelf(),
+                              **({} if isinstance(self.model, Mix) else {"exclude": ex}))[0].astype(np.float64)
+        sc[ex.indices] = -np.inf
+        return sc, ex
+
+    def rated(self, prof: Profile) -> RatedFilter:
+        """«Уже оценено по сути»: оценённое и полка ядра, а книги профиля вне ядра — строками после ядра (в модель не
+        входят, но их издания в ядре — то же произведение)."""
+        n, books = len(self.work_ids), self.picker.books
+        if len(prof.outside):
+            books = Books.concat(books, Books.of(work_info(self.clean_dir, prof.outside)))
+        return RatedFilter(books, np.concatenate([prof.not_advised(), np.arange(n, n + len(prof.outside))]))
+
+    def chance_pct(self, prof: Profile, sc: np.ndarray, cols: np.ndarray) -> np.ndarray:
+        """Шанс (0–1) для столбцов cols по баллам sc (`scores`); не кандидат — NaN."""
+        r = metrics.rounded(prof.x.data)
+        return self.chance.predict(personal_pct(sc, cols), int((r >= self.chance.stars).sum()), prof.x.nnz)
+
+    def recommend(self, prof: Profile, top: int = 20, rules: bool = True, sections: bool = True,
+                  debug: bool = False, rank_tops: tuple[int, ...] = ()) -> Result:
+        """debug — отладка слоёв для журнала (`Rec.debug`, «смелая» выдача в `Result.bold`); дольше на ~2 с.
+        rank_tops — состав списков и других размеров (`Result.ranks`): правила списка зависят от размера (книг автора —
+        одна на 10 мест), поэтому список из 20 — не первые 20 списка из 50."""
+        if prof.x.nnz == 0:
+            return Result([], skipped=prof.skipped)
+        model, info, work_ids = self.model, self.info, self.work_ids
+        sc, ex = self.scores(prof)
+        order = np.argsort(-sc, kind="stable")
+        order = order[np.isfinite(sc[order])]
+        rated, parts = self.rated(prof), self.parts(top, sections)
+        got, removed = pick_sections(order, self.picker, rated, rules, parts)
+        picked = np.array([c for _, c in got], dtype=np.int64)
+
+        pct = self.chance_pct(prof, sc, picked)
+        shelf = prof.shelf()
+        if isinstance(model, Mix):
+            in_cols, contrib = explain.contributions(model, prof.x, picked, prof.dnf, shelf)
+            taste, const = np.zeros_like(contrib), np.zeros(len(picked))
+        else:
+            in_cols, contrib, taste, const = explain.layers_parts(model, prof.x, picked, prof.dnf, shelf)
+        names = [prof.names[c] for c in in_cols.tolist()]
+        stars = [_label(prof, c) for c in in_cols.tolist()]
+        rating_of = dict(zip(prof.x.indices.tolist(), prof.x.data.tolist()))
+        x_in = np.array([rating_of.get(c, np.nan) for c in in_cols.tolist()])
+        recs = []
+        for k, c in enumerate(picked):
+            why = explain.reason(contrib[:, k])
+            shown = why.because + ([] if why.despite is None else [why.despite])
+            note = explain.taste_note(taste[:, k], const[k])
+            recs.append(Rec(int(work_ids[c]), display_title(info, c), info.author[c] or "", int(round(pct[k] * 100)),
+                            [names[i] for i in why.because], None if why.despite is None else names[why.despite],
+                            {names[i]: stars[i] for i in shown},
+                            None if note is None else _taste_text(note, model.taste, c, in_cols, names, x_in, stars),
+                            section=got[k][0]))
+        bold = []
+        if debug and not isinstance(model, Mix):
+            bold = [(int(work_ids[c]), info.title[c], info.author[c] or "", sec) for sec, c in
+                    _debug(model, prof, recs, picked, ex, self.picker, rated, rules, self.clean_dir, work_ids, parts)]
+        ranks = {k: [(sec, int(work_ids[c])) for sec, c in pick_sections(order, self.picker, rated, rules,
+                                                                          self.parts(k, sections))[0]]
+                 for k in rank_tops}
+        return Result(recs, [(f"{info.title[c]} — {info.author[c] or '?'}", WHY_REMOVED[w]) for c, w in removed],
+                      prof.skipped, prof.x.nnz, len(prof.read), len(prof.want), self.chance.label(), bold, ranks)
+
+
 def recommend(ratings_csv: Path, *, clean_dir: Path, models_dir: Path, top: int = 20,
               history_dir: Path | None = None, model: str | None = None, rules: bool = True,
               sections: bool = True) -> Result:
-    """rules=False — без правил списка (сборники, поздние тома, книги автора), только «уже оценено»: так считает
-    приложение, и его эталон строится без них. sections — два списка по top книг (художественная литература и
-    нон-фикшн) и «Новинки», если они есть в базе (`list_parts`), иначе один общий (приложение)."""
-    work_ids = catalog_works(clean_dir / "ratings.parquet")
-    prof = read_profile(ratings_csv, work_ids, clean_dir)
+    """rules=False — без правил списка (сборники, поздние тома, книги автора), только «уже оценено». sections — два
+    списка по top книг (художественная литература и нон-фикшн) и «Новинки», если они есть в базе (`list_parts`),
+    иначе один общий."""
+    prof = read_profile(ratings_csv, catalog_works(clean_dir / "ratings.parquet"), clean_dir)
     if prof.x.nnz == 0:
         return Result([], skipped=prof.skipped)
-    model, chance, model_fp = load_model(models_dir, model)
-    # оценённые книги вне ядра — строками после ядра: в модель не входят, но их издания в ядре — «уже оценено»
-    info = work_info(clean_dir, np.concatenate([work_ids, prof.outside]))
-    n = len(work_ids)
-
-    # как при калибровке шанса: вход, начатые серии и полка — не кандидаты (и мест в отсечении вкуса не занимают)
-    series = SeriesIndex(info.title[:n].tolist())
-    shelf = prof.shelf()
-    ex = (exclusion(prof.seen(), series) + prof._row(prof.want, np.ones(len(prof.want)))).tocsr()
-    sc = model.score(prof.x, prof.dnf, shelf, **({} if isinstance(model, Mix) else {"exclude": ex}))[0]
-    sc = sc.astype(np.float64)
-    sc[ex.indices] = -np.inf
-    order = np.argsort(-sc, kind="stable")
-    order = order[np.isfinite(sc[order])]
-
-    picker = ListPicker(info)
-    rated = RatedFilter(picker.books, np.concatenate([prof.not_advised(), np.arange(n, len(info))]))
-    parts = list_parts(clean_dir, work_ids, top, sections)
-    got, removed = pick_sections(order, picker, rated, rules, parts)
-    picked = np.array([c for _, c in got], dtype=np.int64)
-
-    r = metrics.rounded(prof.x.data)
-    pct = chance.predict(personal_pct(sc, picked), int((r >= chance.stars).sum()), prof.x.nnz)
-    if isinstance(model, Mix):
-        in_cols, contrib = explain.contributions(model, prof.x, picked, prof.dnf, shelf)
-        taste, const = np.zeros_like(contrib), np.zeros(len(picked))
-    else:
-        in_cols, contrib, taste, const = explain.layers_parts(model, prof.x, picked, prof.dnf, shelf)
-    names = [prof.names[c] for c in in_cols.tolist()]
-    stars = [_label(prof, c) for c in in_cols.tolist()]
-    rating_of = dict(zip(prof.x.indices.tolist(), prof.x.data.tolist()))
-    x_in = np.array([rating_of.get(c, np.nan) for c in in_cols.tolist()])
-    recs = []
-    for k, c in enumerate(picked):
-        why = explain.reason(contrib[:, k])
-        shown = why.because + ([] if why.despite is None else [why.despite])
-        note = explain.taste_note(taste[:, k], const[k])
-        recs.append(Rec(int(work_ids[c]), display_title(info, c), info.author[c] or "", int(round(pct[k] * 100)),
-                        [names[i] for i in why.because], None if why.despite is None else names[why.despite],
-                        {names[i]: stars[i] for i in shown},
-                        None if note is None else _taste_text(note, model.taste, c, in_cols, names, x_in, stars),
-                        section=got[k][0]))
-    bold = []
-    if not isinstance(model, Mix):
-        bold = _debug(model, prof, recs, picked, ex, picker, rated, rules, clean_dir, work_ids, parts)
-    res = Result(recs, [(f"{info.title[c]} — {info.author[c] or '?'}", WHY_REMOVED[w]) for c, w in removed],
-                 prof.skipped, prof.x.nnz, len(prof.read), len(prof.want), chance.label())
+    eng = Engine(clean_dir, models_dir, model)
+    res = eng.recommend(prof, top, rules, sections, debug=True)
     if history_dir is not None:
-        journal.save(res.recs, ratings_csv.stem, model_fp, history_dir, chance_of=res.chance, code=code_fingerprint(),
-                     bold=[(int(work_ids[c]), info.title[c], info.author[c] or "", sec) for sec, c in bold])
+        journal.save(res.recs, ratings_csv.stem, eng.model_fp, history_dir, chance_of=res.chance,
+                     code=code_fingerprint(), bold=res.bold)
     return res
 
 
