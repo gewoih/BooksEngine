@@ -35,6 +35,36 @@
 **Лицензия датасета — только некоммерческое использование.** Сырые данные и всё, что из них
 получено (`data/`, `reports/`, модели), в репозиторий не попадают.
 
+### Второй источник: Amazon Reviews'23 (опционально)
+
+Для книг после 2017 года (датасет Goodreads ими не пополняется) — `amazon-bridge` строит мост на Goodreads
+по ISBN/ASIN и проверяет сигнал перевода (Wikidata). Сырьё — 4 файла в одну папку `RAW_DIR/
+amazon_reviews_2023/` со страницы [amazon-reviews-2023.github.io](https://amazon-reviews-2023.github.io/)
+(0-Core → rating_only: `Books.csv.gz`, `Kindle_Store.csv.gz`; raw/meta_categories: `meta_Books.jsonl.gz`,
+`meta_Kindle_Store.jsonl.gz`) — сервер источника медленный и рвёт соединение на больших файлах, докачивать
+через `scripts/fetch_amazon_raw.sh` (устойчив к обрывам, можно прерывать и перезапускать).
+
+```bash
+RAW_DIR=~/Downloads scripts/fetch_amazon_raw.sh   # разово, часы из-за скорости источника
+uv run booksengine amazon-bridge                  # -> data/amazon/clean/, reports/amazon_bridge.md
+```
+
+Единая база Goodreads + Amazon — домен `books-amazon` (`data/books-amazon/`, `models/books-amazon/`,
+`reports/books-amazon/`, журнал — `profiles/history/books-amazon/`): люди Amazon — дополнительные читатели,
+новые книги (после 2017, их нет в Goodreads) — свои произведения; у новой книги с известным переводом (Wikidata или
+разметка `config/amazon_ru_titles.csv`) в выдаче русское название, без него — английское: читать ли в оригинале,
+решает читатель. Отложенные люди — копия книжных, поэтому
+обе базы судятся на одних людях; новые книги (людям Goodreads неизвестные) — на отложенных людях Amazon:
+
+```bash
+uv run booksengine --domain books-amazon prepare                  # база (~1 мин), --amazon-scale q|raw, --amazon-min-user
+uv run booksengine --domain books-amazon refit                    # компоненты с настройками models/books (~40 мин)
+uv run booksengine --domain books-amazon layers val               # затем layers test, calibrate layers
+uv run booksengine compare-bases books books-amazon --stage test  # парное сравнение → reports/compare_*.md
+uv run booksengine --domain books-amazon new-books                # новинки на отложенных людях Amazon
+uv run booksengine --domain books-amazon recommend --ratings profiles/my_ratings.csv
+```
+
 ## Запуск
 
 ```bash
@@ -76,13 +106,18 @@ uv run booksengine load-db                                  # каталог и�
 | `validate` | проверить инварианты готовых данных |
 | `report` | пересобрать отчёт очистки без пересчёта |
 | `load-db [--force]` | загрузить каталог в PostgreSQL, сверить с `manifest.json` |
+| `amazon-bridge` | Amazon Reviews'23: мост на Goodreads по ISBN/ASIN, сигнал перевода (Wikidata) → `data/amazon/clean/`, `reports/amazon_bridge.md` |
+| `--domain books-amazon prepare` | единая база Goodreads + Amazon → `data/books-amazon/clean/`, отложенные люди — копия книжных |
+| `--domain books-amazon refit [--min-user N]` | все компоненты выдачи на единой базе с настройками `models/books` |
+| `compare-bases A B [--stage test\|val]` | две базы на одних отложенных людях, каждая своей выдачей: парная разность качества и угаданного по этапам → `reports/compare_A_B_<stage>.md` |
+| `--domain books-amazon new-books` | новые книги на отложенных людях Amazon (от 20 старых книг и 3 новых; вход — старые, скрыты новые): список новинок выдачи против самых популярных и лучших по оценкам → `reports/books-amazon/new_books.md` |
 | `split [--force]` | отложенная выборка: ~5 000 человек для настройки, ~6 000 для теста (поровну из этапов 20–39, 40–79, 80–159, 160–319, 320–999 оценок) |
 | **модели и замеры** | |
 | `evaluate <model> --stage val\|test` | стенд `popularity`, `als`, `als_neg`, `knn`, `ease`, `mix`: перебор по NDCG@20 → `models/<model>` / замер на тесте |
 | `report-3a` | `reports/stage3a_report.md` — сравнение моделей стенда |
 | `calibrate [model]` | шанс: у `layers` (выдача) — пятёрки (5★), у `mix` (приложение) — «понравится» (4–5★) → `models/<model>/chance.json`, отчёт `reports/chance_<model>.md` |
 | `taste [--factors … --reg …]` | модель вкуса → `models/taste` |
-| `ease-like-tune [--lam … --weights … --force --min-user N --min-support N]` | подбор толпы «ценность» → `models/ease_like`, `models/mix_like`; связь книг — только при ≥ N общих читателях (по умолчанию 25) |
+| `ease-like-tune [--lam … --weights … --force --min-user N --min-support N --amazon q-5,raw-20]` | подбор толпы «ценность» → `models/ease_like`, `models/mix_like`; связь книг — только при ≥ N общих читателях (по умолчанию 25); `--amazon` — варианты с людьми Amazon (шкала raw/q, порог книг) против сохранённой толпы |
 | `layers val\|test\|profiles [--top N]` | слои «толпа + вкус»: выбор по качеству списка (средняя ценность угаданных книг топ-20: 5★ = 2 … 1★ = −1) → `models/layers`, замер на тесте с контролем «шум вместо вкуса» («сверх шума» — честный вклад вкуса), топ профилей рядом с прежней выдачей |
 | `profile-check` | каждая книга `profiles/*.csv` по очереди прячется — на каком месте её поставит выдача |
 | `why [--profile имя] "<книга>"` | почему книга стоит на своём месте: части модели и вклады книг профиля |
@@ -91,7 +126,7 @@ uv run booksengine load-db                                  # каталог и�
 | `exp save\|split\|run\|report` | сравнить варианты очистки на общем тесте |
 | **выдача** | |
 | `journal` | журнал выдач (`profiles/history/`) против оценок, поставленных позже: доля 5★ и 1–2★ среди прочитанного из советов и среди остальных оценок; отдельно — поднятое вкусом и прочитанное из «смелой» выдачи (проверка порога 80%) → `reports/journal.md` |
-| `recommend --ratings <csv> [--top 20] [--one-list]` | рекомендации по CSV (`goodreads_work_id`, `rating` 1–5, `status`, `title`): два списка — художественная литература и нон-фикшн (`--one-list` — один); слои `models/layers`, без них — смесь; без сборников и поздних томов неначатых серий, не больше одной книги автора на 10 мест; без оценки: `status=want` — «хочу прочитать», иначе — «прочитано, оценку не помню» (не советуются, во входе толпы — слабый плюс; полка до 20 книг даёт +2% угаданного, вся полка Goodreads — +21%); выдача пишется в `profiles/history/` |
+| `recommend --ratings <csv> [--top 20] [--one-list]` | рекомендации по CSV (`goodreads_work_id`, `rating` 1–5, `status`, `title`): два списка — художественная литература и нон-фикшн (`--one-list` — один), в единой базе (`--domain books-amazon`) третий — «Новинки» (10 книг после 2017); слои `models/layers`, без них — смесь; без сборников и поздних томов неначатых серий, не больше одной книги автора на 10 мест; без оценки: `status=want` — «хочу прочитать», иначе — «прочитано, оценку не помню» (не советуются, во входе толпы — слабый плюс; полка до 20 книг даёт +2% угаданного, вся полка Goodreads — +21%); выдача пишется в `profiles/history/` |
 | `export-model` | смесь → БД для веб-интерфейса (перезаписывает целиком) |
 
 Порядок сборки моделей: `split` → `evaluate als_neg` и `evaluate ease` (val, затем test) → `evaluate mix` →

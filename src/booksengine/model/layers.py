@@ -589,9 +589,9 @@ LIKE_JUDGED = (Variant("like", 0.0, None, 0.25), Variant("like", 1.0, None, 0.25
 
 def _setting(row: dict) -> tuple:
     """Настройка толпы: λ, веса звёзд, порог людей, опора связи, урезание связей (`EASELike.LINKS`; «» — прежнее:
-    только у цели и до опоры)."""
+    только у цели и до опоры), люди Amazon («шкала-порог», `amazon.bridged_matrix`; «» — без них)."""
     return (float(row["lam"]), tuple(float(w) for w in row["weights"]), int(row.get("min_user", 20)),
-            int(row.get("min_support", 0)), row.get("links", ""))
+            int(row.get("min_support", 0)), row.get("links", ""), row.get("amazon", ""))
 
 
 def _same_numbers(old: dict, new: dict) -> bool:
@@ -605,14 +605,16 @@ def _same_numbers(old: dict, new: dict) -> bool:
 
 def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: Path, grid=LIKE_GRID,
               fit_kw: dict | None = None, force: bool = False, min_user: int = 20,
-              min_support: int = MIN_SUPPORT) -> dict:
+              min_support: int = MIN_SUPPORT, amazon_dir: Path | None = None) -> dict:
     """Обучает толпу «ценность» с каждой настройкой и судит её вариантами LIKE_JUDGED тем же судьёй, что `layers val`:
     качество списка у лучшего варианта из тех, что угадывают не меньше GUARD от сохранённой толпы без вкуса; если не угадывает
     ни один — настройка не подходит. Нынешняя — сохранённая толпа (первая в переборе) с вариантом из models/layers,
     без него — первый из LIKE_JUDGED. Лучшая настройка записывается в models/ease_like и models/mix_like; force —
     записать последнюю настройку сетки, даже если она хуже (решение пользователя); min_user — обучать новые настройки
     только на людях с ≥ min_user оценок (сохранённая — со своим порогом); min_support — обнулять связи новых настроек,
-    за которыми меньше min_support общих читателей (`ease.EASELike`).
+    за которыми меньше min_support общих читателей (`ease.EASELike`). Настройка сетки может нести третьим элементом
+    тег людей Amazon («q-5»): их оценки книг с мостом (amazon_dir — data/amazon/clean) — дополнительные строки
+    обучения (`amazon.bridged_matrix`, `EASELike.fit(extra=...)`); отложенные люди и 30 000 книг — те же.
 
     Сохранённую толпу новая настройка сменяет, только если лучше неё уверенно: парная разность качества на тех же людях
     (лучший вариант настройки против лучшего варианта сохранённой) выше нуля по всему 95% интервалу — иначе выбор
@@ -634,7 +636,18 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
     chosen = read_params(models_dir / "layers").get("variant") if (models_dir / "layers" / "params.json").exists() else None
     now = Variant(**chosen) if chosen and chosen["crowd"] == "like" else LIKE_JUDGED[0]
     judged = list(dict.fromkeys([now, *LIKE_JUDGED, ANCHOR_LIKE]))
-    grid = [(float(lam), normalize_weights(w), int(min_user), int(min_support), EASELike.LINKS) for lam, w in grid]
+    grid = [(float(lam), normalize_weights(w), int(min_user), int(min_support), EASELike.LINKS,
+             rest[0] if rest else "") for lam, w, *rest in grid]
+    extras: dict[str, sp.csr_matrix] = {}
+
+    def extra(az: str) -> sp.csr_matrix | None:
+        if not az:
+            return None
+        if az not in extras:
+            from booksengine.data.amazon import bridged_matrix
+            extras[az] = bridged_matrix(amazon_dir, train.work_ids, az)
+            print(f"люди Amazon «{az}»: {extras[az].shape[0]:,} человек, {extras[az].nnz:,} оценок", flush=True)
+        return extras[az]
     saved = read_params(models_dir / "ease_like") if (models_dir / "ease_like" / "params.json").exists() else {}
     if saved:  # сохранённая толпа — всегда точка сравнения: без неё прогон из одной настройки записал бы худшую
         cur = _setting(saved | {"weights": saved.get("weights", W0)})
@@ -651,9 +664,9 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
     reuse = False
     results, best, best_model, baseline, ref_q = [], None, None, None, None
     eval_dir.mkdir(parents=True, exist_ok=True)
-    for lam, weights, mu, ms, links in grid:
-        is_saved = bool(saved) and cur == (lam, weights, mu, ms, links)
-        old = prev.get((lam, weights, mu, ms, links))
+    for lam, weights, mu, ms, links, az in grid:
+        is_saved = bool(saved) and cur == (lam, weights, mu, ms, links, az)
+        old = prev.get((lam, weights, mu, ms, links, az))
         if reuse and old is not None and not is_saved:
             row, ease = old | {"saved": False, "reused": True}, None
         else:
@@ -661,8 +674,8 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
             if is_saved:
                 ease = EASE.load(models_dir / "ease_like")
             else:
-                ease = EASELike(lam=lam, weights=weights, min_user=mu, min_support=ms, **(fit_kw or {}))
-                ease.fit(train)
+                ease = EASELike(lam=lam, weights=weights, min_user=mu, min_support=ms, amazon=az, **(fit_kw or {}))
+                ease.fit(train, extra=extra(az))
             fit_s = round(time.perf_counter() - t0, 1)
             like = Mix(str(models_dir / "als_neg"), str(models_dir / "ease_like"))
             like.als, like.ease = base.mix.als, ease
@@ -672,7 +685,7 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
             summ = summarize(per, judged[0])
             baseline = baseline or anchor(summ)       # опора — сохранённая толпа (первая настройка) без вкуса
             row = {"lam": lam, "weights": list(weights), "min_user": mu, "min_support": ms, "links": links,
-                   "fit_seconds": fit_s,
+                   "amazon": az, "fit_seconds": fit_s,
                    "saved": is_saved,
                    "variants": {r["label"]: {k: r["groups"]["all"][k] for k in
                                              ("quality", "hits", "five_minus_low", *STARS)} for r in summ},
@@ -695,37 +708,45 @@ def tune_like(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: P
         v = -np.inf if top is None else _mean(top, "quality")
         how = ("уже посчитано в прошлый прогон" if row.get("reused")
                else f"обучение {row['fit_seconds']} с")
-        print(f"«ценность» λ = {lam:g}, веса {weights}, люди с ≥ {mu} оценок, опора связи ≥ {ms}: "
+        print(f"«ценность» λ = {lam:g}, веса {weights}, люди с ≥ {mu} оценок, опора связи ≥ {ms}"
+              + (f", люди Amazon {az}" if az else "") + ": "
               + (f"качество списка {v:.3f} ({row['best_short']})" if top is not None
                  else f"не подходит — ни один вариант не угадывает {GUARD:.0%} от сохранённой толпы без вкуса")
               + ("" if d is None or is_saved else f", разница с сохранённой {_f(d, True)}{_ci(d)}")
               + f", {how}", flush=True)
         path.write_text(json.dumps({"user_ids": users, "results": results}, ensure_ascii=False))
-        last = (lam, weights, mu, ms, links) == grid[-1]
+        last = (lam, weights, mu, ms, links, az) == grid[-1]
         if (force and last) or (not force and (best is None or (sure and v > best))):
-            best, best_model = v, (lam, weights, mu, ms, links, ease)
+            best, best_model = v, (lam, weights, mu, ms, links, az, ease)
         else:
             del ease
-    lam, weights, mu, ms, links, ease = best_model
-    if not (saved and cur == (lam, weights, mu, ms, links)):
+    lam, weights, mu, ms, links, az, ease = best_model
+    if not (saved and cur == (lam, weights, mu, ms, links, az)):
         if ease is None:   # лучшая посчитана в прошлый прогон — обучить заново, чтобы записать
             print(f"«ценность» λ = {lam:g}, веса {weights}: обучаю заново, чтобы записать", flush=True)
-            ease = EASELike(lam=lam, weights=weights, min_user=mu, min_support=ms, **(fit_kw or {}))
-            ease.fit(train)
+            ease = EASELike(lam=lam, weights=weights, min_user=mu, min_support=ms, amazon=az, **(fit_kw or {}))
+            ease.fit(train, extra=extra(az))
         ease.save(models_dir / "ease_like")
         mix = Mix(models_dir / "als_neg", models_dir / "ease_like")
         mix.fit(train)
         mix.configure(als_weight=0.5, ease_input=weights)
         mix.save(models_dir / "mix_like")
     return {"results": results, "floor": GUARD * _mean(baseline, "hits"),
-            "best": {"lam": lam, "weights": list(weights), "min_user": mu, "min_support": ms, "links": links},
-            "kept": bool(saved) and cur == (lam, weights, mu, ms, links)}
+            "best": {"lam": lam, "weights": list(weights), "min_user": mu, "min_support": ms, "links": links,
+                     "amazon": az},
+            "kept": bool(saved) and cur == (lam, weights, mu, ms, links, az)}
+
+
+def _amazon_name(tag: str) -> str:
+    scale, _, n = tag.partition("-")
+    return f"{'шкала как есть' if scale == 'raw' else 'шкала по квантилям Goodreads'}, от {n} книг ядра"
 
 
 def _setting_name(r: dict) -> str:
     who = ("" if r.get("min_user", 20) == 20 else f", люди с ≥ {r['min_user']} оценок") + (
         f", опора связи ≥ {r['min_support']}" if r.get("min_support") else "") + (
-        ", связи у цели и у источника" if r.get("links") == "both" else ", связи только у цели")
+        ", связи у цели и у источника" if r.get("links") == "both" else ", связи только у цели") + (
+        f", + люди Amazon ({_amazon_name(r['amazon'])})" if r.get("amazon") else "")
     return f"λ {r['lam']:g}, веса {'/'.join(f'{w:g}' for w in r['weights'])}{who}"
 
 
@@ -909,4 +930,68 @@ def why(*, clean_dir: Path, models_dir: Path, profile_csv: Path, query: str, top
                      f"{c_ease[i]:+.3f} |")
     lines += ["", f"Книг серии этой книги в ядре: {series.continuations(np.array([col])).size} "
                   "(продолжения начатых серий исключаются)."]
+    return "\n".join(lines) + "\n"
+
+
+def compare_bases(a: tuple[Path, Path, Path], b: tuple[Path, Path, Path], stage: str = "test") -> dict:
+    """Две базы — (clean_dir, split_dir, models_dir) каждая, например только Goodreads и Goodreads + Amazon — на одних
+    отложенных людях: у каждой выдача своим выбранным вариантом (models_dir/layers), своими книгами и правилами
+    списка. Парная разность (b − a) качества и угаданного — по всем и по этапам; сравнивать можно только людей, которые
+    есть в обеих (отложенные — копия одних и тех же)."""
+    from booksengine.model.filters import work_info
+    from booksengine.model.matrix import catalog_works
+    per = {}
+    for name, (clean_dir, split_dir, models_dir) in (("a", a), ("b", b)):
+        ratings_path = clean_dir / "ratings.parquet"
+        work_ids = catalog_works(ratings_path)
+        layers = Layers.load(models_dir / "layers")
+        hold = _hold(ratings_path, split_dir, stage, work_ids)
+        v = layers.variant
+        d = evaluate(layers, hold, work_info(clean_dir, work_ids), [v], pop=popularity(ratings_path, work_ids))[v]
+        per[name] = (d.set_index("user_id"), v)
+    da, db = per["a"][0], per["b"][0]
+    users = da.index.intersection(db.index)
+    da, db = da.loc[users], db.loc[users]
+    parts = [("all", users)] + [(bk, users[da.bucket == bk]) for bk in BUCKET_ORDER if (da.bucket == bk).any()]
+    groups = {}
+    rng = lambda: np.random.default_rng(0)
+    for name, idx in parts:
+        g = {}
+        for side, d in (("a", da), ("b", db)):
+            g[side] = {m: metrics.bootstrap(d.loc[idx, m].to_numpy(dtype=np.float64), rng(), 1000) for m in CHECKED}
+            for m in (*STARS, "known"):
+                x = d.loc[idx, m].to_numpy(dtype=np.float64)
+                x = x[~np.isnan(x)]
+                g[side][m] = {"mean": float(x.mean()) if len(x) else None}
+        for m in CHECKED:
+            g[f"{m}_diff"] = metrics.bootstrap((db.loc[idx, m] - da.loc[idx, m]).to_numpy(dtype=np.float64), rng(), 1000)
+        groups[name] = g
+    return {"stage": stage, "n_users": int(len(users)), "groups": groups,
+            "variants": {"a": asdict(per["a"][1]), "b": asdict(per["b"][1])}}
+
+
+def report_compare(res: dict, name_a: str, name_b: str) -> str:
+    g = res["groups"]["all"]
+    d = g["quality_diff"]
+    sure = d["lo"] is not None and (d["lo"] > 0 or d["hi"] < 0)
+    verdict = (f"**{name_b} {'лучше' if d['mean'] > 0 else 'хуже'} {name_a} уверенно**" if sure
+               else f"**{name_b} и {name_a} — одно качество (разница в пределах шума)**")
+    lines = [f"# Сравнение баз: {name_a} против {name_b} — {'тест' if res['stage'] == 'test' else 'проверка'}", "",
+             f"{verdict}: качество {_f(d, True)}{_ci(d)}, угадано {_f(g['hits_diff'], True)}{_ci(g['hits_diff'])}; "
+             f"{res['n_users']:,} человек.", "",
+             "| | " + name_a + " | " + name_b + " | разница |", "|---|---|---|---|"]
+    for label, m in (("Качество", "quality"), ("Угадано", "hits")):
+        lines.append(f"| {label} | {_f(g['a'][m])} | {_f(g['b'][m])} | {_f(g[m + '_diff'], True)}{_ci(g[m + '_diff'])} |")
+    stars = lambda x: " / ".join(f"{x[k]['mean'] * 100:.1f}" if x[k]["mean"] is not None else "—" for k in reversed(STARS))
+    lines.append(f"| 5★ / 4★ / 3★ / 2★ / 1★, % | {stars(g['a'])} | {stars(g['b'])} | |")
+    lines.append(f"| Известность (медиана оценок книг списка) | {g['a']['known']['mean']:,.0f} | "
+                 f"{g['b']['known']['mean']:,.0f} | |")
+    lines += ["", "По этапам (оценок у человека):", "", "| этап | качество: разница | угадано: разница |", "|---|---|---|"]
+    for bk in BUCKET_ORDER:
+        if bk in res["groups"]:
+            x = res["groups"][bk]
+            lines.append(f"| {bk} | {_f(x['quality_diff'], True)}{_ci(x['quality_diff'])} | "
+                         f"{_f(x['hits_diff'], True)}{_ci(x['hits_diff'])} |")
+    lines += ["", f"Варианты выдачи: {name_a} — {short(Variant(**res['variants']['a']))}, "
+                  f"{name_b} — {short(Variant(**res['variants']['b']))}. **Как читать.** " + HOW_TO_READ]
     return "\n".join(lines) + "\n"

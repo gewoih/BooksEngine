@@ -33,6 +33,18 @@ def domain_profiles(profiles_dir: Path, domain: str) -> list[Path]:
     return movies if domain == "movies" else [p for p in sorted(profiles_dir.glob("*.csv")) if p not in movies]
 
 
+def reports_dir(project_root: Path, domain: str) -> Path:
+    """Отчёты домена: у книг — reports/, у других доменов — своя подпапка (имена отчётов без домена)."""
+    return project_root / "reports" if domain == "books" else project_root / "reports" / domain
+
+
+def history_dir(project_root: Path, domain: str) -> Path:
+    """Журнал выдач домена: у книг — profiles/history, у других доменов — своя подпапка (журнал читает только свою
+    папку, запись дня на профиль не затирается выдачей другого домена)."""
+    base = project_root / "profiles" / "history"
+    return base if domain == "books" else base / domain
+
+
 def domain_dirs(project_root: Path, domain: str) -> tuple[Path, Path]:
     """(data_dir, models_dir) для домена — чистая функция, без чтения окружения (тестируется без .env/env)."""
     return project_root / "data" / domain, project_root / "models" / domain
@@ -43,7 +55,10 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", _DATA_DIR)).expanduser()
 STAGING_DIR = DATA_DIR / "staging"
 CLEAN_DIR = DATA_DIR / "clean"
 TMP_DIR = DATA_DIR / "tmp"
-REPORTS_DIR = PROJECT_ROOT / "reports"
+REPORTS_DIR = reports_dir(PROJECT_ROOT, DOMAIN)
+AMAZON_DIR = PROJECT_ROOT / "data" / "amazon"
+AMAZON_CLEAN_DIR = AMAZON_DIR / "clean"
+AMAZON_CACHE_PATH = AMAZON_DIR / "wikidata_cache.parquet"
 CONFIG_PATH = PROJECT_ROOT / "config" / "cleaning.yaml"
 SPLIT_DIR = DATA_DIR / "model" / "split"
 EVAL_DIR = MODELS_DIR / "eval"

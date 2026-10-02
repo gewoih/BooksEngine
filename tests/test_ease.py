@@ -139,3 +139,46 @@ def test_ease_like_min_support_zeroes_links_before_truncation():
     small = EASELike(lam=2.0, n_top=12, block=5, topk=2, min_user=0, min_support=6)
     small.fit(d)
     np.testing.assert_allclose(small._B.toarray(), _strongest(B, 2), atol=1e-6)
+
+
+def test_ease_like_extra_rows_train_like_ordinary_readers_but_do_not_choose_columns(tmp_path):
+    """Люди второго источника (Amazon) — дополнительные строки обучения: учат связи наравне с людьми Goodreads, но
+    30 000 книг выбираются только по Goodreads — иначе толпа «ценность» и смесь смотрели бы на разные книги."""
+    from booksengine.model.ease import EASELike
+    rng = np.random.default_rng(7)
+    R = np.where(rng.random((80, 10)) < 0.5, rng.integers(1, 6, (80, 10)), 0).astype(np.float32)
+    E = np.where(rng.random((40, 10)) < 0.5, rng.integers(1, 6, (40, 10)), 0).astype(np.float32)
+    E[:, 9] = 5                                          # книгу 9 у второго источника читают все
+    R[:, 9] = np.where(np.arange(80) < 3, 4, 0)          # у Goodreads — трое: в первые 8 по Goodreads она не входит
+    train = RatingMatrix(sp.csr_matrix(R), np.arange(80), np.arange(10))
+
+    a = EASELike(lam=2.0, n_top=8, block=4, topk=8, min_user=0, amazon="raw-5")
+    a.fit(train, extra=sp.csr_matrix(E))
+    only = EASELike(lam=2.0, n_top=8, block=4, topk=8, min_user=0)
+    only.fit(train)
+    np.testing.assert_array_equal(a.top_cols, only.top_cols)
+    assert 9 not in a.top_cols
+
+    stacked = EASELike(lam=2.0, n_top=8, block=4, topk=8, min_user=0)
+    stacked.fit(RatingMatrix(sp.csr_matrix(np.vstack([R, E])[:, only.top_cols]), np.arange(120), np.arange(8)))
+    np.testing.assert_allclose(a._B.toarray(), stacked._B.toarray(), atol=1e-5)
+
+    a.save(tmp_path)
+    from booksengine.model.base import read_params
+    assert read_params(tmp_path)["amazon"] == "raw-5"
+
+
+def test_ease_like_min_user_applies_to_goodreads_rows_not_to_extra():
+    """Порог min_user — для людей Goodreads; у второго источника свой порог уже применён при сборке строк."""
+    from booksengine.model.ease import EASELike
+    rng = np.random.default_rng(3)
+    R = np.where(rng.random((60, 8)) < 0.6, rng.integers(1, 6, (60, 8)), 0).astype(np.float32)
+    E = np.zeros((10, 8), np.float32)
+    E[:, :3] = rng.integers(1, 6, (10, 3))              # у каждого 3 книги — меньше min_user
+    train = RatingMatrix(sp.csr_matrix(R), np.arange(60), np.arange(8))
+    a = EASELike(lam=2.0, n_top=8, block=4, topk=8, min_user=4)
+    a.fit(train, extra=sp.csr_matrix(E))
+    heavy = np.flatnonzero((R > 0).sum(axis=1) >= 4)
+    b = EASELike(lam=2.0, n_top=8, block=4, topk=8, min_user=0)
+    b.fit(RatingMatrix(sp.csr_matrix(np.vstack([R[heavy], E])), np.arange(len(heavy) + 10), np.arange(8)))
+    np.testing.assert_allclose(a._B.toarray(), b._B.toarray(), atol=1e-5)

@@ -30,10 +30,14 @@ def _raw_fingerprints() -> dict:
     return out
 
 
-def _code_hash() -> str:
+# код книжной подготовки: отпечаток только по нему — модули фильмов и Amazon в той же папке ядро не пересобирают
+BOOKS_CODE = ("clean.py", "pipeline.py", "profile.py", "stage.py", "validate.py")
+
+
+def _code_hash(folder: Path = Path(__file__).parent) -> str:
     h = hashlib.sha256()
-    for p in sorted(Path(__file__).parent.glob("*.py")):
-        h.update(p.read_bytes())
+    for name in BOOKS_CODE:
+        h.update((folder / name).read_bytes())
     return h.hexdigest()[:16]
 
 

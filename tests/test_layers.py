@@ -468,7 +468,7 @@ def test_tune_like_reuses_previous_run_and_trains_reused_best_to_save(world, mon
     monkeypatch.setattr(ly, "GUARD", 0.9)
     fits = []
     real_fit = EASELike.fit
-    monkeypatch.setattr(EASELike, "fit", lambda self, train: fits.append(self.lam) or real_fit(self, train))
+    monkeypatch.setattr(EASELike, "fit", lambda self, train, **kw: fits.append(self.lam) or real_fit(self, train, **kw))
     res = ly.tune_like(grid=[(5.0, ly.W1)], force=True, **kw)
     assert res["results"][1]["reused"] and res["results"][1]["best_variant"] is not None   # решение пересчитано
     assert fits == [5.0]                                  # не в переборе — только чтобы записать выбранную
@@ -519,3 +519,76 @@ def test_tune_like_replaces_saved_crowd_only_when_surely_better(world):
     assert d["lo"] <= d["mean"] <= d["hi"]
     assert (read_params(md / "ease_like")["lam"] == 5.0) == (d["lo"] > 0)   # сменила — только если уверенно лучше
     assert "разница" in ly.report_like(res)
+
+
+def test_tune_like_trains_amazon_variant_and_records_it(world, tmp_path):
+    """Вариант толпы с людьми Amazon — отдельная настройка сетки («шкала-порог»): судится против сохранённой толпы,
+    тег пишется в params.json, сохранённая толпа с Amazon повторно не обучается."""
+    from booksengine.model.base import read_params
+    from booksengine.model.matrix import catalog_works
+    tp, sd, md = world
+    kw = dict(clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval", fit_kw={"topk": 20})
+    ly.tune_like(grid=[(10.0, ly.W0)], **kw)
+    works = catalog_works(tp / "ratings.parquet")
+    az = tmp_path / "amazon"
+    az.mkdir()
+    rng = np.random.default_rng(0)
+    rows = [{"user_id": f"A{u}", "parent_asin": f"P{w}", "rating": float(rng.integers(1, 6)), "timestamp": 0,
+             "source": "books"} for u in range(30) for w in rng.choice(works, 8, replace=False)]
+    pd.DataFrame(rows).to_parquet(az / "ratings.parquet")
+    pd.DataFrame({"parent_asin": [f"P{w}" for w in works], "work_id": works}).to_parquet(az / "bridge.parquet")
+
+    res = ly.tune_like(grid=[(10.0, ly.W0, "q-5")], amazon_dir=az, force=True, **kw)
+
+    assert [r.get("amazon", "") for r in res["results"]] == ["", "q-5"]
+    assert read_params(md / "ease_like")["amazon"] == "q-5"
+    assert "Amazon" in ly.report_like(res)
+    again = ly.tune_like(grid=[(10.0, ly.W0, "q-5")], amazon_dir=az, **kw)
+    assert [r["saved"] for r in again["results"]] == [True]
+
+
+def test_compare_bases_pairs_people_and_reports_zero_for_same_base(world):
+    """Сравнение двух баз (например, только Goodreads и Goodreads + Amazon) на одних отложенных людях: у каждой — свой
+    выбранный вариант; разность качества и угаданного — парная. База, сравнённая сама с собой, — ровно 0."""
+    tp, sd, md = world
+    ly.run("val", clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval")
+    base = (tp, sd, md)
+    res = ly.compare_bases(base, base, stage="test")
+    g = res["groups"]["all"]
+    assert g["quality_diff"]["mean"] == 0 and g["hits_diff"]["mean"] == 0
+    assert g["a"]["hits"]["mean"] > 0 and res["n_users"] > 0
+    text = ly.report_compare(res, "books", "books")
+    assert "Качество" in text and "Угадано" in text
+
+
+def test_compare_report_keeps_stars_in_one_cell(world):
+    tp, sd, md = world
+    ly.run("val", clean_dir=tp, split_dir=sd, models_dir=md, eval_dir=tp / "eval")
+    text = ly.report_compare(ly.compare_bases((tp, sd, md), (tp, sd, md), stage="test"), "books", "books")
+    row = next(l for l in text.splitlines() if l.startswith("| 5★"))  # 5★ / 4★ …
+    assert row.count("|") == 5                     # 4 колонки таблицы — не разъезжается
+
+
+def test_list_parts_put_new_books_into_their_own_list(tmp_path):
+    """Новые книги (единая база) — отдельным списком «Новинки» из NEW_TOP книг, в основных списках их нет; в базе без
+    новых книг списка нет."""
+    from booksengine import recommend as rec
+    from booksengine.data.merged import NEW_WORK_OFFSET
+    pd.DataFrame({"work_id": [1, 2, NEW_WORK_OFFSET + 1, NEW_WORK_OFFSET + 2], "genre": ["fiction", "non-fiction"] * 2,
+                  "votes": 5, "share": 1.0}).to_parquet(tmp_path / "work_genres.parquet")
+    ids = np.array([1, 2, NEW_WORK_OFFSET + 1, NEW_WORK_OFFSET + 2])
+    parts = rec.list_parts(tmp_path, ids, top=20)
+    assert list(parts) == [rec.FICTION, rec.NONFICTION, rec.NEW]
+    assert parts[rec.NEW][0].tolist() == [False, False, True, True] and parts[rec.NEW][1] == rec.NEW_TOP == 10
+    assert not (parts[rec.FICTION][0] & parts[rec.NEW][0]).any()
+    assert not (parts[rec.NONFICTION][0] & parts[rec.NEW][0]).any()
+    assert parts[rec.FICTION][1] == parts[rec.NONFICTION][1] == 20
+    assert list(rec.list_parts(tmp_path, ids[:2], top=20)) == [rec.FICTION, rec.NONFICTION]
+    assert rec.list_parts(tmp_path, ids, top=20, sections=False) == {"": (None, 20)}
+
+
+def test_new_books_list_says_its_chance_is_rough():
+    from booksengine import recommend as rec
+    r = rec.Rec(100_000_001, "Ученица / Educated", "Tara Westover", 23, [], None, section=rec.NEW)
+    text = rec.format_result(rec.Result([r]))
+    assert f"## {rec.NEW}" in text and rec.NEW_NOTE in text

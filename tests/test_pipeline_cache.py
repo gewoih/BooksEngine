@@ -27,3 +27,17 @@ def test_old_cache_without_code_is_recomputed(tmp_path):
 def test_profile_key_hashes_profile_code():
     key = pipeline.profile_key({"x": "1"})
     assert set(key) == {"raw", "code"} and len(key["code"]) == 16
+
+
+def test_code_hash_ignores_modules_outside_books_preparation(tmp_path):
+    """Отпечаток кода книжного `prepare` — только по коду подготовки книг: правка модулей фильмов и Amazon в той же
+    папке не пересобирает книжное ядро (~4 мин впустую)."""
+    from booksengine.data import pipeline
+    for name in (*pipeline.BOOKS_CODE, "amazon.py", "movielens.py"):
+        (tmp_path / name).write_text(f"# {name}\n")
+    before = pipeline._code_hash(tmp_path)
+    (tmp_path / "amazon.py").write_text("# правка\n")
+    (tmp_path / "movielens.py").write_text("# правка\n")
+    assert pipeline._code_hash(tmp_path) == before
+    (tmp_path / "clean.py").write_text("# правка\n")
+    assert pipeline._code_hash(tmp_path) != before

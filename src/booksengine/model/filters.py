@@ -91,7 +91,11 @@ AUTHOR_ROLES = "author|writer|creator|text|story|poet|pseudonym"
 
 def work_info(clean_dir: Path, work_ids: np.ndarray) -> pd.DataFrame:
     """Книги ядра по столбцам матрицы: название (и варианты), основной и все авторы, ключ названия, номер в серии,
-    сборник ли. Основной автор — `AUTHOR_ROLES`; без него author — пустая строка, author_id — NULL."""
+    сборник ли, русское название новой книги Amazon (`data.merged`; в базе только Goodreads — пусто). Основной автор —
+    `AUTHOR_ROLES`; без него author — пустая строка, author_id — NULL."""
+    cols = set(duckdb.execute("DESCRIBE SELECT * FROM read_parquet(?)", [str(clean_dir / "works.parquet")]
+                              ).df().column_name)
+    ru_title = "w.ru_title" if "ru_title" in cols else "NULL::VARCHAR"
     d = duckdb.execute(f"""
         WITH prim AS (
             SELECT work_id, arg_min(author_id, (coalesce(role, '') <> '')::INT * 100000 + position) AS author_id
@@ -100,7 +104,8 @@ def work_info(clean_dir: Path, work_ids: np.ndarray) -> pd.DataFrame:
         everyone AS (SELECT work_id, list(DISTINCT author_id) AS authors FROM read_parquet(?) GROUP BY 1)
         SELECT w.work_id, w.title, w.original_title, w.best_edition_title, a.name AS author, p.author_id, e.authors,
                {title_key_sql('w.title')} AS key, {series_no_sql('w.best_edition_title')} AS series_no,
-               coalesce(w.is_collection, false) OR w.title LIKE '% / %' AS is_collection
+               coalesce(w.is_collection, false) OR w.title LIKE '% / %' AS is_collection,
+               {ru_title} AS ru_title
         FROM read_parquet(?) w
         LEFT JOIN prim p USING (work_id) LEFT JOIN everyone e USING (work_id) LEFT JOIN read_parquet(?) a USING (author_id)
     """, [str(clean_dir / "work_authors.parquet"), str(clean_dir / "work_authors.parquet"),

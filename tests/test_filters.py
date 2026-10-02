@@ -183,3 +183,33 @@ def test_pick_top_matches_full_order_even_with_small_pool(tmp_path):
 def test_later_volume_by_title(title, later):
     from booksengine.model.filters import later_by_title
     assert later_by_title(title) is later
+
+
+def test_list_keeps_new_amazon_book_without_known_russian_translation(tmp_path):
+    """Новая книга Amazon без известного русского перевода советуется как любая: читать ли в оригинале — решает
+    читатель (известный перевод виден по русскому названию в выдаче)."""
+    from booksengine.model.filters import ListPicker
+    works = [(1, "Old Goodreads Book", "Old Goodreads Book", False, 10),
+             (2, "New Without Translation", "New Without Translation", False, 11),
+             (3, "New With Translation", "New With Translation", False, 12)]
+    _write(tmp_path, works, [(10, "A"), (11, "B"), (12, "C"), (99, "Artist")])
+    w = pd.read_parquet(tmp_path / "works.parquet")
+    w["source"] = ["goodreads", "amazon", "amazon"]
+    w["ru_known"] = [None, False, True]
+    w.to_parquet(tmp_path / "works.parquet")
+    info = work_info(tmp_path, np.array([1, 2, 3]))
+    picked, removed = ListPicker(info).pick([0, 1, 2], top=3)
+    assert picked == [0, 1, 2] and removed == []
+
+
+def test_work_info_exposes_russian_title_of_new_book(tmp_path):
+    from booksengine.recommend import display_title
+    _write(tmp_path, [(1, "Educated", "Educated", False, 10), (2, "Dune", "Dune", False, 11)],
+           [(10, "Tara Westover"), (11, "Frank Herbert"), (99, "Artist")])
+    w = pd.read_parquet(tmp_path / "works.parquet")
+    w["source"], w["ru_known"], w["ru_title"] = ["amazon", "goodreads"], [True, None], ["Ученица", None]
+    w.to_parquet(tmp_path / "works.parquet")
+    info = work_info(tmp_path, np.array([1, 2]))
+    assert display_title(info, 0) == "Ученица / Educated" and display_title(info, 1) == "Dune"
+    _write(tmp_path, [(1, "Dune", "Dune", False, 11)], [(11, "Frank Herbert"), (99, "Artist")])
+    assert display_title(work_info(tmp_path, np.array([1])), 0) == "Dune"   # база без русских названий

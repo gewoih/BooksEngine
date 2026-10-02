@@ -7,16 +7,31 @@ app = typer.Typer(help="BooksEngine: офлайн-часть рекоменда�
 def main(domain: str = typer.Option("books", "--domain", help="books | movies — данные и модели домена "
                                      "(data/<domain>/, models/<domain>/)")) -> None:
     import os
-    if domain not in ("books", "movies"):
-        raise typer.BadParameter("domain: books | movies")
+    if domain not in ("books", "movies", "books-amazon"):
+        raise typer.BadParameter("domain: books | movies | books-amazon")
     os.environ["BOOKSENGINE_DOMAIN"] = domain
 
 
 @app.command()
-def prepare(force: bool = typer.Option(False, "--force", help="пересобрать всё, игнорируя кэш (только books)")) -> None:
+def prepare(force: bool = typer.Option(False, "--force", help="пересобрать всё, игнорируя кэш (только books)"),
+            amazon_scale: str = typer.Option("q", "--amazon-scale", help="books-amazon: шкала звёзд Amazon, raw | q"),
+            amazon_min_user: int = typer.Option(5, "--amazon-min-user",
+                                                help="books-amazon: человек Amazon — от стольких книг")) -> None:
     """books: staging → профилирование → очистка → валидация → отчёт (reports/stage1_report.md).
-    movies: MovieLens → очистка (округление звёзд, k-core) → data/movies/clean/."""
+    movies: MovieLens → очистка (округление звёзд, k-core) → data/movies/clean/.
+    books-amazon: единая база data/books/clean + data/amazon/clean (`amazon-bridge`) → data/books-amazon/clean/,
+    отложенные люди — копия книжных."""
     from booksengine.paths import DOMAIN
+    if DOMAIN == "books-amazon":
+        import json
+
+        from booksengine.data import merged
+        from booksengine.paths import AMAZON_CLEAN_DIR, CLEAN_DIR, PROJECT_ROOT, domain_dirs
+        books_clean = domain_dirs(PROJECT_ROOT, "books")[0] / "clean"
+        stats = merged.build(books_clean, AMAZON_CLEAN_DIR, CLEAN_DIR, scale=amazon_scale, min_user=amazon_min_user,
+                             ru_titles=merged.RU_TITLES)
+        print(json.dumps(stats, ensure_ascii=False, indent=1))
+        return
     if DOMAIN == "movies":
         import json
 
@@ -30,6 +45,52 @@ def prepare(force: bool = typer.Option(False, "--force", help="пересобр�
         return
     from booksengine.data import pipeline
     pipeline.prepare(force=force)
+
+
+@app.command()
+def refit(min_user: int = typer.Option(5, "--min-user", help="толпа «ценность»: человек — от стольких оценок "
+                                        "(у Goodreads в ядре все от 20 — это порог людей Amazon)"),
+          taste_goodreads: bool = typer.Option(False, "--taste-goodreads", help="вкус — только на людях Goodreads"),
+          taste_only: bool = typer.Option(False, "--taste-only", help="переобучить только вкус"),
+          taste_amazon_min: int = typer.Option(None, "--taste-amazon-min",
+                                               help="вкус — на людях Goodreads и людях Amazon от стольких книг")) -> None:
+    """books-amazon: все компоненты выдачи на единой базе с настройками моделей models/books (ALS, EASE, смесь, вкус,
+    толпа «ценность»); после — `layers val`, `layers test`, `calibrate layers`, затем `compare-bases books books-amazon`."""
+    from booksengine.data import merged
+    from booksengine.paths import CLEAN_DIR, DOMAIN, MODELS_DIR, PROJECT_ROOT, SPLIT_DIR, domain_dirs
+    if DOMAIN != "books-amazon":
+        raise typer.BadParameter("refit — только для --domain books-amazon")
+    merged.refit(CLEAN_DIR, SPLIT_DIR, MODELS_DIR, domain_dirs(PROJECT_ROOT, "books")[1], min_user=min_user,
+                 taste_goodreads=taste_goodreads, taste_only=taste_only, taste_amazon_min=taste_amazon_min)
+
+
+@app.command("compare-bases")
+def compare_bases(a: str = typer.Argument("books", help="домен A"), b: str = typer.Argument("books-amazon", help="домен B"),
+                  stage: str = typer.Option("test", help="val | test")) -> None:
+    """Две базы на одних отложенных людях, каждая своей выдачей: парная разность качества и угаданного →
+    reports/compare_<a>_<b>.md."""
+    from booksengine.model import layers as ly
+    from booksengine.paths import PROJECT_ROOT, REPORTS_DIR, domain_dirs
+
+    def dirs(domain: str):
+        data, models = domain_dirs(PROJECT_ROOT, domain)
+        return data / "clean", data / "model" / "split", models
+    text = ly.report_compare(ly.compare_bases(dirs(a), dirs(b), stage=stage), a, b)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    (REPORTS_DIR / f"compare_{a}_{b}_{stage}.md").write_text(text)
+    print(text)
+
+
+@app.command("new-books")
+def new_books() -> None:
+    """Новые книги (единая база, `--domain books-amazon`) на отложенных людях Amazon: список новинок выдачи против
+    самых популярных и лучших по оценкам → reports/<domain>/new_books.md."""
+    from booksengine.model import new_books as nb
+    from booksengine.paths import CLEAN_DIR, EVAL_DIR, MODELS_DIR, REPORTS_DIR, SPLIT_DIR
+    text = nb.report(nb.run(clean_dir=CLEAN_DIR, split_dir=SPLIT_DIR, models_dir=MODELS_DIR, eval_dir=EVAL_DIR))
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    (REPORTS_DIR / "new_books.md").write_text(text)
+    print(text)
 
 
 @app.command()
@@ -58,6 +119,17 @@ def report() -> None:
     print(r.write(prof, manifest))
 
 
+@app.command("amazon-bridge")
+def amazon_bridge() -> None:
+    """Amazon Reviews'23: приём, мост на Goodreads по ISBN/ASIN, сигнал перевода (Wikidata) ->
+    reports/amazon_bridge.md. Сырьё — RAW_DIR/amazon_reviews_2023/ (scripts/fetch_amazon_raw.sh)."""
+    from booksengine.data import amazon
+    from booksengine.paths import AMAZON_CACHE_PATH, AMAZON_CLEAN_DIR, CLEAN_DIR, RAW_DIR
+    manifest = amazon.prepare(RAW_DIR, AMAZON_CLEAN_DIR, CLEAN_DIR / "editions.parquet", AMAZON_CACHE_PATH)
+    path = amazon.report(manifest, AMAZON_CLEAN_DIR)
+    print(f"Отчёт: {path}")
+
+
 @app.command()
 def split(force: bool = typer.Option(False, "--force", help="пересобрать сплит")) -> None:
     """Отложенная выборка: тест и валидация поровну из этапов 20-39/40-79/80-159/160-319/320-999 оценок, вне обучения (data/<domain>/model/split/)."""
@@ -65,6 +137,9 @@ def split(force: bool = typer.Option(False, "--force", help="пересобра�
 
     from booksengine.model import split as s
     from booksengine.paths import CLEAN_DIR, DOMAIN, SPLIT_DIR
+    if DOMAIN == "books-amazon":
+        raise typer.BadParameter("books-amazon: отложенные люди — копия книжных (`prepare`), чтобы обе базы судились на "
+                                 "одних людях; своего сплита нет")
     kw = {}
     if DOMAIN == "movies":
         from booksengine.data import movielens
@@ -100,7 +175,7 @@ def calibrate(model: str = typer.Argument("mix", help="сохранённая м
     from booksengine.paths import EVAL_DIR, MODELS_DIR, REPORTS_DIR, SPLIT_DIR
     out = chance.calibrate(model, ratings_path=RATINGS, split_dir=SPLIT_DIR, models_dir=MODELS_DIR, eval_dir=EVAL_DIR)
     text = chance.report(out)
-    REPORTS_DIR.mkdir(exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     (REPORTS_DIR / f"chance_{model}.md").write_text(text)
     print(text)
 
@@ -114,9 +189,9 @@ def recommend(ratings: str = typer.Option(..., "--ratings", help="CSV: goodreads
     from pathlib import Path
 
     from booksengine import recommend as rec
-    from booksengine.paths import CLEAN_DIR, MODELS_DIR, PROJECT_ROOT
+    from booksengine.paths import CLEAN_DIR, DOMAIN, MODELS_DIR, PROJECT_ROOT, history_dir
     print(rec.format_result(rec.recommend(Path(ratings), clean_dir=CLEAN_DIR, models_dir=MODELS_DIR, top=top,
-                                          history_dir=PROJECT_ROOT / "profiles" / "history", sections=not one_list)))
+                                          history_dir=history_dir(PROJECT_ROOT, DOMAIN), sections=not one_list)))
 
 
 @app.command()
@@ -124,9 +199,9 @@ def journal() -> None:
     """Журнал выдач (profiles/history/) против оценок, поставленных позже: что прочитано из советов и как оценено
     → reports/journal.md."""
     from booksengine import journal as jr
-    from booksengine.paths import CLEAN_DIR, PROJECT_ROOT, REPORTS_DIR
-    text = jr.report(PROJECT_ROOT / "profiles", PROJECT_ROOT / "profiles" / "history", CLEAN_DIR)
-    REPORTS_DIR.mkdir(exist_ok=True)
+    from booksengine.paths import CLEAN_DIR, DOMAIN, PROJECT_ROOT, REPORTS_DIR, history_dir
+    text = jr.report(PROJECT_ROOT / "profiles", history_dir(PROJECT_ROOT, DOMAIN), CLEAN_DIR)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     (REPORTS_DIR / "journal.md").write_text(text)
     print(text)
 
@@ -137,7 +212,7 @@ def ease_size() -> None:
     from booksengine.model import ease_size as es
     from booksengine.paths import CLEAN_DIR, MODELS_DIR, PROJECT_ROOT, REPORTS_DIR, SPLIT_DIR
     text = es.run(clean_dir=CLEAN_DIR, split_dir=SPLIT_DIR, models_dir=MODELS_DIR, profiles_dir=PROJECT_ROOT / "profiles")
-    REPORTS_DIR.mkdir(exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     (REPORTS_DIR / "ease_size.md").write_text(text)
     print(text)
 
@@ -157,7 +232,7 @@ def taste(factors: str = typer.Option(None, help="размеры через за
         grid = [(f, r) for f in fs for r in rs]
     text = tm.report(tm.tune(ratings_path=RATINGS, split_dir=SPLIT_DIR, models_dir=MODELS_DIR, eval_dir=EVAL_DIR,
                              grid=grid))
-    REPORTS_DIR.mkdir(exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     (REPORTS_DIR / "taste_val.md").write_text(text)
     print(text)
 
@@ -176,7 +251,7 @@ def layers(stage: str = typer.Argument(..., help="val | test | profiles"),
         text = ly.profiles(clean_dir=CLEAN_DIR, models_dir=MODELS_DIR, profiles_dir=PROJECT_ROOT / "profiles", top=top)
     else:
         raise typer.BadParameter("stage: val | test | profiles")
-    REPORTS_DIR.mkdir(exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     (REPORTS_DIR / f"layers_{stage}.md").write_text(text)
     print(text)
 
@@ -188,21 +263,33 @@ def ease_like_tune(lam: float = typer.Option(None, help="одна настрой
                    min_user: int = typer.Option(20, "--min-user", help="обучать только на людях с ≥ N оценок"),
                    min_support: int = typer.Option(None, "--min-support",
                                                    help="связь книг — только при ≥ N общих читателях (по умолчанию "
-                                                        "layers.MIN_SUPPORT)")) -> None:
+                                                        "layers.MIN_SUPPORT)"),
+                   amazon: str = typer.Option(None, "--amazon",
+                                              help="варианты с людьми Amazon при λ и весах сохранённой толпы: "
+                                                   "«шкала-порог» через запятую, шкала raw | q, например q-5,raw-20 "
+                                                   "(нужен amazon-bridge)")) -> None:
     """Подбор толпы «ценность» (λ, веса звёзд) на валидации → лучшая в models/ease_like и models/mix_like;
     сетка ~50–70 мин. Сохранённая толпа всегда в сравнении; --lam / --weights — проверить одну настройку против неё
     (без --weights берутся −2/−1/0/1/2). После — `layers val` и `layers test`."""
     from booksengine.model import layers as ly
     from booksengine.paths import CLEAN_DIR, EVAL_DIR, MODELS_DIR, REPORTS_DIR, SPLIT_DIR
+    from booksengine.paths import AMAZON_CLEAN_DIR
     grid = ly.LIKE_GRID
     if lam is not None or weights:
         grid = [(lam if lam is not None else 500.0,
                  tuple(float(w) for w in weights.split(",")) if weights else ly.W0)]
+    if amazon:
+        from booksengine.model.base import read_params
+        saved = read_params(MODELS_DIR / "ease_like")
+        grid = [(lam if lam is not None else saved["lam"],
+                 tuple(float(w) for w in weights.split(",")) if weights else tuple(saved["weights"]), tag.strip())
+                for tag in amazon.split(",")]
     text = ly.report_like(ly.tune_like(clean_dir=CLEAN_DIR, split_dir=SPLIT_DIR, models_dir=MODELS_DIR,
                                        eval_dir=EVAL_DIR, grid=grid, force=force and (lam is not None or bool(weights)),
                                        min_user=min_user,
-                                       min_support=ly.MIN_SUPPORT if min_support is None else min_support))
-    REPORTS_DIR.mkdir(exist_ok=True)
+                                       min_support=ly.MIN_SUPPORT if min_support is None else min_support,
+                                       amazon_dir=AMAZON_CLEAN_DIR))
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     (REPORTS_DIR / "ease_like_tune.md").write_text(text)
     print(text)
 
@@ -213,7 +300,7 @@ def profile_check() -> None:
     from booksengine.model import layers as ly
     from booksengine.paths import CLEAN_DIR, MODELS_DIR, PROJECT_ROOT, REPORTS_DIR
     text = ly.profile_check(clean_dir=CLEAN_DIR, models_dir=MODELS_DIR, profiles_dir=PROJECT_ROOT / "profiles")
-    REPORTS_DIR.mkdir(exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     (REPORTS_DIR / "profile_check.md").write_text(text)
     print(text)
 
@@ -235,7 +322,7 @@ def taste_gap() -> None:
     from booksengine.model.evaluate import RATINGS
     from booksengine.paths import EVAL_DIR, MODELS_DIR, REPORTS_DIR, SPLIT_DIR
     text = tg.report(tg.run(ratings_path=RATINGS, split_dir=SPLIT_DIR, models_dir=MODELS_DIR, eval_dir=EVAL_DIR))
-    REPORTS_DIR.mkdir(exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     (REPORTS_DIR / "taste_gap.md").write_text(text)
     print(text)
 
