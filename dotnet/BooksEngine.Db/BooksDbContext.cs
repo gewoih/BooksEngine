@@ -68,6 +68,7 @@ public class BooksDbContext(DbContextOptions<BooksDbContext> options) : DbContex
             // Поиск по названию с опечатками и неполным вводом (pg_trgm).
             e.HasIndex(x => x.Title).HasMethod("gin").HasOperators("gin_trgm_ops");
             e.HasIndex(x => x.OriginalTitle).HasMethod("gin").HasOperators("gin_trgm_ops");
+            e.HasIndex(x => x.RuTitle).HasMethod("gin").HasOperators("gin_trgm_ops");
         });
 
         b.Entity<Edition>(e =>
@@ -82,6 +83,7 @@ public class BooksDbContext(DbContextOptions<BooksDbContext> options) : DbContex
         b.Entity<Author>(e =>
         {
             e.HasIndex(x => x.Name).HasMethod("gin").HasOperators("gin_trgm_ops");
+            e.HasIndex(x => x.RuName).HasMethod("gin").HasOperators("gin_trgm_ops");
         });
 
         b.Entity<WorkAuthor>(e =>

@@ -10,7 +10,8 @@ public static class UserRatings
     /// <summary>Оценки пользователя с внешним id книги — вход сервиса выдачи.</summary>
     public static async Task<List<UserRating>> LoadAsync(NpgsqlConnection c, long userId) =>
         (await c.QueryAsync<(long WorkId, short Value, bool Dnf, string Title, string Source, string Ext)>("""
-            SELECT r.work_id, r.value, coalesce(s.status = 'dnf', false), w.title, src.code, x.external_id
+            SELECT r.work_id, r.value, coalesce(s.status = 'dnf', false), coalesce(w.ru_title, w.title), src.code,
+                   x.external_id
             FROM ratings r JOIN works w ON w.id = r.work_id
             JOIN external_ids x ON x.internal_id = r.work_id AND x.entity_type = 'work'
             JOIN sources src ON src.id = x.source_id

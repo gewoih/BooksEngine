@@ -335,14 +335,26 @@ def taste_gap() -> None:
     print(text)
 
 
+@app.command("ru-titles")
+def ru_titles(top: int = typer.Option(30_000, "--top", help="сколько самых оцениваемых книг ядра переводить")) -> None:
+    """Русские названия книг и имена авторов (Fantlab, русские издания Goodreads, новинки Amazon) → data/ru/;
+    в БД — `export-app`. Прерывать можно: ответы Fantlab кэшируются."""
+    from booksengine.data import ru_titles as rt
+    from booksengine.paths import CLEAN_DIR, PROJECT_ROOT, domain_dirs
+    rt.build(clean_dir=CLEAN_DIR, goodreads_dir=domain_dirs(PROJECT_ROOT, "books")[0] / "clean",
+             out_dir=PROJECT_ROOT / "data" / "ru", top=top)
+
+
 @app.command("export-app")
 def export_app() -> None:
-    """Данные приложения → PostgreSQL: новые книги единой базы (`--domain books-amazon`), обложки, слияния теней.
+    """Данные приложения → PostgreSQL: новые книги единой базы (`--domain books-amazon`), русские названия
+    (`ru-titles`), обложки, слияния теней.
     Выдачу приложению считает `serve`."""
     from booksengine import app_export
     from booksengine.db_load import pg_dsn
     from booksengine.paths import CLEAN_DIR, PROJECT_ROOT, domain_dirs
-    app_export.run(clean_dir=CLEAN_DIR, goodreads_dir=domain_dirs(PROJECT_ROOT, "books")[0] / "clean", dsn=pg_dsn())
+    app_export.run(clean_dir=CLEAN_DIR, goodreads_dir=domain_dirs(PROJECT_ROOT, "books")[0] / "clean",
+                   ru_dir=PROJECT_ROOT / "data" / "ru", dsn=pg_dsn())
 
 @app.command("report-3a")
 def report_3a() -> None:

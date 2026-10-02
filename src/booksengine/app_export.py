@@ -3,8 +3,9 @@
 Выдачу приложению считает сервис `serve` (тот же код, что у `recommend`), модели в БД нет. Здесь — то, что нужно
 самому приложению:
 - новые книги единой базы (`--domain books-amazon`, после 2017 — их нет в Goodreads): произведения, новые авторы,
-  связи и жанр; внешний id — ключ «автор|название» (`merged.new_work_keys`), источник `amazon`. Название — как в
-  выдаче (`recommend.display_title`: «русское / английское», если перевод известен), английское — в original_title.
+  связи и жанр; внешний id — ключ «автор|название» (`merged.new_work_keys`), источник `amazon`; русское название,
+  если перевод известен, — в ru_title;
+- русские названия книг и имена авторов (`ru-titles` → data/ru/): works.ru_title, authors.ru_name;
   Книга, пропавшая из базы, удаляется; если её оценил пользователь приложения — выгрузка падает, оценки не теряются.
   База без новых книг (книжная) новые книги приложения не трогает;
 - обложки книг ядра (самое популярное издание с картинкой) и слияния теней Goodreads (импорт CSV).
@@ -17,7 +18,7 @@ import numpy as np
 import pandas as pd
 import psycopg
 
-from booksengine.data.merged import NEW_AUTHOR_OFFSET, author_key_sql, new_work_keys
+from booksengine.data.merged import NEW_AUTHOR_OFFSET, NEW_WORK_OFFSET, author_key_sql, new_work_keys
 from booksengine.model.matrix import catalog_works
 
 
@@ -52,10 +53,8 @@ def new_works(clean_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame
         SELECT k.key, g.genre, g.votes, g.share FROM read_parquet(?) g JOIN k USING (work_id) ORDER BY 1, 2""",
                          [str(clean_dir / "work_genres.parquet")]).df()
     con.close()
-    shown = works.ru_title.where(works.ru_title.notna() & works.ru_title.ne(""))
-    works["original_title"] = works.title.where(shown.notna())
-    works["title"] = (shown + " / " + works.title).fillna(works.title)
-    return works.drop(columns="ru_title"), authors, genres
+    works["ru_title"] = works.ru_title.where(works.ru_title.notna() & works.ru_title.ne(""))
+    return works, authors, genres
 
 
 def _source(conn: psycopg.Connection, code: str) -> int:
@@ -77,9 +76,9 @@ def _temp(conn: psycopg.Connection, name: str, ddl: str, rows) -> None:
 def _write_new_works(conn: psycopg.Connection, works: pd.DataFrame, authors: pd.DataFrame,
                      genres: pd.DataFrame) -> dict[str, int]:
     gr, az = _source(conn, "goodreads"), _source(conn, "amazon")
-    _temp(conn, "nw", "key text, title text, original_title text, publication_year integer, language_code text, "
+    _temp(conn, "nw", "key text, title text, ru_title text, publication_year integer, language_code text, "
           "is_collection boolean, in_cf boolean, cf_ratings integer, cf_mean_rating double precision",
-          works[["key", "title", "original_title", "publication_year", "language_code", "is_collection", "in_cf",
+          works[["key", "title", "ru_title", "publication_year", "language_code", "is_collection", "in_cf",
                  "cf_ratings", "cf_mean_rating"]].astype(object).itertuples(index=False))
     _temp(conn, "nwa", "key text, role text, position smallint, name text, gr_author bigint, author_key text",
           authors.astype(object).itertuples(index=False))
@@ -107,7 +106,7 @@ def _write_new_works(conn: psycopg.Connection, works: pd.DataFrame, authors: pd.
         CREATE TEMP TABLE nw_id ON COMMIT DROP AS
         SELECT nw.*, x.internal_id AS id FROM nw
         JOIN external_ids x ON x.source_id = {az} AND x.entity_type = 'work' AND x.external_id = nw.key""")
-    cols = ["title", "original_title", "publication_year", "language_code", "is_collection", "in_cf", "cf_ratings",
+    cols = ["title", "ru_title", "publication_year", "language_code", "is_collection", "in_cf", "cf_ratings",
             "cf_mean_rating"]
     out["новых книг вставлено/изменено"] = conn.execute(f"""
         INSERT INTO works (id, {', '.join(cols)}) SELECT id, {', '.join(cols)} FROM nw_id
@@ -156,13 +155,40 @@ def _write_new_works(conn: psycopg.Connection, works: pd.DataFrame, authors: pd.
     return out
 
 
+def _write_russian(conn: psycopg.Connection, titles: pd.DataFrame, names: pd.DataFrame) -> dict[str, int]:
+    """Русские названия книг Goodreads и имена авторов Goodreads (data/ru/) — по внешним id; прежние, которых больше
+    нет, стираются. У новых книг Amazon русское название пишет `_write_new_works`."""
+    gr = _source(conn, "goodreads")
+    titles = titles[titles.work_id < NEW_WORK_OFFSET]
+    _temp(conn, "ru_w", "ext text, ru text", ((str(int(w)), t) for w, t in zip(titles.work_id, titles.ru_title)))
+    _temp(conn, "ru_a", "ext text, ru text", ((str(int(a)), n) for a, n in zip(names.author_id, names.ru_name)))
+    out = {}
+    for table, kind, col, tmp in (("works", "work", "ru_title", "ru_w"), ("authors", "author", "ru_name", "ru_a")):
+        conn.execute(f"""
+            CREATE TEMP TABLE {tmp}_id ON COMMIT DROP AS
+            SELECT x.internal_id AS id, t.ru FROM {tmp} t
+            JOIN external_ids x ON x.source_id = {gr} AND x.entity_type = '{kind}' AND x.external_id = t.ext""")
+        conn.execute(f"""
+            UPDATE {table} t SET {col} = NULL FROM external_ids x
+            WHERE x.source_id = {gr} AND x.entity_type = '{kind}' AND x.internal_id = t.id AND t.{col} IS NOT NULL
+              AND t.id NOT IN (SELECT id FROM {tmp}_id)""")
+        out[f"{table}: по-русски"] = conn.execute(f"""
+            UPDATE {table} t SET {col} = r.ru FROM {tmp}_id r
+            WHERE t.id = r.id AND t.{col} IS DISTINCT FROM r.ru""").rowcount
+    return out
+
+
 def write(dsn: str, *, works: pd.DataFrame, authors: pd.DataFrame, genres: pd.DataFrame, covers_: pd.DataFrame,
-          merges: pd.DataFrame) -> dict[str, int]:
-    """Перезаписать данные приложения одной транзакцией: упало — остаётся прежнее целиком."""
+          merges: pd.DataFrame, ru_titles: pd.DataFrame | None = None,
+          ru_names: pd.DataFrame | None = None) -> dict[str, int]:
+    """Перезаписать данные приложения одной транзакцией: упало — остаётся прежнее целиком. ru_titles/ru_names —
+    data/ru/ (`ru-titles`); None — русские названия не трогать."""
     with psycopg.connect(dsn) as conn:
         if not conn.execute("SELECT pg_try_advisory_xact_lock(hashtext('booksengine.export-app'))").fetchone()[0]:
             raise RuntimeError("Другая выгрузка уже идёт в эту БД")
         out = _write_new_works(conn, works, authors, genres) if len(works) else {}
+        if ru_titles is not None:
+            out |= _write_russian(conn, ru_titles, ru_names)
         gr = _source(conn, "goodreads")
         need = [str(int(g)) for g in pd.concat([covers_.gr_work_id, merges.main_gr]).unique()]
         found = dict(conn.execute(f"""
@@ -183,13 +209,17 @@ def write(dsn: str, *, works: pd.DataFrame, authors: pd.DataFrame, genres: pd.Da
     return out
 
 
-def run(*, clean_dir: Path, goodreads_dir: Path, dsn: str) -> dict[str, int]:
-    """clean_dir — база домена (единая — с новыми книгами), goodreads_dir — очищенный Goodreads (издания)."""
+def run(*, clean_dir: Path, goodreads_dir: Path, ru_dir: Path, dsn: str) -> dict[str, int]:
+    """clean_dir — база домена (единая — с новыми книгами), goodreads_dir — очищенный Goodreads (издания),
+    ru_dir — русские названия (`ru-titles`; нет — не трогать)."""
     works, authors, genres = new_works(clean_dir)
     merges = (pd.read_parquet(clean_dir / "work_merges.parquet")
               .rename(columns={"shadow_work_id": "shadow_gr", "main_work_id": "main_gr"})[["shadow_gr", "main_gr"]])
     out = write(dsn, works=works, authors=authors, genres=genres,
-                covers_=covers(goodreads_dir, catalog_works(clean_dir / "ratings.parquet")), merges=merges)
+                covers_=covers(goodreads_dir, catalog_works(clean_dir / "ratings.parquet")), merges=merges,
+                **({"ru_titles": pd.read_parquet(ru_dir / "titles.parquet"),
+                    "ru_names": pd.read_parquet(ru_dir / "authors.parquet")}
+                   if (ru_dir / "titles.parquet").exists() else {}))
     for k, v in out.items():
         print(f"  {k}: {v}")
     return out

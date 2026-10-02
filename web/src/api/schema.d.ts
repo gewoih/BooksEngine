@@ -393,6 +393,7 @@ export interface components {
             /** Format: int64 */
             workId: number;
             title: string;
+            titleEn: null | string;
             author: null | string;
             /** Format: int32 */
             year: null | number;

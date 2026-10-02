@@ -21,6 +21,7 @@ export default function WorkDrawer() {
           <Group align="flex-start" wrap="nowrap">
             <Cover url={w.largeCoverUrl} size="l" title={w.book.title} />
             <Stack gap={4}>
+              {w.book.titleEn && <Text c="dimmed">{w.book.titleEn}</Text>}
               <Text>{w.authors.join(", ")}</Text>
               {w.book.year && <Text c="dimmed">{w.book.year}</Text>}
               <Text size="sm" c="dimmed">оценок у читателей базы: {w.book.cfRatings}</Text>

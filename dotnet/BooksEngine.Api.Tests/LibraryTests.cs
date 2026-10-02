@@ -17,10 +17,21 @@ public sealed class LibraryTests(TestDb db)
         var c = await api.LoggedInClientAsync("lib");
         var page = await Get(c, "");
         Assert.Equal(6, page.Total);                                               // Rare Book вне ядра — нет
-        Assert.Equal(["The Hobbit", "Dune", "Emma", "Dune Messiah", "Solaris", "Новая / New Book"], page.Items.Select(b => b.Title));
+        Assert.Equal(["The Hobbit", "Дюна", "Emma", "Dune Messiah", "Solaris", "Новая"], page.Items.Select(b => b.Title));
         var dune = page.Items.Single(b => b.WorkId == 1001);
-        Assert.Equal(("Frank Herbert", (int?)1965, "https://images.gr-assets.com/books/1m/1.jpg", true),
-                     (dune.Author, dune.Year, dune.CoverUrl, dune.InCore));
+        Assert.Equal(("Фрэнк Герберт", "Dune", (int?)1965, "https://images.gr-assets.com/books/1m/1.jpg", true),
+                     (dune.Author, dune.TitleEn, dune.Year, dune.CoverUrl, dune.InCore));
+        Assert.Null(page.Items.Single(b => b.WorkId == 1006).TitleEn);              // перевода нет — английское
+    }
+
+    [Fact]
+    public async Task Search_finds_by_russian_title_and_russian_author_name()
+    {
+        Assert.SkipUnless(db.Available, "PostgreSQL недоступен");
+        await using var api = new ApiFactory(db);
+        var c = await api.LoggedInClientAsync("ru");
+        Assert.Equal(1001L, (await Get(c, "?q=Дюна")).Items.First().WorkId);
+        Assert.Equal([1001L, 1002L], (await Get(c, "?q=Герберт")).Items.Select(b => b.WorkId).Order());
     }
 
     [Theory]

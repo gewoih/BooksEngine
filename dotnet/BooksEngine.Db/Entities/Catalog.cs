@@ -32,6 +32,8 @@ public class Work
     public long Id { get; set; }
     public required string Title { get; set; }
     public string? OriginalTitle { get; set; }
+    /// <summary>Русское название для интерфейса (`booksengine ru-titles`, `export-app`); null — не нашлось.</summary>
+    public string? RuTitle { get; set; }
     public long? BestEditionId { get; set; }
     public int? PublicationYear { get; set; }
     public string? LanguageCode { get; set; }
@@ -80,6 +82,8 @@ public class Author
     public long Id { get; set; }
     /// <summary>В источнике у 2 авторов имени нет, но на них ссылаются произведения.</summary>
     public string? Name { get; set; }
+    /// <summary>Имя по-русски (Fantlab, `export-app`); null — не нашлось.</summary>
+    public string? RuName { get; set; }
     public double? AverageRating { get; set; }
     public long? RatingsCount { get; set; }
 }

@@ -45,7 +45,7 @@ public sealed class TestDb : IAsyncLifetime
     // Внутренние id = Goodreads-id + 1000, чтобы тесты ловили путаницу id.
     // 1001 Dune, 1002 Dune Messiah (серия), 1003 Solaris, 1004 Emma, 1005 Rare (вне ядра), 1006 Hobbit,
     // 1777 — тень Emma (вне ядра, слита в 1004 через work_merges; её издание 2777 — в каталоге),
-    // 1008 — новая книга Amazon (внешний id — ключ «автор|название»).
+    // 1008 — новая книга Amazon (внешний id — ключ «автор|название»). По-русски — Дюна (Фрэнк Герберт) и Новая.
     public Task SeedCatalogAsync() => ExecAsync("""
         INSERT INTO authors (id, name) VALUES (1, 'Frank Herbert'), (2, 'Stanisław Lem'), (3, 'Jane Austen'), (4, 'J.R.R. Tolkien');
         INSERT INTO works (id, title, publication_year, is_collection, in_cf, cf_ratings, description) VALUES
@@ -56,7 +56,10 @@ public sealed class TestDb : IAsyncLifetime
           (1005, 'Rare Book', 2001, false, false, 3, NULL),
           (1006, 'The Hobbit', 1937, false, true, 9000, NULL),
           (1777, 'Emma', 1815, false, false, 2, NULL),
-          (1008, 'Новая / New Book', 2019, false, true, 150, NULL);
+          (1008, 'New Book', 2019, false, true, 150, NULL);
+        UPDATE works SET ru_title = 'Дюна' WHERE id = 1001;
+        UPDATE works SET ru_title = 'Новая' WHERE id = 1008;
+        UPDATE authors SET ru_name = 'Фрэнк Герберт' WHERE id = 1;
         INSERT INTO editions (id, work_id, title) VALUES
           (2001, 1001, 'Dune'), (2002, 1003, 'Солярис'), (2003, 1004, 'Emma'), (2004, 1005, 'Rare Book'), (2005, 1006, 'Хоббит'), (2777, 1777, 'Эмма');
         INSERT INTO work_authors (work_id, author_id, role, position) VALUES

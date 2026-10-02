@@ -6,8 +6,9 @@ public record UserDto(long Id, string Name);
 public record CreateUserRequest(string Name);
 public record SessionRequest(long UserId);
 
-public record BookDto(long WorkId, string Title, string? Author, int? Year, string? CoverUrl, int CfRatings,
-                      int? MyRating, bool MyDnf, bool InCore);
+/// <summary>Title — по-русски, если перевод известен (works.ru_title), тогда TitleEn — английское; Author — тоже.</summary>
+public record BookDto(long WorkId, string Title, string? TitleEn, string? Author, int? Year, string? CoverUrl,
+                      int CfRatings, int? MyRating, bool MyDnf, bool InCore);
 public record PageDto<T>(IReadOnlyList<T> Items, int Page, int PageSize, int Total);
 
 /// <summary>Оценка 1–5 или «бросил» (Dnf = true, Value игнорируется): бросил = 1 + полка dnf.</summary>

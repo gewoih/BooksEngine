@@ -20,7 +20,7 @@ public static class WorksEndpoints
             if (book is null) return Results.NotFound("нет такой книги");
             var description = await c.ExecuteScalarAsync<string?>("SELECT description FROM works WHERE id = @id", new { id });
             var authors = (await c.QueryAsync<string>("""
-                SELECT a.name FROM work_authors wa JOIN authors a ON a.id = wa.author_id
+                SELECT coalesce(a.ru_name, a.name) FROM work_authors wa JOIN authors a ON a.id = wa.author_id
                 WHERE wa.work_id = @id AND coalesce(wa.role, '') = '' AND a.name IS NOT NULL ORDER BY wa.position
                 """, new { id })).ToList();
             var genres = (await c.QueryAsync<string>("""

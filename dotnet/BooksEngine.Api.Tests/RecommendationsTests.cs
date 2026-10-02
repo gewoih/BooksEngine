@@ -22,7 +22,7 @@ public sealed class RecommendationsTests(TestDb db)
         var sent = api.Recommender.LastRatings!.AsArray();
         Assert.Equal(["1", "3"], sent.Select(x => x!["id"]!.GetValue<string>()));          // Goodreads-id, не внутренние
         Assert.True(sent[1]!["dnf"]!.GetValue<bool>());
-        Assert.Equal("Dune", sent[0]!["title"]!.GetValue<string>());
+        Assert.Equal("Дюна", sent[0]!["title"]!.GetValue<string>());                       // по-русски — для подписей
 
         Assert.Equal(2, r.UsedRatings);
         Assert.Equal("5★", r.ChanceLabel);
@@ -81,7 +81,7 @@ public sealed class RecommendationsTests(TestDb db)
         await c.PutAsJsonAsync("/api/me/ratings/1003", new RateRequest(5, false));
         var dune = (await c.GetFromJsonAsync<WorkDetailDto>("/api/works/1001"))!;
         Assert.Equal("spice", dune.Description);
-        Assert.Equal(["Frank Herbert"], dune.Authors);
+        Assert.Equal(["Фрэнк Герберт"], dune.Authors);
         Assert.True(dune.InModel);
         Assert.Equal("https://images.gr-assets.com/books/1l/1.jpg", dune.LargeCoverUrl);
         Assert.Equal((42, "5★"), (dune.ChancePct, dune.ChanceLabel));

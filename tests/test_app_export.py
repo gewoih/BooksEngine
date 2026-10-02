@@ -30,14 +30,14 @@ def test_new_work_key_is_author_and_short_title(base):
 def test_new_works_show_russian_title_and_new_author_by_name_key(base):
     works, authors, genres = ax.new_works(base)
     w = works.iloc[0]
-    assert (w.key, w.title, w.original_title) == ("tarawestover|educated", "Ученица / Educated", "Educated")
+    assert (w.key, w.title, w.ru_title) == ("tarawestover|educated", "Educated", "Ученица")
     a = authors.iloc[0]
     assert pd.isna(a.gr_author) and a.author_key == "tarawestover" and a["name"] == "Tara Westover"
 
 
 def _new_rows(conn):
     return conn.execute("""
-        SELECT x.external_id, w.title, a.name FROM external_ids x JOIN works w ON w.id = x.internal_id
+        SELECT x.external_id, coalesce(w.ru_title, w.title), a.name FROM external_ids x JOIN works w ON w.id = x.internal_id
         JOIN work_authors wa ON wa.work_id = w.id JOIN authors a ON a.id = wa.author_id
         WHERE x.source_id = 2 AND x.entity_type = 'work'""").fetchall()
 
@@ -52,12 +52,12 @@ def test_write_is_idempotent_and_refuses_to_drop_rated_books(base, dsn):
     again = ax.write(dsn, works=works, authors=authors, genres=genres, **kw)
     assert again["новых книг вставлено/изменено"] == 0
     with psycopg.connect(dsn) as conn:
-        assert _new_rows(conn) == [("tarawestover|educated", "Ученица / Educated", "Tara Westover")]
+        assert _new_rows(conn) == [("tarawestover|educated", "Ученица", "Tara Westover")]
         wid = conn.execute("SELECT internal_id FROM external_ids WHERE source_id = 2 AND entity_type = 'work'").fetchone()[0]
         uid = conn.execute("INSERT INTO app_users (name) VALUES ('u') RETURNING id").fetchone()[0]
         conn.execute("INSERT INTO ratings (user_id, work_id, value) VALUES (%s, %s, 5)", (uid, wid))
     # база пересобрана: Educated больше нет, вместо неё другая книга
-    other = dict(works=works.assign(key="tarawestover|other", title="Other"),
+    other = dict(works=works.assign(key="tarawestover|other", title="Other", ru_title=None),
                  authors=authors.assign(key="tarawestover|other"), genres=genres.assign(key="tarawestover|other"))
     with pytest.raises(RuntimeError, match="оценили пользователи"):           # оценённую книгу не удалить молча
         ax.write(dsn, **other, **kw)
@@ -71,3 +71,31 @@ def test_write_is_idempotent_and_refuses_to_drop_rated_books(base, dsn):
     ax.write(dsn, works=works.iloc[:0], authors=authors.iloc[:0], genres=genres.iloc[:0], **kw)
     with psycopg.connect(dsn) as conn:
         assert len(_new_rows(conn)) == 1
+
+
+def test_russian_titles_and_names_by_goodreads_id_and_stale_ones_cleared(dsn, tmp_path):
+    from tests.test_db_load import _catalog, _write
+    from booksengine import db_load
+    clean = _write(tmp_path / "clean", _catalog())
+    db_load.load(clean, dsn)
+    kw = dict(works=pd.DataFrame(), authors=pd.DataFrame(), genres=pd.DataFrame(),
+              covers_=pd.DataFrame({"gr_work_id": pd.Series(dtype="int64"), "image_url": pd.Series(dtype=str)}),
+              merges=pd.DataFrame({"shadow_gr": pd.Series(dtype="int64"), "main_gr": pd.Series(dtype="int64")}))
+    names = pd.DataFrame({"author_id": [7], "ru_name": ["Фрэнк Герберт"]})
+    out = ax.write(dsn, **kw, ru_titles=pd.DataFrame({"work_id": [300, 100], "ru_title": ["Дюна", "Солярис"]}),
+                   ru_names=names)
+    assert out["works: по-русски"] == 2 and out["authors: по-русски"] == 1
+
+    def ru(conn):
+        return dict(conn.execute("""
+            SELECT x.external_id, w.ru_title FROM works w JOIN external_ids x ON x.internal_id = w.id
+            AND x.entity_type = 'work' AND x.source_id = 1""").fetchall())
+    with psycopg.connect(dsn) as conn:
+        assert ru(conn) == {"300": "Дюна", "100": "Солярис", "200": None}
+    ax.write(dsn, **kw, ru_titles=pd.DataFrame({"work_id": [300], "ru_title": ["Дюна"]}), ru_names=names)
+    with psycopg.connect(dsn) as conn:
+        assert ru(conn)["100"] is None                                       # пропало из data/ru — стёрто
+        assert conn.execute("SELECT ru_name FROM authors WHERE ru_name IS NOT NULL").fetchall() == [("Фрэнк Герберт",)]
+    ax.write(dsn, **kw)                                                      # без data/ru — не трогать
+    with psycopg.connect(dsn) as conn:
+        assert ru(conn)["300"] == "Дюна"
