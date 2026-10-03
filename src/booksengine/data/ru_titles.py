@@ -5,7 +5,9 @@
    (до двоеточия и скобки), книга берётся, только если у найденного совпадает название (основное или одно из
    альтернативных) и фамилия основного автора; из нескольких — самое оцениваемое. Неверное русское название хуже
    английского: путает, какую книгу искать.
-2. Русское издание Goodreads (язык rus или ISBN 978-5): самое оцениваемое, без «(серия, #N)».
+2. Русское издание Goodreads (язык rus или ISBN 978-5): самое оцениваемое, без «(серия, #N)» и приписок после
+   двоеточия. По его названию — второй поиск на Fantlab (`pick_russian`): так находятся русские книги и их авторы
+   (Fantlab хранит их под русским оригиналом, по английскому названию не найти).
 3. У новых книг Amazon — `ru_title` единой базы (Wikidata и разметка `config/amazon_ru_titles.csv`).
 Ответы Fantlab кэшируются (`fantlab_cache.jsonl`): прогон можно прерывать и продолжать.
 """
@@ -39,6 +41,40 @@ def norm(s: str | None) -> str:
 def surname(author: str | None) -> str:
     words = norm(author).split()
     return words[-1] if words else ""
+
+
+_TRANSLIT = dict(zip("абвгдеёжзийклмнопрстуфхцчшщъыьэюя",
+                     ["a", "b", "v", "g", "d", "e", "e", "zh", "z", "i", "i", "k", "l", "m", "n", "o", "p", "r", "s",
+                      "t", "u", "f", "kh", "ts", "ch", "sh", "shch", "", "y", "", "e", "iu", "ia"]))
+
+
+def translit(s: str) -> str:
+    """Кириллица → латиница, грубо (для сравнения фамилий: «Булгаков» → bulgakov)."""
+    return "".join(_TRANSLIT.get(c, c) for c in (s or "").lower())
+
+
+def same_surname(english_author: str, russian_author: str) -> bool:
+    """Фамилия автора по-английски и русское имя с Fantlab — одна ли (Bulgakov / Михаил Булгаков,
+    Dostoyevsky / Фёдор Достоевский): сходство транслитерации, разное написание (y/i, ks/x) допускается."""
+    from difflib import SequenceMatcher
+    a, words = surname(english_author), norm(russian_author).split()
+    if not a or not words:
+        return False
+    b = translit(words[-1])
+    return SequenceMatcher(None, a.replace("y", "i").replace("x", "ks"),
+                           b.replace("y", "i")).ratio() >= 0.75
+
+
+def pick_russian(matches: list[dict], ru_title: str, author: str) -> dict | None:
+    """Второй проход: книга, у которой русское название уже известно (русское издание Goodreads), — на Fantlab по нему:
+    у русских книг Fantlab хранит русский оригинал, и по английскому названию они не находятся. Та же книга — если
+    совпало русское название и фамилия автора (`same_surname`); даёт русское имя автора и название без приписок
+    издания («Собачье сердце: роман, повести, рассказы» → «Собачье сердце»)."""
+    t = norm(ru_title)
+    ok = [m for m in matches
+          if m.get("name_eng") not in SKIP_TYPES and m.get("rusname") and norm(m["rusname"]) == t
+          and same_surname(author, m.get("autor1_rusname") or m.get("all_autor_name"))]
+    return max(ok, key=lambda m: m.get("markcount") or 0, default=None)
 
 
 def pick(matches: list[dict], title: str, author: str) -> dict | None:
@@ -144,7 +180,21 @@ def build(*, clean_dir: Path, goodreads_dir: Path, out_dir: Path, top: int | Non
     fantlab = pd.DataFrame(rows, columns=["work_id", "ru_title", "source"])
     gr = goodreads_ru(goodreads_dir)
     gr = gr[gr.index.isin(b.work_id) & ~gr.index.isin(fantlab.work_id)]
-    parts = [fantlab, pd.DataFrame({"work_id": gr.index, "ru_title": gr.to_numpy(), "source": "goodreads"})]
+    # второй проход: книги с русским названием из изданий Goodreads (в основном русские) — на Fantlab по нему
+    by_work = b.set_index("work_id")
+    second = [(w, t, by_work.author[w], by_work.author_id[w]) for w, t in gr.items() if surname(by_work.author[w])]
+    fl.prefetch([query(t) for _, t, _, _ in second], log=log)
+    found = {}
+    for w, t, author, author_id in second:
+        m = pick_russian(fl.search(query(t)), query(t), author)
+        if m:
+            found[w] = m["rusname"]
+            if m.get("autor1_rusname") and not m.get("autor2_id"):
+                names.append((author_id, m["autor1_rusname"]))
+    log(f"второй проход: {len(found)} из {len(second)} русских изданий найдены на Fantlab", flush=True)
+    gr_rows = pd.DataFrame({"work_id": gr.index, "ru_title": [found.get(w, query(t)) for w, t in gr.items()],
+                            "source": ["fantlab-ru" if w in found else "goodreads" for w in gr.index]})
+    parts = [fantlab, gr_rows]
     cols = set(duckdb.execute("DESCRIBE SELECT * FROM read_parquet(?)", [str(clean_dir / "works.parquet")]).df()
                .column_name)
     if "ru_title" in cols:
