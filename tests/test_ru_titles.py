@@ -36,3 +36,16 @@ def test_fantlab_answers_are_cached(tmp_path):
     cache.write_text(json.dumps({"q": "Dune", "matches": [_m(rusname="Дюна", name="Dune")]}, ensure_ascii=False) + "\n")
     fl = rt.Fantlab(cache)
     assert fl.search("Dune")[0]["rusname"] == "Дюна"                 # из кэша, без сети
+
+
+def test_russian_second_pass_matches_by_russian_title_and_transliterated_surname():
+    assert rt.same_surname("Mikhail Bulgakov", "Михаил Булгаков")
+    assert rt.same_surname("Fyodor Dostoyevsky", "Фёдор Достоевский")
+    assert not rt.same_surname("Mikhail Bulgakov", "Лев Толстой")
+    dog = _m(rusname="Собачье сердце", name="Собачье сердце", all_autor_name="Михаил Булгаков",
+             autor1_rusname="Михаил Булгаков", name_eng="story")
+    other = _m(rusname="Собачье сердце", name="Собачье сердце", all_autor_name="Иван Иванов",
+               autor1_rusname="Иван Иванов", name_eng="story")
+    assert rt.query("Собачье сердце: роман, повести, рассказы") == "Собачье сердце"
+    assert rt.pick_russian([other, dog], "Собачье сердце", "Mikhail Bulgakov") is dog
+    assert rt.pick_russian([dog], "Белая гвардия", "Mikhail Bulgakov") is None

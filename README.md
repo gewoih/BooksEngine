@@ -136,6 +136,9 @@ uv run booksengine load-db                                  # каталог и�
 
 ### Веб-интерфейс
 
+Запуск сайта одной командой (после перезагрузки тоже): `scripts/app.sh` — БД, сервис выдачи, API и фронт в
+фоне, логи — `reports/app-*.log`; `scripts/app.sh stop` — остановить. Подготовка данных — один раз:
+
 ```bash
 uv run booksengine --domain books-amazon ru-titles      # русские названия → data/ru/ (разово, ~2.5 ч)
 uv run booksengine --domain books-amazon export-app     # новинки, русские названия, обложки → БД; после load-db
