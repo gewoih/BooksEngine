@@ -65,3 +65,15 @@ def test_reports_dir_is_separate_for_non_book_domains(tmp_path):
     from booksengine.paths import reports_dir
     assert reports_dir(tmp_path, "books") == tmp_path / "reports"
     assert reports_dir(tmp_path, "books-amazon") == tmp_path / "reports" / "books-amazon"
+
+
+def test_models_option_moves_models_and_reports_but_not_data():
+    import os
+    import subprocess
+    import sys
+    env = os.environ | {"BOOKSENGINE_DOMAIN": "books-amazon", "BOOKSENGINE_MODELS": "books-amazon-40k"}
+    env.pop("DATA_DIR", None)
+    out = subprocess.run([sys.executable, "-c", "from booksengine import paths as p; "
+                          "print(p.DATA_DIR.name, p.MODELS_DIR.name, p.EVAL_DIR.parent.name, p.REPORTS_DIR.name)"],
+                         env=env, capture_output=True, text=True, check=True).stdout.split()
+    assert out == ["books-amazon", "books-amazon-40k", "books-amazon-40k", "books-amazon-40k"]

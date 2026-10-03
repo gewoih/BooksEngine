@@ -9,18 +9,18 @@ namespace BooksEngine.Api.Endpoints;
 
 public static class WorksEndpoints
 {
-    private const int SimilarCount = 10;
-
     public static void MapWorks(this RouteGroupBuilder api)
     {
-        api.MapGet("/works/{id:long}", async (long id, ClaimsPrincipal user, NpgsqlDataSource ds, ModelStore store) =>
+        api.MapGet("/works/{id:long}", async (long id, ClaimsPrincipal user, NpgsqlDataSource ds, RecommenderClient svc,
+            CancellationToken ct) =>
         {
-            await using var c = await ds.OpenConnectionAsync();
-            var book = (await BookQueries.ByIdsAsync(c, [id], user.UserId())).SingleOrDefault();
+            await using var c = await ds.OpenConnectionAsync(ct);
+            var userId = user.UserId();
+            var book = (await BookQueries.ByIdsAsync(c, [id], userId)).SingleOrDefault();
             if (book is null) return Results.NotFound("нет такой книги");
             var description = await c.ExecuteScalarAsync<string?>("SELECT description FROM works WHERE id = @id", new { id });
             var authors = (await c.QueryAsync<string>("""
-                SELECT a.name FROM work_authors wa JOIN authors a ON a.id = wa.author_id
+                SELECT coalesce(a.ru_name, a.name) FROM work_authors wa JOIN authors a ON a.id = wa.author_id
                 WHERE wa.work_id = @id AND coalesce(wa.role, '') = '' AND a.name IS NOT NULL ORDER BY wa.position
                 """, new { id })).ToList();
             var genres = (await c.QueryAsync<string>("""
@@ -28,22 +28,21 @@ public static class WorksEndpoints
                 ORDER BY wg.votes DESC, g.name
                 """, new { id })).ToList();
 
-            // шанс и похожие — только у книг EASE (30 000): у остальных «мало данных»
-            var m = store.Current;
-            int? chance = null;
+            // шанс и похожие — от сервиса выдачи; он не запущен — карточка без них
+            ServiceChance? chance = null;
             var similar = new List<BookDto>();
-            if (m is not null && m.InEase(id))
-            {
-                if (book.MyRating is null)
-                    chance = Recommender.ChanceFor(m, await UserScoring.ForUserAsync(c, m, user.UserId()), id);
-                var pos = m.EasePosByCol[m.ColByWork[id]];
-                var ids = Enumerable.Range(m.EaseRowPtr[pos], m.EaseRowPtr[pos + 1] - m.EaseRowPtr[pos])
-                    .Where(e => m.EaseWeight[e] > 0).OrderByDescending(e => m.EaseWeight[e]).Take(SimilarCount)
-                    .Select(e => m.WorkIdByCol[m.EaseCols[m.EaseTo[e]]]).ToList();
-                similar = await BookQueries.ByIdsAsync(c, ids, user.UserId());
-            }
+            if (await UserRatings.RefAsync(c, id) is { } work)
+                try
+                {
+                    var ratings = UserRatings.ForService(await UserRatings.LoadAsync(c, userId));
+                    chance = await svc.ChanceAsync(ratings, work, ct);
+                    var refs = await svc.SimilarAsync(work, ct);
+                    var ids = await UserRatings.IdsAsync(c, refs);
+                    similar = await BookQueries.ByIdsAsync(c, refs.Where(ids.ContainsKey).Select(r => ids[r]).ToList(), userId);
+                }
+                catch (RecommenderUnavailableException) { }
             return Results.Ok(new WorkDetailDto(book, BookQueries.LargeCover(book.CoverUrl), description, authors, genres,
-                chance, m?.InEase(id) ?? false, similar));
+                book.MyRating is null ? chance?.Chance : null, chance?.ChanceLabel, chance?.InModel ?? false, similar));
         }).RequireAuthorization().Produces<WorkDetailDto>();
     }
 }

@@ -14,6 +14,7 @@ export default function BookRow({ book, extra, ratingAlwaysVisible }:
       <Cover url={book.coverUrl} title={book.title} />
       <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
         <Anchor component="button" onClick={open} fw={600} ta="left" lineClamp={2}>{book.title}</Anchor>
+        {book.titleEn && <Text size="xs" c="dimmed" lineClamp={1}>{book.titleEn}</Text>}
         <Text size="sm" c="dimmed">{[book.author, book.year].filter(Boolean).join(", ")}</Text>
         {!book.inCore && <Badge size="xs" color="gray">не влияет на рекомендации</Badge>}
         {extra}

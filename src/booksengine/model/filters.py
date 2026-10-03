@@ -20,7 +20,7 @@
 """
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 
 import duckdb
@@ -96,20 +96,25 @@ def work_info(clean_dir: Path, work_ids: np.ndarray) -> pd.DataFrame:
     cols = set(duckdb.execute("DESCRIBE SELECT * FROM read_parquet(?)", [str(clean_dir / "works.parquet")]
                               ).df().column_name)
     ru_title = "w.ru_title" if "ru_title" in cols else "NULL::VARCHAR"
-    d = duckdb.execute(f"""
+    # только нужные книги: у профиля в приложении — десяток книг вне ядра, без отбора — 4 с на весь каталог
+    con = duckdb.connect()
+    con.register("ids", pd.DataFrame({"work_id": np.asarray(work_ids, dtype=np.int64)}))
+    d = con.execute(f"""
         WITH prim AS (
             SELECT work_id, arg_min(author_id, (coalesce(role, '') <> '')::INT * 100000 + position) AS author_id
-            FROM read_parquet(?)
+            FROM read_parquet(?) SEMI JOIN ids USING (work_id)
             WHERE coalesce(role, '') = '' OR regexp_matches(lower(role), '{AUTHOR_ROLES}') GROUP BY 1),
-        everyone AS (SELECT work_id, list(DISTINCT author_id) AS authors FROM read_parquet(?) GROUP BY 1)
+        everyone AS (SELECT work_id, list(DISTINCT author_id) AS authors FROM read_parquet(?) SEMI JOIN ids USING (work_id)
+                     GROUP BY 1)
         SELECT w.work_id, w.title, w.original_title, w.best_edition_title, a.name AS author, p.author_id, e.authors,
                {title_key_sql('w.title')} AS key, {series_no_sql('w.best_edition_title')} AS series_no,
                coalesce(w.is_collection, false) OR w.title LIKE '% / %' AS is_collection,
                {ru_title} AS ru_title
-        FROM read_parquet(?) w
+        FROM read_parquet(?) w SEMI JOIN ids USING (work_id)
         LEFT JOIN prim p USING (work_id) LEFT JOIN everyone e USING (work_id) LEFT JOIN read_parquet(?) a USING (author_id)
     """, [str(clean_dir / "work_authors.parquet"), str(clean_dir / "work_authors.parquet"),
           str(clean_dir / "works.parquet"), str(clean_dir / "authors.parquet")]).df()
+    con.close()
     d = d.set_index("work_id").reindex(work_ids)
     if d.title.isna().any():
         raise ValueError("в works.parquet нет части книг ядра")
@@ -152,6 +157,11 @@ class Books:
         names[:] = [tuple({w for w in map(name_words, v) if w}) for v in zip(*cols)]
         return cls(author, info.key.to_numpy(), info.series_no.to_numpy(),
                    info.is_collection.fillna(False).to_numpy(dtype=bool), authors, names)
+
+    @classmethod
+    def concat(cls, a: "Books", b: "Books") -> "Books":
+        """Книги a, затем b — столбцы b идут после столбцов a."""
+        return cls(*(np.concatenate([getattr(a, f.name), getattr(b, f.name)]) for f in fields(cls)))
 
     def same(self, i: int, j: int) -> bool:
         """Одно ли произведение книги i и j (правила — в описании модуля)."""

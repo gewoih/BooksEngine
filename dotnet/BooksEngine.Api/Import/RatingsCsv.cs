@@ -6,11 +6,14 @@ namespace BooksEngine.Api.Import;
 
 public enum CsvFormat { Ours, Goodreads }
 
-/// <summary>Строка файла: ExternalId — Goodreads work_id (наш формат) или book_id издания (экспорт Goodreads).</summary>
-public sealed record CsvRow(int Line, string Label, string ExternalId, int? Rating, bool Dnf, string? Error);
+/// <summary>Строка файла: ExternalId — Goodreads work_id (наш формат) или book_id издания (экспорт Goodreads);
+/// TitleEn и Author — у нашего формата: книгу без id (новую, после 2017) ищет по ним сервис выдачи.</summary>
+public sealed record CsvRow(int Line, string Label, string ExternalId, int? Rating, bool Dnf, string? Error,
+                            string? TitleEn = null, string? Author = null);
 
 /// <summary>
-/// Наш формат — как profiles/my_ratings.csv: goodreads_work_id, rating 1–5, status (dnf без оценки = 1), title.
+/// Наш формат — как profiles/my_ratings.csv: goodreads_work_id, rating 1–5, status (dnf без оценки = 1), title,
+/// необязательно title_en и author.
 /// Экспорт Goodreads (My Books → Export): Book Id, Title, My Rating (0 — без оценки).
 /// </summary>
 public static class RatingsCsv
@@ -40,7 +43,9 @@ public static class RatingsCsv
                 var raw = csv.GetField("rating") ?? "";
                 int? rating = raw.Length == 0 && dnf ? 1 : int.TryParse(raw, out var v) ? v : null;
                 var error = rating is >= 1 and <= 5 ? null : $"оценка «{raw}» — нужно целое 1–5";
-                rows.Add(new CsvRow(line, label, id, rating, dnf, error));
+                rows.Add(new CsvRow(line, label, id, rating, dnf, error,
+                    csv.TryGetField("title_en", out string? en) && en is { Length: > 0 } ? en : null,
+                    csv.TryGetField("author", out string? au) && au is { Length: > 0 } ? au : null));
             }
             else
             {

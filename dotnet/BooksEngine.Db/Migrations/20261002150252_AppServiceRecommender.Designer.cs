@@ -3,6 +3,7 @@ using System;
 using BooksEngine.Db;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace BooksEngine.Db.Migrations
 {
     [DbContext(typeof(BooksDbContext))]
-    partial class BooksDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261002150252_AppServiceRecommender")]
+    partial class AppServiceRecommender
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -75,10 +78,6 @@ namespace BooksEngine.Db.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("ratings_count");
 
-                    b.Property<string>("RuName")
-                        .HasColumnType("text")
-                        .HasColumnName("ru_name");
-
                     b.HasKey("Id")
                         .HasName("pk_authors");
 
@@ -87,12 +86,6 @@ namespace BooksEngine.Db.Migrations
 
                     NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Name"), "gin");
                     NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("Name"), new[] { "gin_trgm_ops" });
-
-                    b.HasIndex("RuName")
-                        .HasDatabaseName("ix_authors_ru_name");
-
-                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("RuName"), "gin");
-                    NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("RuName"), new[] { "gin_trgm_ops" });
 
                     b.ToTable("authors", (string)null);
                 });
@@ -291,49 +284,6 @@ namespace BooksEngine.Db.Migrations
                         });
                 });
 
-            modelBuilder.Entity("BooksEngine.Db.Entities.RecommendationSnapshot", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at")
-                        .HasDefaultValueSql("now()");
-
-                    b.Property<string>("Ranks")
-                        .IsRequired()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("ranks");
-
-                    b.Property<string>("Ratings")
-                        .IsRequired()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("ratings");
-
-                    b.Property<string>("RatingsHash")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("ratings_hash");
-
-                    b.Property<long>("UserId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("user_id");
-
-                    b.HasKey("Id")
-                        .HasName("pk_recommendation_snapshots");
-
-                    b.HasIndex("UserId", "Id")
-                        .HasDatabaseName("ix_recommendation_snapshots_user_id_id");
-
-                    b.ToTable("recommendation_snapshots", (string)null);
-                });
-
             modelBuilder.Entity("BooksEngine.Db.Entities.ShelfEntry", b =>
                 {
                     b.Property<long>("UserId")
@@ -500,10 +450,6 @@ namespace BooksEngine.Db.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("publication_year");
 
-                    b.Property<string>("RuTitle")
-                        .HasColumnType("text")
-                        .HasColumnName("ru_title");
-
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasColumnType("text")
@@ -520,12 +466,6 @@ namespace BooksEngine.Db.Migrations
 
                     NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("OriginalTitle"), "gin");
                     NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("OriginalTitle"), new[] { "gin_trgm_ops" });
-
-                    b.HasIndex("RuTitle")
-                        .HasDatabaseName("ix_works_ru_title");
-
-                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("RuTitle"), "gin");
-                    NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("RuTitle"), new[] { "gin_trgm_ops" });
 
                     b.HasIndex("Title")
                         .HasDatabaseName("ix_works_title");
@@ -663,16 +603,6 @@ namespace BooksEngine.Db.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_ratings_works_work_id");
-                });
-
-            modelBuilder.Entity("BooksEngine.Db.Entities.RecommendationSnapshot", b =>
-                {
-                    b.HasOne("BooksEngine.Db.Entities.AppUser", null)
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_recommendation_snapshots_app_users_user_id");
                 });
 
             modelBuilder.Entity("BooksEngine.Db.Entities.ShelfEntry", b =>

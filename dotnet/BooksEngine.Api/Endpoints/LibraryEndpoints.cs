@@ -12,12 +12,15 @@ public static class LibraryEndpoints
 
     // Поиск: сходство по целым словам (strict_word_similarity, <<%) —
     // word_similarity (<%) цеплял куски слов: «king» находил «thinking» и ставил «Гарри Поттера» первым; названия
-    // изданий сворачиваются в произведение (русские названия есть только там); автор. Порядок — точное название,
+    // изданий сворачиваются в произведение; русское название (works.ru_title); автор — и по-русски. Порядок — точное название,
     // сходство (до сотых), популярность. 1–2 символа: у триграмм нет совпадений — ищем по началу названия.
     private const string SearchSql = """
         WITH hits AS (
             SELECT w.id AS work_id, lower(w.title) = lower(@q) AS exact, strict_word_similarity(@q, w.title) AS sim
             FROM works w WHERE length(@q) >= 3 AND @q <<% w.title
+            UNION ALL
+            SELECT w.id, lower(w.ru_title) = lower(@q), strict_word_similarity(@q, w.ru_title)
+            FROM works w WHERE length(@q) >= 3 AND @q <<% w.ru_title
             UNION ALL
             SELECT e.work_id, lower(e.title) = lower(@q), strict_word_similarity(@q, e.title)
             FROM editions e WHERE length(@q) >= 3 AND @q <<% e.title
@@ -25,8 +28,11 @@ public static class LibraryEndpoints
             SELECT wa.work_id, false, strict_word_similarity(@q, a.name)
             FROM authors a JOIN work_authors wa ON wa.author_id = a.id WHERE length(@q) >= 3 AND @q <<% a.name
             UNION ALL
-            SELECT w.id, lower(w.title) = lower(@q), 1.0 FROM works w
-            WHERE length(@q) < 3 AND w.title ILIKE @prefix
+            SELECT wa.work_id, false, strict_word_similarity(@q, a.ru_name)
+            FROM authors a JOIN work_authors wa ON wa.author_id = a.id WHERE length(@q) >= 3 AND @q <<% a.ru_name
+            UNION ALL
+            SELECT w.id, lower(coalesce(w.ru_title, w.title)) = lower(@q), 1.0 FROM works w
+            WHERE length(@q) < 3 AND (w.title ILIKE @prefix OR w.ru_title ILIKE @prefix)
         ),
         found AS (SELECT work_id, bool_or(exact) AS exact, max(sim) AS sim FROM hits GROUP BY work_id)
         SELECT f.work_id FROM found f JOIN works w ON w.id = f.work_id

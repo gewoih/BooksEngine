@@ -6,6 +6,7 @@ export type Book = components["schemas"]["BookDto"];
 export type User = components["schemas"]["UserDto"];
 export type MyRating = components["schemas"]["MyRatingDto"];
 export type ImportResult = components["schemas"]["ImportResultDto"];
+export type Recommendation = components["schemas"]["RecommendationDto"];
 
 /** Ответ API → данные или исключение с текстом ошибки сервера (он на русском). */
 export function unwrap<T>(r: { data?: T; error?: unknown; response: Response }): T {

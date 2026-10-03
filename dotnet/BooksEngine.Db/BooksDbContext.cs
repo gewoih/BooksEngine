@@ -29,14 +29,9 @@ public class BooksDbContext(DbContextOptions<BooksDbContext> options) : DbContex
     public DbSet<AppUser> AppUsers => Set<AppUser>();
     public DbSet<Rating> Ratings => Set<Rating>();
     public DbSet<ShelfEntry> Shelves => Set<ShelfEntry>();
-    public DbSet<WorkEmbedding> WorkEmbeddings => Set<WorkEmbedding>();
-    public DbSet<ModelMeta> ModelMeta => Set<ModelMeta>();
-    public DbSet<EaseWeight> EaseWeights => Set<EaseWeight>();
-    public DbSet<WorkExclusion> WorkExclusions => Set<WorkExclusion>();
+    public DbSet<RecommendationSnapshot> RecommendationSnapshots => Set<RecommendationSnapshot>();
     public DbSet<WorkMerge> WorkMerges => Set<WorkMerge>();
     public DbSet<WorkCover> WorkCovers => Set<WorkCover>();
-    public DbSet<GoldenInput> GoldenInputs => Set<GoldenInput>();
-    public DbSet<GoldenRecommendation> GoldenRecommendations => Set<GoldenRecommendation>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -46,7 +41,7 @@ public class BooksDbContext(DbContextOptions<BooksDbContext> options) : DbContex
         b.Entity<Source>(e =>
         {
             e.HasIndex(x => x.Code).IsUnique();
-            e.HasData(new Source { Id = 1, Code = "goodreads" });
+            e.HasData(new Source { Id = 1, Code = "goodreads" }, new Source { Id = 2, Code = "amazon" });
         });
 
         b.Entity<ExternalId>(e =>
@@ -73,6 +68,7 @@ public class BooksDbContext(DbContextOptions<BooksDbContext> options) : DbContex
             // Поиск по названию с опечатками и неполным вводом (pg_trgm).
             e.HasIndex(x => x.Title).HasMethod("gin").HasOperators("gin_trgm_ops");
             e.HasIndex(x => x.OriginalTitle).HasMethod("gin").HasOperators("gin_trgm_ops");
+            e.HasIndex(x => x.RuTitle).HasMethod("gin").HasOperators("gin_trgm_ops");
         });
 
         b.Entity<Edition>(e =>
@@ -87,6 +83,7 @@ public class BooksDbContext(DbContextOptions<BooksDbContext> options) : DbContex
         b.Entity<Author>(e =>
         {
             e.HasIndex(x => x.Name).HasMethod("gin").HasOperators("gin_trgm_ops");
+            e.HasIndex(x => x.RuName).HasMethod("gin").HasOperators("gin_trgm_ops");
         });
 
         b.Entity<WorkAuthor>(e =>
@@ -138,37 +135,16 @@ public class BooksDbContext(DbContextOptions<BooksDbContext> options) : DbContex
             e.HasOne<Work>().WithMany().HasForeignKey(x => x.WorkId).OnDelete(DeleteBehavior.Restrict);
         });
 
-        // Модель: FK на каталог с Cascade — модель перевыгружается целиком, терять в ней нечего.
-        b.Entity<ModelMeta>(e =>
+        b.Entity<RecommendationSnapshot>(e =>
         {
-            e.ToTable("model_meta", t => t.HasCheckConstraint("ck_model_meta_single", "id = 1"));
-            e.Property(x => x.Id).ValueGeneratedNever();
-            e.Property(x => x.Params).HasColumnType("jsonb");
-            e.Property(x => x.ExportedAt).HasDefaultValueSql("now()");
+            e.HasIndex(x => new { x.UserId, x.Id });
+            e.Property(x => x.Ratings).HasColumnType("jsonb");
+            e.Property(x => x.Ranks).HasColumnType("jsonb");
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
+            e.HasOne<AppUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 
-        b.Entity<WorkEmbedding>(e =>
-        {
-            e.HasKey(x => x.WorkId);
-            e.Property(x => x.WorkId).ValueGeneratedNever();
-            e.HasIndex(x => x.Col).IsUnique();
-            e.HasIndex(x => x.EasePos).IsUnique();
-            e.Property(x => x.Embedding).HasColumnType("vector");
-            e.HasOne<Work>().WithMany().HasForeignKey(x => x.WorkId).OnDelete(DeleteBehavior.Cascade);
-        });
-
-        b.Entity<EaseWeight>(e => e.HasKey(x => new { x.FromPos, x.ToPos }));
-
-        b.Entity<WorkExclusion>(e =>
-        {
-            e.HasKey(x => new { x.RatedWorkId, x.ExcludedWorkId });
-            e.HasIndex(x => x.ExcludedWorkId);
-            e.HasOne<Work>().WithMany().HasForeignKey(x => x.RatedWorkId).OnDelete(DeleteBehavior.Cascade);
-            e.HasOne<Work>().WithMany().HasForeignKey(x => x.ExcludedWorkId).OnDelete(DeleteBehavior.Cascade);
-            e.ToTable(t => t.HasCheckConstraint("ck_work_exclusions_reason",
-                $"reason IN ({string.Join(", ", ExclusionReason.All.Select(s => $"'{s}'"))})"));
-        });
-
+        // Данные приложения сверх каталога (`booksengine export-app`): перевыгружаются целиком.
         b.Entity<WorkMerge>(e =>
         {
             e.HasKey(x => x.ShadowExternalId);
@@ -182,8 +158,5 @@ public class BooksDbContext(DbContextOptions<BooksDbContext> options) : DbContex
             e.Property(x => x.WorkId).ValueGeneratedNever();
             e.HasOne<Work>().WithMany().HasForeignKey(x => x.WorkId).OnDelete(DeleteBehavior.Cascade);
         });
-
-        b.Entity<GoldenInput>(e => e.HasKey(x => new { x.Profile, x.WorkId }));
-        b.Entity<GoldenRecommendation>(e => e.HasKey(x => new { x.Profile, x.Rank }));
     }
 }

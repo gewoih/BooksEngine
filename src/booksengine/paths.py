@@ -24,6 +24,9 @@ _load_dotenv()
 
 RAW_DIR = Path(os.environ.get("RAW_DIR", "~/Downloads")).expanduser()
 DOMAIN = os.environ.get("BOOKSENGINE_DOMAIN", "books")
+# папка моделей (`--models`): по умолчанию — домена; другая — опыт на тех же данных и отложенных людях (models/<имя>/,
+# отчёты — reports/<имя>/), рабочие модели при этом не трогаются
+MODELS_NAME = os.environ.get("BOOKSENGINE_MODELS", DOMAIN)
 
 
 def domain_profiles(profiles_dir: Path, domain: str) -> list[Path]:
@@ -50,12 +53,13 @@ def domain_dirs(project_root: Path, domain: str) -> tuple[Path, Path]:
     return project_root / "data" / domain, project_root / "models" / domain
 
 
-_DATA_DIR, MODELS_DIR = domain_dirs(PROJECT_ROOT, DOMAIN)
+_DATA_DIR, _ = domain_dirs(PROJECT_ROOT, DOMAIN)
+MODELS_DIR = domain_dirs(PROJECT_ROOT, MODELS_NAME)[1]
 DATA_DIR = Path(os.environ.get("DATA_DIR", _DATA_DIR)).expanduser()
 STAGING_DIR = DATA_DIR / "staging"
 CLEAN_DIR = DATA_DIR / "clean"
 TMP_DIR = DATA_DIR / "tmp"
-REPORTS_DIR = reports_dir(PROJECT_ROOT, DOMAIN)
+REPORTS_DIR = reports_dir(PROJECT_ROOT, MODELS_NAME)
 AMAZON_DIR = PROJECT_ROOT / "data" / "amazon"
 AMAZON_CLEAN_DIR = AMAZON_DIR / "clean"
 AMAZON_CACHE_PATH = AMAZON_DIR / "wikidata_cache.parquet"

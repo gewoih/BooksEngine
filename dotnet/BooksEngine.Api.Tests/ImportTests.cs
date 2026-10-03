@@ -68,6 +68,24 @@ public sealed class ImportTests(TestDb db)
     }
 
     [Fact]
+    public async Task New_book_without_id_is_found_by_english_title()
+    {
+        Assert.SkipUnless(db.Available, "PostgreSQL недоступен");
+        await using var api = new ApiFactory(db);
+        var c = await api.LoggedInClientAsync("new");
+        var r = await (await Upload(c, """
+            title,title_en,author,rating,status,goodreads_work_id
+            Новая,New Book,Author,5,read,
+            Неизвестная,Unknown,Nobody,4,read,
+            Дюна,Dune,Frank Herbert,4,read,1
+            """)).Content.ReadFromJsonAsync<ImportResultDto>();
+        Assert.Equal(2, r!.Added);
+        Assert.Equal(["Неизвестная"], r.NotFound.Select(i => i.Book));
+        var mine = (await c.GetFromJsonAsync<List<MyRatingDto>>("/api/me/ratings"))!;
+        Assert.Equal(5, mine.Single(x => x.Book.WorkId == 1008).Book.MyRating);
+    }
+
+    [Fact]
     public async Task Unknown_header_is_rejected()
     {
         Assert.SkipUnless(db.Available, "PostgreSQL недоступен");

@@ -112,7 +112,41 @@ def run(*, clean_dir: Path, split_dir: Path, models_dir: Path, eval_dir: Path, k
            "variant": layers.variant.label(), "summary": summarize(per)}
     eval_dir.mkdir(parents=True, exist_ok=True)
     (eval_dir / "new_books.json").write_text(json.dumps(res, ensure_ascii=False, indent=1))
+    per.to_parquet(eval_dir / "new_books_per_user.parquet", index=False)   # для парного сравнения моделей (`paired`)
     return res
+
+
+def paired(a: pd.DataFrame, b: pd.DataFrame, n_boot: int = 1000) -> dict:
+    """Списки новинок двух моделей на одних людях (`new_books_per_user.parquet` обеих): {k: угадано и качество у
+    каждой и парная разность b − a с 95% интервалом}. Качество — по людям, у которых угадано в обоих списках."""
+    rng = lambda: np.random.default_rng(0)
+    out = {}
+    for k in sorted(set(a.k) & set(b.k)):
+        da = a[(a.method == "model") & (a.k == k)].set_index("user_id")
+        db = b[(b.method == "model") & (b.k == k)].set_index("user_id")
+        users = da.index.intersection(db.index)
+        da, db = da.loc[users], db.loc[users]
+        both = da.quality.notna() & db.quality.notna()
+        out[str(k)] = {"n_users": int(len(users)),
+                       "a": {x: metrics.bootstrap(da[x].to_numpy(np.float64), rng(), n_boot) for x in ("hits", "quality")},
+                       "b": {x: metrics.bootstrap(db[x].to_numpy(np.float64), rng(), n_boot) for x in ("hits", "quality")},
+                       "hits_diff": metrics.bootstrap((db.hits - da.hits).to_numpy(np.float64), rng(), n_boot),
+                       "quality_diff": metrics.bootstrap((db.quality - da.quality)[both].to_numpy(np.float64), rng(),
+                                                         n_boot)}
+    return out
+
+
+def report_paired(res: dict, name_a: str, name_b: str) -> str:
+    lines = [f"# Новинки: {name_b} против {name_a}", "",
+             "Те же отложенные люди Amazon, у каждой модели свой список новых книг. Разница — парная (b − a), в скобках "
+             "95% интервал; качество разницы — по людям, у которых угадано в обоих списках.", "",
+             f"| k | людей | угадано: {name_a} | угадано: {name_b} | разница | качество: {name_a} | качество: {name_b} "
+             "| разница |", "|---|---|---|---|---|---|---|---|"]
+    for k, r in res.items():
+        lines.append(f"| {k} | {r['n_users']:,} | {_f(r['a']['hits'])} | {_f(r['b']['hits'])} | "
+                     f"{_f(r['hits_diff'], True)} | {_f(r['a']['quality'])} | {_f(r['b']['quality'])} | "
+                     f"{_f(r['quality_diff'], True)} |")
+    return "\n".join(lines) + "\n"
 
 
 def _f(x: dict, signed=False) -> str:

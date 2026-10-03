@@ -3,6 +3,7 @@ using System;
 using BooksEngine.Db;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace BooksEngine.Db.Migrations
 {
     [DbContext(typeof(BooksDbContext))]
-    partial class BooksDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261002150456_RecommendationSnapshots")]
+    partial class RecommendationSnapshots
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -75,10 +78,6 @@ namespace BooksEngine.Db.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("ratings_count");
 
-                    b.Property<string>("RuName")
-                        .HasColumnType("text")
-                        .HasColumnName("ru_name");
-
                     b.HasKey("Id")
                         .HasName("pk_authors");
 
@@ -87,12 +86,6 @@ namespace BooksEngine.Db.Migrations
 
                     NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Name"), "gin");
                     NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("Name"), new[] { "gin_trgm_ops" });
-
-                    b.HasIndex("RuName")
-                        .HasDatabaseName("ix_authors_ru_name");
-
-                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("RuName"), "gin");
-                    NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("RuName"), new[] { "gin_trgm_ops" });
 
                     b.ToTable("authors", (string)null);
                 });
@@ -500,10 +493,6 @@ namespace BooksEngine.Db.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("publication_year");
 
-                    b.Property<string>("RuTitle")
-                        .HasColumnType("text")
-                        .HasColumnName("ru_title");
-
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasColumnType("text")
@@ -520,12 +509,6 @@ namespace BooksEngine.Db.Migrations
 
                     NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("OriginalTitle"), "gin");
                     NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("OriginalTitle"), new[] { "gin_trgm_ops" });
-
-                    b.HasIndex("RuTitle")
-                        .HasDatabaseName("ix_works_ru_title");
-
-                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("RuTitle"), "gin");
-                    NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("RuTitle"), new[] { "gin_trgm_ops" });
 
                     b.HasIndex("Title")
                         .HasDatabaseName("ix_works_title");

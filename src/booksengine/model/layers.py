@@ -257,24 +257,29 @@ def evaluate(layers: Layers, hold, info: pd.DataFrame, variants: list[Variant], 
             lists = pick_top(sc, top, picker, rated, metrics.K)
             first = lists if first is None else first
             for i in range(sc.shape[0]):
-                u = s + i
-                t = lists[i]
-                hc, hr = hold.hidden_cols[u], hold.hidden_ratings[u]
-                got = np.clip(metrics.rounded(hr[np.isin(hc, t)]), 1, 5).astype(int)
-                base = np.clip(metrics.rounded(hr[pos_of[hc] >= 0]), 1, 5).astype(int)
-                seen = len(got) > 0          # в списке есть книги, которые человек прочёл сам
-                row = {"user_id": hold.user_ids[u], "bucket": hold.buckets[u], "hits": float(len(got)),
-                       "quality": float(JUDGE_STARS[got - 1].mean()) if seen else np.nan,
-                       "five_minus_low": float((got == 5).mean() - (got <= 2).mean()) if seen else np.nan,
-                       "base_quality": float(JUDGE_STARS[base - 1].mean()) if len(base) else np.nan,
-                       "value20": float((got - 3).sum()),
-                       "same": float(len(np.intersect1d(t, first[i]))),
-                       "known": float(np.median(pop[t])) if pop is not None and len(t) else np.nan}
-                for k in range(1, 6):
-                    row[f"s{k}"] = float((got == k).mean()) if seen else np.nan
-                    row[f"b{k}"] = float((base == k).mean()) if len(base) else np.nan
-                rows[v].append(row)
+                rows[v].append(judge_row(hold, s + i, lists[i], pos_of, first[i], pop))
     return {v: pd.DataFrame(r) for v, r in rows.items()}
+
+
+def judge_row(hold, u: int, t: np.ndarray, pos_of: np.ndarray, first: np.ndarray | None = None,
+              pop: np.ndarray | None = None) -> dict:
+    """Судья для человека u (номер в hold) и его списка t (столбцы ядра): угадано, качество, звёзды угаданных и всего
+    прочитанного в книгах EASE (pos_of ≥ 0); first — список нынешней выдачи (`same`), pop — известность книг (`known`)."""
+    hc, hr = hold.hidden_cols[u], hold.hidden_ratings[u]
+    got = np.clip(metrics.rounded(hr[np.isin(hc, t)]), 1, 5).astype(int)
+    base = np.clip(metrics.rounded(hr[pos_of[hc] >= 0]), 1, 5).astype(int)
+    seen = len(got) > 0          # в списке есть книги, которые человек прочёл сам
+    row = {"user_id": hold.user_ids[u], "bucket": hold.buckets[u], "hits": float(len(got)),
+           "quality": float(JUDGE_STARS[got - 1].mean()) if seen else np.nan,
+           "five_minus_low": float((got == 5).mean() - (got <= 2).mean()) if seen else np.nan,
+           "base_quality": float(JUDGE_STARS[base - 1].mean()) if len(base) else np.nan,
+           "value20": float((got - 3).sum()),
+           "same": float(len(np.intersect1d(t, t if first is None else first))),
+           "known": float(np.median(pop[t])) if pop is not None and len(t) else np.nan}
+    for k in range(1, 6):
+        row[f"s{k}"] = float((got == k).mean()) if seen else np.nan
+        row[f"b{k}"] = float((base == k).mean()) if len(base) else np.nan
+    return row
 
 
 def noise_curve(layers: Layers, hold, info: pd.DataFrame, v: Variant) -> list[dict]:

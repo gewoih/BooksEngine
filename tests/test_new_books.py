@@ -40,3 +40,16 @@ def test_summary_pairs_model_with_each_baseline():
     d = res["5"]["popular"]
     assert d["hits_diff"]["mean"] == 0.5 and d["quality_diff"]["mean"] == 1.0 and d["quality_diff"]["n"] == 1
     assert res["5"]["model"]["hits"]["mean"] == 1.5
+
+
+def test_paired_compares_model_lists_of_two_model_dirs():
+    def per(hits, quality):
+        return pd.DataFrame({"user_id": [1, 2, 3], "bucket": "20-39", "method": "model", "k": 5,
+                             "hits": hits, "quality": quality, "s5": np.nan})
+    a = pd.concat([per([1.0, 0.0, 1.0], [2.0, np.nan, 1.0]),
+                   per([9.0, 9.0, 9.0], [2.0, 2.0, 2.0]).assign(method="popular")])   # простые списки не считаются
+    b = per([2.0, 1.0, 1.0], [1.0, 2.0, 1.0])
+    r = new_books.paired(a, b, n_boot=50)["5"]
+    assert r["n_users"] == 3 and r["hits_diff"]["mean"] == 2 / 3
+    assert r["quality_diff"]["mean"] == -0.5                  # человек 2 без угаданного у a — в качестве не участвует
+    assert "| 5 | 3 |" in new_books.report_paired({"5": r}, "30k", "40k")
